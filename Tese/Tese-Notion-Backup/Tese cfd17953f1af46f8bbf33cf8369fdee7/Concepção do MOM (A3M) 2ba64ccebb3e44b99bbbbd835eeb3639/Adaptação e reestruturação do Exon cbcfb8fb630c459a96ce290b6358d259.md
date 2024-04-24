@@ -96,7 +96,7 @@ The inclusion of a receiver identifier in the messages serves the purpose of ena
 
 Including the sender and the receiver identifiers, which are defined as strings, in every message has a significant overhead. With this being said, finding a way to minimize such overhead may be a good optimization to look into in the future. A potential solution could consist of the use of locally unique identifiers. When a node A sends a message to a node B for the first time, node B generates a locally unique identifier and assigns it to node A. This new identifier would then be shared with A, allowing both nodes to use this identifier to identify node A. The same process would be executed to define the identifier for node B. These identifiers do not need to resemble the globally unique identifier, thus, a minimal amount of bytes could be used to represent them, such as an unsigned integer of 4 bytes.
 
-**`EMBORA IMPROVÁVEL, ESTA SOLUÇÃO NÃO FUNCIONA JÁ QUE SERIA POSSÍVEL POR COINCIDÊNCIA UMA MENSAGEM CHEGAR COM IDENTIFICADORES LOCAIS VÁLIDOS, TANTO O SENDER ID COMO O RECEIVER ID.`**
+<b style="color:red">EMBORA IMPROVÁVEL, ESTA SOLUÇÃO NÃO FUNCIONA JÁ QUE SERIA POSSÍVEL POR COINCIDÊNCIA UMA MENSAGEM CHEGAR COM IDENTIFICADORES LOCAIS VÁLIDOS, TANTO O SENDER ID COMO O RECEIVER ID.</b>
 
 ### Talk briefly about solutions explored before that did not work??
 

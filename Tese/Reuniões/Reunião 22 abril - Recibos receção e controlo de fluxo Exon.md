@@ -6,13 +6,13 @@ Aqui serão descritos os problemas que deverão ser esclarecidos na reunião. No
 	Para permitir a emissão de recibos de recepção por parte do Exon, é necessário, em primeiro lugar, definir como o formato dos identificadores para as mensagens enviadas.
 
 **Solução:** 
-	Como os identificadores das mensagens apenas serão utilizados localmente, para efeitos de verificação da receção das mensagens por parte do nodo destino, não existe a necessidade de garantir que são globalmente únicos. A solução mais simples e com menos custo computacional passa pela utilização de um contador circular. Utilizando um long para o contador é possível enviar 2^64 mensagens antes do contador começar a reutilizar identificadores. Apesar de não oferecer uma garantia de que o mesmo identificador seja utilizado para duas mensagens em simultâneo, a probabilidade de tal acontecer é extremamente reduzida já que o número de mensagens que é necessário enviar para o contador voltar ao início é muito elevado.
-	Uma solução que garantiria a unicidade dos identificadores seria a combinação de um contador com um timestamp do momento de queuing da mensagem. Para o contador neste caso, um inteiro já seria satisfatório. Admitindo que o contador é representado em milissegundos, seria necessário enviar mais do que 2^32 mensagens no mesmo milissegundo para existir sobreposição de identificadores. Esta solução, no entanto, é mais custosa já que para além de atualizar o contador, seria necessário obter o timestamp para cada mensagem.
+	Como os identificadores das mensagens apenas serão utilizados localmente, para efeitos de verificação da chegada da mensagem ao nodo destino, não existe a necessidade de garantir que são globalmente únicos. A solução mais simples e com menos custo computacional passa pela utilização de um contador circular. Utilizando um long para o contador é possível enviar 2^64 mensagens antes do contador começar a reutilizar identificadores. Dada a garantia de entrega Exactly-Once, apesar de esta solução não oferecer uma garantia de que o mesmo identificador não será utilizado para duas mensagens em simultâneo, a probabilidade de tal acontecer é extremamente reduzida já que o número de mensagens que é necessário enviar para o contador reiniciar é bastante elevado.
+	**// Acho que se pode ignorar esta parte ao passar para a tese //** Uma solução que garantiria a unicidade dos identificadores seria a combinação de um contador com um timestamp do momento de queuing da mensagem. Para o contador neste caso, um inteiro já seria satisfatório. Admitindo que o contador é representado em milissegundos, seria necessário enviar mais do que 2^32 mensagens no mesmo milissegundo para existir sobreposição de identificadores. Esta solução, no entanto, é mais custosa já que para além de atualizar o contador, seria necessário obter o timestamp para cada mensagem.
 
 ### 2. Como consultar se uma mensagem foi recebida no Exon
 
 **Problema:**
-Saber se uma mensagem foi recebida pelo destino é uma funcionalidade bastante útil. No caso do middleware A3M, esta funcionalidade auxiliaria a criação de um mecanismo de controlo de fluxo. Logo, saber como o Exon pode informar da receção de uma mensagem enviada é um problema a resolver. 
+Saber se uma mensagem foi recebida pelo destino é uma funcionalidade bastante útil. No caso do middleware A3M, esta funcionalidade auxiliaria a criação de um mecanismo de controlo de fluxo. A camada superior poderia enviar por cima do Exon mensagens de confirmação, no entanto, isto resultaria num overhead desnecessário. O Exon pode facilmente fornecer tal confirmação sem overhead adicional. 
 
 **Solução:**
 - O método send() deve requisitar um parâmetro que indica a vontade de receber um recibo de receção para a mensagem.
@@ -35,10 +35,10 @@ Saber se uma mensagem foi recebida pelo destino é uma funcionalidade bastante �
 			- O contador indica o nº de interessados no recibo e deve ser atualizado (incrementado/decrementado) por cada um dos interessados quando registam o interesse no recibo e quando verificam que este já foi emitido. O objeto deve ser colocado num hash map, preparado para operações concorrentes, associado ao id da mensagem. O primeiro interessado cria o objeto, e o interessado cujo decremento do contador (após o recibo ser emitido) resulta num contador com valor igual a 0, deve remover o objeto do hash map.
 ### 3. Controlo de fluxo do Exon
 
-O controlo de fluxo do Exon é determinado por uma variável P. Esta variável P indica o nº de mensagens que podem estar em trânsito para um certo nodo. Para calcular o valor de P, a implementação original do Exon utiliza o protocolo de transporte TCP. Com o TCP calcula-se a bandwidth e o RTT, e com estes valores passa-se então a calcular o valor de P. Esta solução embora satisfatória para provar o conceito do algoritmo, não é a solução mais indicada como podemos verificar pelos seguintes problemas: 
-	1. O cálculo é feito apenas para o primeiro nodo com que a comunicação é feita, utilizando-se o valor P resultante para os restantes nodos. Logo, esta solução não é justa para nodos com situações de rede diferentes. 
-	2. Para o cálculo de P realizam-se 100 RTTs para estimar a bandwidth e o RTT, o que resulta num grande overhead inicial
-	3. O valor P não é atualizado com o tempo.
+O controlo de fluxo do Exon é determinado por uma variável P. Esta variável P indica o nº de mensagens que podem estar em trânsito para um certo nodo. Para calcular o valor de P, a implementação original do Exon utiliza o protocolo de transporte TCP. Através do TCP por meio de múltiplas iterações calcula-se uma estimativa da *bandwidth* da ligação e o RTT médio. Utilizando estes valores passa-se então a calcular o valor de P através da fórmula: $$ P = RTT * bandwidth / message\_size $$ Esta solução embora satisfatória para provar o conceito do algoritmo, não é a solução mais indicada como podemos verificar pelos seguintes problemas: 
+	1. O cálculo de P é feito apenas uma vez, para o primeiro nodo com que a comunicação é feita, utilizando-se o resultado para os restantes nodos. Como é perceptível, esta solução não é justa para nodos com situações de rede diferentes. 
+	2. Para o cálculo de P realizam-se 100 round-trips para calcular o RTT médio e 10000 one-trips para calcular a bandwidth. Esta solução é aceitável para casos de uso com grande largura de banda, um baixo RTT e para situações em que é sabido que todos os nodos operam sobre as mesmas condições de rede, para que apenas seja necessário executar esta operação uma única vez.
+	3. O valor P não é atualizado com o tempo. Não é garantido que as condições de rede se mantenham iguais ao longo do tempo. Podem mudar para melhor ou pior. Portanto, existir um ajuste que acompanha as mudanças do ambiente em que opera é algo desejável. 
 
 **Problema:** É necessário um mecanismo de controlo de fluxo adaptável a nodos em diferentes ambientes de rede e às constantes mudanças na rede, e sem o overhead inicial utilizado para estimar a bandwidth, já que fazer este cálculo para todos os nodos não é uma solução viável.
 
@@ -58,7 +58,8 @@ O controlo de fluxo do Exon é determinado por uma variável P. Esta variável P
 
 - ***Ver quais são as consequências de alterar o N e quais as consequências de alterar o P***
 - É possível alterar o P, como é que o algoritmo reage ao pedido de slots?
-- 
+
+<b style="color:red">Acho que é um problema futuro. Basta eliminar o TCP, e meter o P como um parâmetro que pode ser definido ao criar o middleware. Já que o protótipo não estará em condições de ser utilizado em redes públicas, nos testes, os nodos pertencerão todos à mesma rede. Isto chega para provar a utilidade do Middleware. Como os nodos pertencerão todos à mesma rede, irão trabalhar sobre as mesmas condições, logo, não há problema em utilizar o mesmo valor de P para todos os nodos.</b>
 
 ### 4. Cache de associações do Exon não pode ser grow-only
 Problema lateral ao *core* da tese, logo o Professor recomendou ignorar.
