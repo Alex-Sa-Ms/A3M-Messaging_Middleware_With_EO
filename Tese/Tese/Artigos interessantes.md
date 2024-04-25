@@ -23,7 +23,7 @@ Artigos lidos com potencialmente pequenos resumos.
     - Defende que usar prioridades nas conexões em vez de nas mensagens é superior, já que não existe o risco de uma mensagem de prioridade superior não ser atendida por causa do head-of-line blocking nos buffers TCP.
     - Para se utilizar a prioridade nas mensagens, o *nanomsg* sugere o uso de topologias diferentes, uma para mensagens urgentes e outra para mensagens normais. O servidor faz *poll* de ambos os sockets, e atende primeiro as mensagens do socket urgente. Como são usadas duas portas TCP diferentes, então já não existe o HOL blocking nos buffers TCP.
         
-        ![Untitled](Artigos%20interessantes%2046680002b7fe48a0a72578793ca1e3ec/Untitled.png)
+        ![Untitled](Tese/Artigos%20interessantes/Untitled.png)
         
 - 18 - Messaging & Multiplexing [(link)](https://250bpm.com/blog:18/)
     - Fala sobre “Single TCP connection with multiplexing” contra “Multiple TCP connections”. Essencialmente, multiplexar não tem as vantagens que se pensava ter, e portanto “Multiple TCP connections” ganha.

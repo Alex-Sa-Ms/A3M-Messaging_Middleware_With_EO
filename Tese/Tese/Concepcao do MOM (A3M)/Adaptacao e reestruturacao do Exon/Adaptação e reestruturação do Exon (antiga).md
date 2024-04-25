@@ -12,7 +12,7 @@ The original Exon library uses the transport addresses as the identifiers of the
 
 Let us examine an example to understand why transport addresses cannot be used as the identifiers of the nodes.
 
-![Untitled](Untitled%201.png)
+![Untitled](Tese/Concepcao%20do%20MOM%20(A3M)/Adaptacao%20e%20reestruturacao%20do%20Exon/Untitled%201.png)
 
 The figure above presents a situation where two nodes exchange messages, with the exchange being started by node A. For simplicity, the states will be referred to by their key, i.e., the transport address associated. After the change of the transport address, node B can no longer deliver the messages it intended to deliver to node A, as the messages are associated with a transport address that is no longer up-to-date. Furthermore, the change of address resulted in the creation of a new state for node A, at node B, under the address 3.3.3.3. As this new state (3.3.3.3) is not congruent with the state 2.2.2.2 at node A, the exactly-once delivery guarantee cannot be assured. Additionally, all messages that node B intended to deliver to node A through the state 1.1.1.1, can no longer be delivered due to the change of IP address from node A. Even if node A returns to the previous address (1.1.1.1), node A’s state (2.2.2.2) may have been corrupted by the state 3.3.3.3 at node B. Consequently, the exactly-once delivery guarantee cannot be ensured for these messages as well.
 
@@ -28,7 +28,7 @@ A source of associations can be anything as long as it implements the appropriat
 
 The associations’ structure can also be updated through direct communication with another Exon node. Every Exon message includes the identifier of the source node. (***footnote:*** The reason behind every message carrying the identifier of the source node will be explained later.) Consider that node A knows where node B is located, regardless of whether this information was registered manually or obtained through an association source, and that it sends a message to node B. As all messages contain the identifier of the source, node B will be able to create an association with the IP address and the port present in the header of the UDP datagram, and the node identifier present in the payload. This last approach is also used to update the association of a node that had its transport address changed, such as in mobility scenarios.
 
-![Untitled](Untitled%202.png)
+![Untitled](Tese/Concepcao%20do%20MOM%20(A3M)/Adaptacao%20e%20reestruturacao%20do%20Exon/Untitled%202.png)
 
 ### Exon Messages and Node Identifiers
 
@@ -40,7 +40,7 @@ The sender identifier ensures that when a message is received, the message can b
 
 Let us examine an example to understand the necessity of this solution. Before diving into the example, it is essential to note that if the sender identifier is not incorporated in every message, the library must assume that a transport address remains associated with the same node identifier until an update of an association arrives having the node identifier or the transport address in question. This assumption is obviously dangerous as we will see in the following example.
 
-![Untitled](Adaptac%CC%A7a%CC%83o%20e%20reestruturac%CC%A7a%CC%83o%20do%20Exon%20(antiga)%201f376f30e26f40a697d6dceae380b32a/Untitled.png)
+![Untitled](Tese/Concepcao%20do%20MOM%20(A3M)/Adaptacao%20e%20reestruturacao%20do%20Exon/Adaptacao%20e%20reestruturacao%20do%20Exon%20(antiga)/Untitled.png)
 
 For the example, consider that node A and C have been exchanging messages with node B, as it can be observed through existence of a state related to each node. 
 

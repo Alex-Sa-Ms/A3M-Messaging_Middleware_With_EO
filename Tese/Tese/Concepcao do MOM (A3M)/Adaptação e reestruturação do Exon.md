@@ -22,7 +22,7 @@ As explained succinctly before **(reference the Exon’s chapter)**, for each cl
 4. After receiving the token, the receiver acknowledges the reception of the message and discards the associated slot.
 5. After receiving the acknowledgement, the sender discards the token.
 
-![Untitled](Adaptac%CC%A7a%CC%83o%20e%20reestruturac%CC%A7a%CC%83o%20do%20Exon%20cbcfb8fb630c459a96ce290b6358d259/Untitled.png)
+![Untitled](Tese/Concepcao%20do%20MOM%20(A3M)/Adaptacao%20e%20reestruturacao%20do%20Exon/Untitled.png)
 
 These exchanges require both the receiver and the sender to hold the state related to the exchange. As we can observe in the example above, the state is divided into a *send record* (SR) and a *receive record* (RR), with each record being mapped with the identifier of the remote node as the key (**footnote:** The original implementation of Exon uses transport addresses as node identifiers as seen in the figure.). A send record holds a queue of payloads without an associated envelope, a list of unused envelopes and a set of tokens (with tokens being the combination of an envelope and a payload). The receive record is responsible for keeping track of slots for which a client message has not yet arrived.
 
@@ -47,7 +47,7 @@ Transport addresses cannot be used as the node identifiers since switching to a 
 
 To solve this problem, nodes are now identified with globally unique identifiers. By utilizing these identifiers, there is no overlap in the mapping of node states when address changes happen, while also allowing access to the corresponding communication state regardless of the transport address in use.
 
-![Untitled](Adaptac%CC%A7a%CC%83o%20e%20reestruturac%CC%A7a%CC%83o%20do%20Exon%20cbcfb8fb630c459a96ce290b6358d259/Untitled%201.png)
+![Untitled](Tese/Concepcao%20do%20MOM%20(A3M)/Adaptacao%20e%20reestruturacao%20do%20Exon/Untitled%201.png)
 
 The figure above aids in understanding the reason behind the inability of transport addresses to serve as node identifiers. Two nodes, A and B, exchanging messages are presented. For simplicity, the states will be referred to by their associated node identifier, which in this case are transport addresses.
 
@@ -68,7 +68,7 @@ A source of associations can be anything as long as it implements the appropriat
 
 The associations’ structure can also be updated through direct communication with another Exon node. Every Exon message includes the identifier of the source node. (***footnote:*** The reason behind every message carrying the identifier of the source node will be explained later.) Consider that node A knows where node B is located, regardless of whether this information was registered manually or obtained through an association source, and that it sends a message to node B. As all messages contain the identifier of the source, node B will be able to create an association with the IP address and the port present in the header of the UDP datagram, and the node identifier present in the payload. This last approach is also used to update the association of a node that had its transport address changed, such as in mobility scenarios.
 
-![Untitled](Adaptac%CC%A7a%CC%83o%20e%20reestruturac%CC%A7a%CC%83o%20do%20Exon%20cbcfb8fb630c459a96ce290b6358d259/Untitled%202.png)
+![Untitled](Tese/Concepcao%20do%20MOM%20(A3M)/Adaptacao%20e%20reestruturacao%20do%20Exon/Untitled%202.png)
 
 ### Exon Messages and Node Identifiers
 
@@ -78,7 +78,7 @@ To support mobility scenarios, another of the changes required to the original l
 
 To better understand the following explanation, it is crucial to highlight the following. Every Exon message carries the necessary information to form the sender’s association, i.e., establish an association between the sender’s transport address and the sender’s identifier. The transport address resides in the header of the UDP datagram transporting the message, while the sender's identifier is located within the message itself.
 
-![Untitled](Adaptac%CC%A7a%CC%83o%20e%20reestruturac%CC%A7a%CC%83o%20do%20Exon%20cbcfb8fb630c459a96ce290b6358d259/Untitled%203.png)
+![Untitled](Tese/Concepcao%20do%20MOM%20(A3M)/Adaptacao%20e%20reestruturacao%20do%20Exon/Untitled%203.png)
 
 Including the sender identifier in every message has multiple purposes. (1) Avoids the need for registering every node in a discovery service (association source). (2) It ensures that when a message is received, the message can be associated with the proper state. (3) And it enables the communication to be resumed as quickly as possible after a change of transport address.
 
@@ -96,7 +96,7 @@ The inclusion of a receiver identifier in the messages serves the purpose of ena
 
 Including the sender and the receiver identifiers, which are defined as strings, in every message has a significant overhead. With this being said, finding a way to minimize such overhead may be a good optimization to look into in the future. A potential solution could consist of the use of locally unique identifiers. When a node A sends a message to a node B for the first time, node B generates a locally unique identifier and assigns it to node A. This new identifier would then be shared with A, allowing both nodes to use this identifier to identify node A. The same process would be executed to define the identifier for node B. These identifiers do not need to resemble the globally unique identifier, thus, a minimal amount of bytes could be used to represent them, such as an unsigned integer of 4 bytes.
 
-<b style="color:red">EMBORA IMPROVÁVEL, ESTA SOLUÇÃO NÃO FUNCIONA JÁ QUE SERIA POSSÍVEL POR COINCIDÊNCIA UMA MENSAGEM CHEGAR COM IDENTIFICADORES LOCAIS VÁLIDOS, TANTO O SENDER ID COMO O RECEIVER ID.</b>
+**`EMBORA IMPROVÁVEL, ESTA SOLUÇÃO NÃO FUNCIONA JÁ QUE SERIA POSSÍVEL POR COINCIDÊNCIA UMA MENSAGEM CHEGAR COM IDENTIFICADORES LOCAIS VÁLIDOS, TANTO O SENDER ID COMO O RECEIVER ID.`**
 
 ### Talk briefly about solutions explored before that did not work??
 
@@ -110,4 +110,4 @@ Para implementar este mecanismo foi necessário substituir algumas estruturas de
 
 # Páginas Relacionadas
 
-[Adaptação e reestruturação do Exon (antiga)](Adaptac%CC%A7a%CC%83o%20e%20reestruturac%CC%A7a%CC%83o%20do%20Exon%20cbcfb8fb630c459a96ce290b6358d259/Adaptac%CC%A7a%CC%83o%20e%20reestruturac%CC%A7a%CC%83o%20do%20Exon%20(antiga)%201f376f30e26f40a697d6dceae380b32a.md)
+[Adaptação e reestruturação do Exon (antiga)](Adaptação%20e%20reestruturação%20do%20Exon%20(antiga).md)

@@ -1,8 +1,8 @@
 # Calendarização
 
-![Untitled](Calendarizac%CC%A7a%CC%83o%209e946e3e45ab44d2834c5ab44768314c/Untitled.png)
+![Untitled](Tese/Calendarizacao/Untitled.png)
 
-[Thesis Plan](Calendarizac%CC%A7a%CC%83o%209e946e3e45ab44d2834c5ab44768314c/Thesis%20Plan%20e2076edb1db8456eae6af0730ec9a335.csv)
+[Thesis Plan](Thesis%20Plan%20e2076edb1db8456eae6af0730ec9a335.csv)
 
 # Tarefas
 
@@ -53,4 +53,4 @@
 8. Avaliação de desempenho
 9. Escrita da dissertação
 
-![Untitled](Calendarizac%CC%A7a%CC%83o%209e946e3e45ab44d2834c5ab44768314c/Untitled%201.png)
+![Untitled](Tese/Calendarizacao/Untitled%201.png)

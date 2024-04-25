@@ -70,14 +70,14 @@
 - Links têm nome, e o estado no *termini* pode viver mais tempo que a conexão em que foram estabelecidos. O estado mantido no *termini* pode ser utilizado para reestabelecer o *link* numa nova conexão (e sessão) com controlo preciso sobre as garantias de entrega.
 - A imagem abaixo mostra a relação entre Conexão, Sessão e Link:
     
-    ![Relação entre Conexão, Sessão e Link](AMQP%201%200%20Specification%20a0c5461a076c457a922762bd26ea16b0/Untitled.png)
+    ![Relação entre Conexão, Sessão e Link](Tese/Estudo%20da%20arte%20(MOMs)/AMQP%20anterior/AMQP%201%200%20Specification/Untitled.png)
     
     Relação entre Conexão, Sessão e Link
     
 - O protocolo consiste em 9 tipos de *frame bodies.*
     - A imagem seguinte lista os diferentes *frame bodies* e define que *endpoints* é que os processam:
         
-        ![Untitled](AMQP%201%200%20Specification%20a0c5461a076c457a922762bd26ea16b0/Untitled%201.png)
+        ![Untitled](Tese/Estudo%20da%20arte%20(MOMs)/AMQP%20anterior/AMQP%201%200%20Specification/Untitled%201.png)
         
     
 

@@ -24,7 +24,7 @@ Uma mensagem de controlo pode ter como tamanho mínimo, 2 bytes de dados, como p
 
 - *Header:*
 
-![Untitled](MQTT%2032ebddfac363491899d889dbf1d4f5b5/Untitled.png)
+![Untitled](Tese/Estudo%20da%20arte%20(MOMs)/MQTT/Untitled.png)
 
 As credenciais de conexão são enviadas em formato de texto simples, mas pode ser usado TLS para encriptar e proteger os dados.
 
@@ -36,7 +36,7 @@ As credenciais de conexão são enviadas em formato de texto simples, mas pode s
 - **Disconnect:** Espera que o *cliente MQTT* finalize todo o trabalho que tem de realizar, e espera que a sessão TCP/IP seja desconectada.
 - **Publish:** Retorna imediatamente à thread da aplicação depois de passar o pedido para o *cliente MQTT*
 
-![Example of an MQTT connection (QoS 0) with connect, publish/subscribe, and disconnect. The first message from client B is stored due to the retain flag.](MQTT%2032ebddfac363491899d889dbf1d4f5b5/300px-MQTT_protocol_example_without_QoS.svg.png)
+![Example of an MQTT connection (QoS 0) with connect, publish/subscribe, and disconnect. The first message from client B is stored due to the retain flag.](300px-MQTT_protocol_example_without_QoS.svg.png)
 
 Example of an MQTT connection (QoS 0) with connect, publish/subscribe, and disconnect. The first message from client B is stored due to the retain flag.
 
@@ -54,7 +54,7 @@ Cada conexão com um broker tem de especificar uma medida QoS. Ordenadas, de for
 
 # MQTT over Exon
 
-Como referido em [https://www.notion.so/MQTT-32ebddfac363491899d889dbf1d4f5b5?pvs=4#836eb67e610b401eb5c481c4af2c99ea](MQTT%2032ebddfac363491899d889dbf1d4f5b5.md), ***Exon*** pode servir como o protocolo de transporte para MQTT, sendo apenas necessário a API permitir uma entrega ordenada das mensagens.
+Como referido em [https://www.notion.so/MQTT-32ebddfac363491899d889dbf1d4f5b5?pvs=4#836eb67e610b401eb5c481c4af2c99ea](MQTT.md), ***Exon*** pode servir como o protocolo de transporte para MQTT, sendo apenas necessário a API permitir uma entrega ordenada das mensagens.
 
 ### Limitações do TCP
 

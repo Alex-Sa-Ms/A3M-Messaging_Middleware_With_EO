@@ -6,13 +6,13 @@
 
 # Páginas associadas
 
-[Adaptação e reestruturação do Exon](Concepc%CC%A7a%CC%83o%20do%20MOM%20(A3M)%202ba64ccebb3e44b99bbbbd835eeb3639/Adaptac%CC%A7a%CC%83o%20e%20reestruturac%CC%A7a%CC%83o%20do%20Exon%20cbcfb8fb630c459a96ce290b6358d259.md)
+[Adaptação e reestruturação do Exon](Adaptação%20e%20reestruturação%20do%20Exon.md)
 
-[Concepção de socket genérico](Concepc%CC%A7a%CC%83o%20do%20MOM%20(A3M)%202ba64ccebb3e44b99bbbbd835eeb3639/Concepc%CC%A7a%CC%83o%20de%20socket%20gene%CC%81rico%20dcd4aa289b00440ba0de0b5c7b6c9887.md)
+[Concepção de socket genérico](Concepção%20de%20socket%20genérico.md)
 
-[Concepção de controlo de fluxo](Concepc%CC%A7a%CC%83o%20do%20MOM%20(A3M)%202ba64ccebb3e44b99bbbbd835eeb3639/Concepc%CC%A7a%CC%83o%20de%20controlo%20de%20fluxo%20534040ee0051472bafe5df0c6a20ed4f.md)
+[Concepção de controlo de fluxo](Concepção%20de%20controlo%20de%20fluxo.md)
 
-[Concepção de administração e encrerramento gracioso](Concepc%CC%A7a%CC%83o%20do%20MOM%20(A3M)%202ba64ccebb3e44b99bbbbd835eeb3639/Concepc%CC%A7a%CC%83o%20de%20administrac%CC%A7a%CC%83o%20e%20encrerramento%20gra%2015d856ac1ac34e1b91ead1fecf256c80.md)
+[Concepção de administração e encrerramento gracioso](Concepção%20de%20administração%20e%20encrerramento%20gracioso.md)
 
 # Plano de concepção
 
@@ -29,7 +29,7 @@
     - Definição da API
     1. Estrutura de classes, lógica, etc. Para gestão dos sockets, e implementação das funcionalidades selecionadas.
 
-![Untitled](Concepc%CC%A7a%CC%83o%20do%20MOM%20(A3M)%202ba64ccebb3e44b99bbbbd835eeb3639/Untitled.png)
+![Untitled](Tese/Concepcao%20do%20MOM%20(A3M)/Untitled.png)
 
 # Seleção de funcionalidades
 
@@ -563,7 +563,7 @@ Padrões selecionados:
 - Must provide a message identifier when queueing the messages, to allow checking its state and to cancel the messages.
     - Helps the task of cancelling the delivery of specific messages.
         - If they are already in token format they may not be cancelable.
-- Must support cancelling of messages. [https://www.notion.so/Concep-o-do-MOM-2ba64ccebb3e44b99bbbbd835eeb3639?pvs=4#db7e6e1d3c5141129f63baefb7ab1934](Concepc%CC%A7a%CC%83o%20do%20MOM%20(A3M)%202ba64ccebb3e44b99bbbbd835eeb3639.md)
+- Must support cancelling of messages. [https://www.notion.so/Concep-o-do-MOM-2ba64ccebb3e44b99bbbbd835eeb3639?pvs=4#db7e6e1d3c5141129f63baefb7ab1934](Concepcao%20do%20MOM%20(A3M).md)
     - Messages may not be able to be removed from the queues, as the slots may need to be removed.
     - Alternatives:
         - Batch slots that should be removed in a special command.

@@ -63,6 +63,6 @@ Esta parte pode ser vista, mais em concreto, na especificação do protocolo (pr
 
 [https://web.archive.org/web/20141010172100/http://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-overview-v1.0-os.html](https://web.archive.org/web/20141010172100/http://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-overview-v1.0-os.html) (por ver)
 
-[AMQP 1.0 Specification](AMQP%20anterior%208f276449a713418f9c610ea1dd548b61/AMQP%201%200%20Specification%20a0c5461a076c457a922762bd26ea16b0.md)
+[AMQP 1.0 Specification](AMQP%201%200%20Specification.md)
 
 [https://web.archive.org/web/20190620095529/www.imatix.com/articles:whats-wrong-with-amqp](https://web.archive.org/web/20190620095529/www.imatix.com/articles:whats-wrong-with-amqp)

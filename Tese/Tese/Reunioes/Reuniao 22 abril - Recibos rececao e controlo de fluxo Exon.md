@@ -28,7 +28,7 @@ Saber se uma mensagem foi recebida pelo destino é uma funcionalidade bastante �
 - Uma operação "test and remove" bloqueante é possível mas exige mais lógica e mais memória, e não parece existir um caso de uso concreto por parte do middleware A3M, logo não será implementado.
 	- Possível solução:
 		1. Ao enviar uma mensagem deve ser mencionada a vontade de receber um recibo de receção.
-		2. Existindo essa vontade, então é criado o recibo de receção, logo após a invocação do método send(), e colocado num Hash Set de recibos não recibos.
+		2. Existindo essa vontade, então é criado o recibo de receção, logo após a invocação do método send(), e colocado num Hash Set de recibos não recebidos.
 			- O propósito disto é para quando se fizer um pedido bloqueante não se bloquear uma thread para uma mensagem que já foi recebida ou que nunca será recebida.
 		3. Aquando da receção de um ACK para uma mensagem cujo id se encontra no hash set, se existir pedido bloqueante para o id, então atualiza-se o objeto associado ao pedido bloqueante e acordar-se os interessados. Caso não exista, coloca-se o recibo numa queue de recibos emitidos para que sejam verificados de forma sequencial.
 		4. Um pedido bloqueante para um id resulta na criação de um objeto com um lock, uma bool, um contador e uma condição para await e signal.

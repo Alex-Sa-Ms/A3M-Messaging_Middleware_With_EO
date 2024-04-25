@@ -77,4 +77,4 @@ Para além do socket base proporciado pelo Middleware, o objetivo dos sockets é
 
 # Páginas associadas
 
-[Concepção do controlo de fluxo (antigo)](Concepc%CC%A7a%CC%83o%20de%20controlo%20de%20fluxo%20534040ee0051472bafe5df0c6a20ed4f/Concepc%CC%A7a%CC%83o%20do%20controlo%20de%20fluxo%20(antigo)%2019462aa8d8314b3db88edf23b2f37415.md)
+[Concepção do controlo de fluxo (antigo)](Concepção%20do%20controlo%20de%20fluxo%20(antigo).md)

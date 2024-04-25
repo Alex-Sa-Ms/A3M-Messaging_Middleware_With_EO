@@ -48,7 +48,7 @@
 - *Transactional messaging*
 - *Publish-Subscribe* avançado
 
-![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled.png)
+![Untitled](Tese/Estudo%20da%20arte%20(MOMs)/AMQP/Untitled.png)
 
 ---
 
@@ -108,7 +108,7 @@ Define:
 
 ### Tipos de codificação
 
-![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%201.png)
+![Untitled](Tese/Estudo%20da%20arte%20(MOMs)/AMQP/Untitled%201.png)
 
 - Estes tipos de codificação são utilizados para adicionar propriedades de “routing” ao “envelope” da mensagem. O conteúdo da mensagem mantém-se inalterado.
 - O sistema de tipos e as codificações foram desenvolvidos para que as mensagens sejam portáveis entres sistemas e acessíveis em diferentes linguagens de programação.
@@ -147,7 +147,7 @@ Define:
 - A criação de conexões é um processo custoso, e portanto, multiplexar o tráfico (através das sessões) de forma a utilizar a mesma conexão permite que esse custo seja “pago” uma vez apenas.
 - Conexões e sessões são efêmeras, i.e., no caso da conexão colapsar (haver uma desconexão), estas são perdidas e têm de ser configuradas novamente. Estes conceitos, sozinhos, não conseguem fornecer comunicação confiável, daí existir a camada do protocolo de transferência de mensagens sobre esta camada de transferência de frames.
 
-![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%202.png)
+![Untitled](Tese/Estudo%20da%20arte%20(MOMs)/AMQP/Untitled%202.png)
 
 ## Protocolo de transferência de mensagens
 
@@ -159,7 +159,7 @@ Define:
     - Nao existe uma definição explícita do que um nodo tem de ser. Nodos podem ser uma *sink* ou uma *source* de mensagens. Podem ser uma *queue* ou **um tópico ou um *relay* ou um *event store* ou …
     - Tanto um broker (server) como um cliente podem criar nodos para comunicação paralela.
 
-![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%203.png)
+![Untitled](Tese/Estudo%20da%20arte%20(MOMs)/AMQP/Untitled%203.png)
 
 - *Links* conectam-se através dos *paths* para os nodos e são unidirecionais.
 - Um nodo cria um “link”, anexa-o a si próprio e pede ao outro participante para o anexar também. Ao anexar um “link” é necessário especificar o papel que será cumprido: “sender” ou “receiver”. Obviamente, apenas um lado pode ser o “sender” e apenas um lado pode ser o “receiver”.
@@ -167,7 +167,7 @@ Define:
     - Se uma mensagem for rejeitada, existe um fluxo de erro específico para que o “sender” possa tratar esse erro de forma apropriada.
 - As aplicações dão nomes aos links. Estes são formados sobre sessões, e caso a sessão/conexão falhe, é possível recuperar os links, e assim recuperar o estado entre os dois participantes (por exemplo, estado de entrega).
 
-![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%204.png)
+![Untitled](Untitled%204.png)
 
 # Elementos fundamentais do protocolo de transferência de *frames*
 
@@ -179,14 +179,14 @@ Define:
     - Ao receber este frame, se pretender abrir a conexão, devolve um “OPEN” frame com as suas caraterísticas que pretende para a conexão.
 - Os *frames* são enviados sobre canais (*channels*) unidirecionais que são negociados e multiplexados na conexão.
 
-![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%205.png)
+![Untitled](Untitled%205.png)
 
 ## Camada de segurança a nível da conexão
 
 - Como referido anteriormente, a segurança pode ser negociada antes de abrir uma conexão AMQP, ou através do AMQP.
 - A segurança no nível do transporte é fornecida por TLS/”SSL”.
 
-![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%206.png)
+![Untitled](Untitled%206.png)
 
 ## Sessão (*Session*)
 
@@ -197,7 +197,7 @@ Define:
     - Enquanto a janela estiver cheia, toda a comunicação nessa sessão fica parada.
     - Com a criação de múltiplas sessões em simultâneo dentro da mesma conexão e com o ajuste do tamanho das *windows* é possível prioritizar tráfico.
 
-![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%207.png)
+![Untitled](Untitled%207.png)
 
 ## Link
 
@@ -210,7 +210,7 @@ Define:
 - Os *links* podem ser recuperados numa conexão ou sessão diferente quando a anterior falhou.
 - *Links* possuem um controlo de fluxo à base de créditos, distinto do controlo de fluxo da sessão, mais direcionado para o modelo de gestão do fluxo (Não tenho a certeza se é isto, mas por exemplo no caso do Request-Reply, apenas se pode enviar uma mensagem e tem que se aguardar que seja tratada para se receber outro crédito e enviar outra.)
 
-![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%208.png)
+![Untitled](Untitled%208.png)
 
 # Transferência de mensagens
 
@@ -223,7 +223,7 @@ Define:
     - *Unsettled* para quando é necessário “settlement” explícito, e permite que diversos estados de entrega sejam tratados e permite o uso de diferentes modelos de garantia de entrega.
         - *At-least-once*: Envia-se frame “TRANSFER” com a propriedade “settled” a “false” e espera-se por um frame “DISPOSITION” com a propriedade “settled” a “true”.
 
-![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%209.png)
+![Untitled](Untitled%209.png)
 
 ## Estado de entrega
 
@@ -245,14 +245,14 @@ Define:
         - Apresenta-se as “mensagens” que estão em memória e o estado para cada uma dessas mensagens, o outro participante responde indicando o estado que tem para essas mensagens (podendo o estado ser ‘null’ se ainda não tinha recebido a mensagem).
         - Estas informações servem para limpar os buffers de acordo com os estados recebidos, e retomar as transferências. De seguida, As transferências são, de seguida, recuperadas para reenviar, reconciliar estado ou continuar o “settlemente”.
     
-    ![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2010.png)
+    ![Untitled](Untitled%2010.png)
     
 
 ## Comunicação bidirecional e Request/Response
 
 - Criar comunicação bidirecional é muito simples. Assumindo um nodo C e outro nodo T. O nodo C inicia dois links, um em que é *receiver* (com a *source* a ser o nodo T) e outro em que é o *sender* (com o nodo T a ser o *target*).
 
-![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2011.png)
+![Untitled](Untitled%2011.png)
 
 - Com estes dois links a permitir comunicação bidirecional conseguimos facilmente implementar o padrão Request/Response. Ao enviar um pedido, o nodo C define a propriedade “reply-to” na mensagem de forma a que o nodo T saiba encaminhar a resposta. O pedido também deve ser acompanhado de um “correlation-id”, propriedade que será igual na resposta para que seja possível identificar o pedido ao qual a resposta corresponde. No caso de não existir um correlation-id pode-se definir a propriedade “message-id”.
 
@@ -261,7 +261,7 @@ Define:
 - Recapitulação dos frames já falados.
 - Para perceber o que significa o **“Handle”** e o **“Inspect”**, olhemos para o frame **BEGIN**. Este frame possui “Inspect” na coluna da “Connection” o que significa que este frame é inspecionado pela conexão, e possui "Handle” na coluna da “Session” significando que o este frame é tratado no nível da sessão.
 
-![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2012.png)
+![Untitled](Untitled%2012.png)
 
 # Controlo de fluxo
 
@@ -276,7 +276,7 @@ Como referido anteriormente, existem dois modelos de controlo de fluxo. Um no n�
 - Transferências diminuem o tamanho das janelas. Quando o tamanho da janela de envio é menor ou igual a 0 a transferência (i.e. envio de mais mensagens) é suspendida.
 - O tamanho das janelas é atualizado/reiniciado através do *frame* **FLOW***.*
 
-![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2013.png)
+![Untitled](Untitled%2013.png)
 
  
 
@@ -287,7 +287,7 @@ Como referido anteriormente, existem dois modelos de controlo de fluxo. Um no n�
 - As mensagens apenas podem fluir quando o crédito é positivo. As transferências de mensagens são suspendidas quando o número de créditos é nulo ou negativo.
 - O receptor é o único que pode atualizar o número de créditos. A atualização é feita através *de frames* do tipo FLOW.
 
-![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2014.png)
+![Untitled](Untitled%2014.png)
 
 ## Para que são necessários dois tipos de controlo de fluxo?
 
@@ -299,22 +299,22 @@ Como referido anteriormente, existem dois modelos de controlo de fluxo. Um no n�
 1. Invocar o método de receive (abordagem imperativa).
     - Resulta no envio de um crédito para o *sender,* permitindo assim que uma mensagem seja enviada.
     
-    ![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2015.png)
+    ![Untitled](Untitled%2015.png)
     
 2. Subscrever com uma função *callback* (abordagem reativa).
     - O número de créditos fornecidos é igual ao número de operações concorrentes que o sistema reativo consegue suportar.
     
-    ![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2016.png)
+    ![Untitled](Untitled%2016.png)
     
 3. Envio para uma queue.
     - A *queue* envia o número de créditos igual ao número máximo de mensagens que podem ser guardadas em simultâneo na queue.
     
-    ![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2017.png)
+    ![Untitled](Untitled%2017.png)
     
 4. Pré-busca de mensagens.
     - Para ter “sempre” mensagens disponíveis para processamento em vez de ter de pedir (enviar crédito) e esperar que a mensagem seja enviada.
     
-    ![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2018.png)
+    ![Untitled](Untitled%2018.png)
     
 
 ## Outras opções para controlo de fluxo
@@ -343,7 +343,7 @@ Como referido anteriormente, existem dois modelos de controlo de fluxo. Um no n�
         - A lista contém os elementos na ordem definida no esquema.
         - Elementos “finais” (*trailing*) podem ser omitidos de forma a tornar a codificação mais compacta. (Por exemplo, um criar um valor do tipo presente na figura abaixo, poderia codificar-se apenas os primeiros 4 campos e ignorar os restantes. Se por exemplo quisessemos enviar o correlation-id para além dos primeiros 4 campos, então seria necessário codificar também o quinto campo.)
         
-        ![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2019.png)
+        ![Untitled](Untitled%2019.png)
         
     - Tipos restritos
         - Herdam tipos já existentes (source type).
@@ -367,13 +367,13 @@ Como referido anteriormente, existem dois modelos de controlo de fluxo. Um no n�
 - Os dados no “fio”/”cabo” são todos antecedidos por um construtor que indica o tipo.
     - Para tipos primitivos (built-in) um único byte é utilizado.
         
-        ![Exemplo para o tipo primitivo “string”. Começa-se com o byte (construtor) que indica qual é o tipo e segue-se os dados necessários para expressar o valor, que neste caso é um byte que indica o tamanho da string (em bytes) e de seguida a própria string. ](AMQP%20287b741104884897bead75ebda721c31/Untitled%2021.png)
+        ![Exemplo para o tipo primitivo “string”. Começa-se com o byte (construtor) que indica qual é o tipo e segue-se os dados necessários para expressar o valor, que neste caso é um byte que indica o tamanho da string (em bytes) e de seguida a própria string. ](Untitled%2021.png)
         
         Exemplo para o tipo primitivo “string”. Começa-se com o byte (construtor) que indica qual é o tipo e segue-se os dados necessários para expressar o valor, que neste caso é um byte que indica o tamanho da string (em bytes) e de seguida a própria string. 
         
     - Para tipos compostos e restritos utilizam-se os descritores (númerico ou simbólico).
         
-        ![Exemplo para um tipo composto. O primeiro byte indica que será apresentado um descritor, depois segue-se um byte a indicar o tipo do descritor (neste caso do tipo simbólico, representado por um byte a indicar o tamanho do tipo simbólico e depois a valor) e para terminar o construtor apresenta-se um byte para informar o tipo dos dados (neste caso corresponde ao tipo primitivo “list”).](AMQP%20287b741104884897bead75ebda721c31/Untitled%2022.png)
+        ![Exemplo para um tipo composto. O primeiro byte indica que será apresentado um descritor, depois segue-se um byte a indicar o tipo do descritor (neste caso do tipo simbólico, representado por um byte a indicar o tamanho do tipo simbólico e depois a valor) e para terminar o construtor apresenta-se um byte para informar o tipo dos dados (neste caso corresponde ao tipo primitivo “list”).](Untitled%2022.png)
         
         Exemplo para um tipo composto. O primeiro byte indica que será apresentado um descritor, depois segue-se um byte a indicar o tipo do descritor (neste caso do tipo simbólico, representado por um byte a indicar o tamanho do tipo simbólico e depois a valor) e para terminar o construtor apresenta-se um byte para informar o tipo dos dados (neste caso corresponde ao tipo primitivo “list”).
         
@@ -414,20 +414,20 @@ Como referido anteriormente, existem dois modelos de controlo de fluxo. Um no n�
 
 - Estes tipos possuem um preâmbulo que segue o construtor e que precede os dados variáveis. Este preâmbulo pode ter o tamanho de 1 ou 4 bytes e representa o tamanho em bytes dos dados referentes ao tipo.
     
-    ![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2023.png)
+    ![Untitled](Untitled%2023.png)
     
 - Existem ainda:
     - *Arrays*: Um array é uma sequência de elementos monomórfica, i.e., todos os elementos são do mesmo tipo. A codificação começa com o construtor que indica que o tipo é um array, segue-se a quantidade de elementos, depois o construtor dos elementos e depois os valores dos elementos.
         
-        ![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2024.png)
+        ![Untitled](Untitled%2024.png)
         
     - *Lists*: Uma lista é uma sequência de elementos polimórfica, i.e., permite que os elementos sejam de diferentes tipos. Primeiro aparece o construtor que indica que o tipo corresponde a uma lista, segue-se a quantidade de elementos, depois segue-se a codificação dos elementos (primeiro o construtor do elemento e de seguida os dados necessários para o representar).
         
-        ![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2025.png)
+        ![Untitled](Untitled%2025.png)
         
     - Maps: Os mapas são sequências polimórficas de pares chave-valor. Formato similar ao das listas, mas indíces pares correspondem a chaves e índices impares aoos valores associados à chave com o índice imediatamente antes. Como são pares chave-valor, o número de elementos tem de ser sempre um número par.
         
-        ![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2026.png)
+        ![Untitled](Untitled%2026.png)
         
 
 # Mensagens AMQP
@@ -440,11 +440,11 @@ Como referido anteriormente, existem dois modelos de controlo de fluxo. Um no n�
 - Tipo do formato e versão da mensagem é selecionado no TRANSFER *frame*.
 - Formato predefinido:
     
-    ![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2027.png)
+    ![Untitled](Untitled%2027.png)
     
     - A parte representada como “Bare Message” é imutável desde a origem até ao destino, náo podendo ser modificada por nenhum intermediário.
     - A parte relativa a anotações pode ser modificada.
-    - Todas estas secções são definidas como tipos compostos cujo *archetype* é “section”. Um exemplo pode ser verificado aqui [https://www.notion.so/AMQP-287b741104884897bead75ebda721c31?pvs=4#6aed0ad6135b4833bdfc9596c9212da6](AMQP%20287b741104884897bead75ebda721c31.md).
+    - Todas estas secções são definidas como tipos compostos cujo *archetype* é “section”. Um exemplo pode ser verificado aqui [https://www.notion.so/AMQP-287b741104884897bead75ebda721c31?pvs=4#6aed0ad6135b4833bdfc9596c9212da6](AMQP.md).
 
 ## Corpo da mensagem
 
@@ -465,14 +465,14 @@ Para o corpo da mensagem (*Message body*), uma das seguintes 3 opções pode ser
     - Formato idêntico e é facilmente mapeado de JSON para AMQP e de AMQP para JSON.
     - A diferença de tamanho (”bytes") é idêntica, no entanto, o AMQP possui uma descrição dos tipos mais sofisticada do que a do JSON.
     
-    ![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2028.png)
+    ![Untitled](Untitled%2028.png)
     
 - Com esquema:
     - Codificação mais compacta já que existe uma descrição do esquema externa.
     - Mesmo sem o esquema externo presente é possível descodificar os dados, apenas não ficam associadas as “labels” (nomes dos campos).
     - A diferença para o exemplo anterior é que os dados sobre os livros estão codificados como uma lista e não como um mapa, excluindo a necessidade de codificar os “nomes” de cada um dos campos já que estes estão presentes no esquema.
     
-    ![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2029.png)
+    ![Untitled](Untitled%2029.png)
     
 
 # Frames AMQP
@@ -491,7 +491,7 @@ Para o corpo da mensagem (*Message body*), uma das seguintes 3 opções pode ser
         - Depende dos dados presente na parte “Performative”.
         - Neste momento, apenas é utilizado no frame *TRANSFER*, e esta *performative* diz que o que se segue no payload é uma mensagem AMQP.
 
-![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2030.png)
+![Untitled](Untitled%2030.png)
 
 ## Wire Footprint
 
@@ -501,7 +501,7 @@ Para o corpo da mensagem (*Message body*), uma das seguintes 3 opções pode ser
     - 3 bytes para identificar o tipo de payload. ??? verificar pq são necessários 3 bytes
     - 2 bytes, aproximadamente, um para o construtor do tipo primitivo e outro para um valor.
 
-![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2031.png)
+![Untitled](Untitled%2031.png)
 
 ---
 
@@ -551,9 +551,9 @@ As streams de dados codificados AMQP consistem em bytes sem tipo (*untyped bytes
 
 (Escrever os exemplos na tese por palavras próprias mas mencionar que foram extraídos da especificação, posso sempre criar o meu exemplo utilizando outra string e o segundo fazer com um email)
 
-![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2032.png)
+![Untitled](Untitled%2032.png)
 
-![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2033.png)
+![Untitled](Untitled%2033.png)
 
 ## Notação dos tipos
 
@@ -597,7 +597,7 @@ Os links identificados por nomes são estabelecidos sobre sessões. As sessões 
 
 O protocolo de transporte de frames define 9 tipos de frames que serão apresentados mais tarde. A tabela abaixo apresenta os diferentes tipos de frames e define que endpoint (conexão, sessão ou link) é que trata do frame.
 
-![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2034.png)
+![Untitled](Untitled%2034.png)
 
 Os frames são constituídos por 3 partes principais:
 
@@ -605,7 +605,7 @@ Os frames são constituídos por 3 partes principais:
 - Extender Header, que é uma extensão variável do header para uso futuro e que dependerá do tipo de frame (frames AMQP não utilizam esta extensão do header).
 - E, Frame Body, que contém, as informações especifícas do frame. O corpo de frames AMQP consiste numa performativa e no payload específico desta. A presença e formato do payload depende da performativa.
 
-![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2035.png)
+![Untitled](Untitled%2035.png)
 
 Frames sem body podem ser utilizados como pings de modo a evitar que a conexão seja terminada após o intervalo negociado (timeout).
 
@@ -679,7 +679,7 @@ A *bare message* consiste em 3 secções: propriedades pré-definidas (default),
 
 Uma *annotated message* consiste na *bare message* mais as secções com anotações na cabeça e cauda da *bare message*. As anotações podem ser divididas em dois tipos: anotações que são consumidas no próximo nodo e anotações que permanecem com a mensagem indefinidamente.
 
-![Untitled](AMQP%20287b741104884897bead75ebda721c31/Untitled%2036.png)
+![Untitled](Untitled%2036.png)
 
 Na figura acima podemos verificar as diferentes secções que podem constituir uma *annotated message* e também as que podem constituir uma *bare message.* Com a exceção da secção application-data, nenhuma das outras secções necessita existir. 
 
