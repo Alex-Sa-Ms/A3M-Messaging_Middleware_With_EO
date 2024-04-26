@@ -1,37 +1,35 @@
-# Concepção do MOM (A3M)
-
 # Nome do Middleware
 
 **Alexandre Martins’ Messaging Middleware →AMMM → A3M**
 
 # Páginas associadas
 
-[Adaptação e reestruturação do Exon](Adaptação%20e%20reestruturação%20do%20Exon.md)
+[Adaptacao e reestruturacao do Exon](Adaptacao%20e%20reestruturacao%20do%20Exon.md)
 
 [Concepção de socket genérico](Concepção%20de%20socket%20genérico.md)
 
 [Concepção de controlo de fluxo](Concepção%20de%20controlo%20de%20fluxo.md)
 
-[Concepção de administração e encrerramento gracioso](Concepção%20de%20administração%20e%20encrerramento%20gracioso.md)
+[Concepção de administração e encerramento gracioso](Concepção%20de%20administração%20e%20encerramento%20gracioso.md)
 
 # Plano de concepção
 
-1. Seleção de funcionalidades
+1. Selecção de funcionalidades
 2. Concepção de socket genérico
-    - Concepção da arquitetura
+    - Concepção da arquitectura
         - Deve permitir a implementação de múltiplos padrões sobre o socket
-        - Faz sentido pensar numa abordagem tipo atores como referida pelo professor?
+        - Faz sentido pensar numa abordagem tipo actores como referida pelo professor?
     - Definição da API
 3. Concepção de protocolo de comunicação a nível da aplicação
-4. Seleção e adaptação de padrões de comunicação
+4. Selecção e adaptação de padrões de comunicação
 5. Identificação das modificações que devem ser feitas à Exon-lib
-6. Concepção da arquitetura geral `??`
+6. Concepção da arquitectura geral `??`
     - Definição da API
-    1. Estrutura de classes, lógica, etc. Para gestão dos sockets, e implementação das funcionalidades selecionadas.
+    1. Estrutura de classes, lógica, etc. Para gestão dos sockets, e implementação das funcionalidades seleccionadas.
 
 ![Untitled](Tese/Concepcao%20do%20MOM%20(A3M)/Untitled.png)
 
-# Seleção de funcionalidades
+# Selecção de funcionalidades
 
 - Tentar responder aos problemas mencionados [aqui.](https://zguide.zeromq.org/docs/chapter1/#Why-We-Needed-ZeroMQ)
 
@@ -50,7 +48,7 @@
         - This may be better.
     - Thread-pooling + Event-driven architecture
         - Even when using an event-driven architecture, this may be useful to perform callbacks in parallel.
-    - Modelo de programação por atores?
+    - Modelo de programação por actores?
         - Programming in Java, so this may not be good. Actors would be threads, and therefore, having more actors than the number of cores/threads would be counterproductive due to context switches.
         - Check section 24.8 of [https://aosabook.org/en/v2/zeromq.html](https://aosabook.org/en/v2/zeromq.html)
 - Global context (Allow only one instance with global state variables - **Singleton pattern**)
@@ -76,7 +74,7 @@
         - For asynchronous operations allow callbacks to be provided, instead of using select/poll()-like methods. Providing a way to do both can be good as well.
     - How to do this?
         - Use flags/constants that define if the socket supports one or both methods of communication
-            - Only if the behaviour is similar to all protocols (messaging patterns)
+            - Only if the behavior is similar to all protocols (messaging patterns)
         - Or, allow the methods of non-blocking and blocking send/receive operations to be overridden.
     - Allow the definition of a constant that defines if the socket supports one or both methods of communication.
     - Allow setting the type of action that should be taken when there is no more space available for the given socket (it disrespects the exactly-once semantic, but may be required for example to prevent DoS attacks). Action may be blocking of client thread, drop of message (oldest or newest), or even the execution of a callback function that may perform some filtering of messages.

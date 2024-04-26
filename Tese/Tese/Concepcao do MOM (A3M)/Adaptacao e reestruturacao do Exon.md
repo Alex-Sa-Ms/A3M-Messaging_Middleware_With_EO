@@ -1,6 +1,4 @@
-# Adaptação e reestruturação do Exon
-
-## Supporting mobility scenarios
+# Supporting mobility scenarios
 
 Supporting mobility scenarios means that nodes may freely change between different transport addresses and maintain communication. 
 
@@ -94,20 +92,74 @@ The inclusion of a receiver identifier in the messages serves the purpose of ena
 
 ### Future work
 
-Including the sender and the receiver identifiers, which are defined as strings, in every message has a significant overhead. With this being said, finding a way to minimize such overhead may be a good optimization to look into in the future. A potential solution could consist of the use of locally unique identifiers. When a node A sends a message to a node B for the first time, node B generates a locally unique identifier and assigns it to node A. This new identifier would then be shared with A, allowing both nodes to use this identifier to identify node A. The same process would be executed to define the identifier for node B. These identifiers do not need to resemble the globally unique identifier, thus, a minimal amount of bytes could be used to represent them, such as an unsigned integer of 4 bytes.
+#### Reducing overhead of sending both identifiers
+Including the sender and the receiver identifiers, which are defined as strings, in every message has a significant overhead. With this being said, finding a way to minimize such overhead may be a good optimization to look into in the future.
 
-**`EMBORA IMPROVÁVEL, ESTA SOLUÇÃO NÃO FUNCIONA JÁ QUE SERIA POSSÍVEL POR COINCIDÊNCIA UMA MENSAGEM CHEGAR COM IDENTIFICADORES LOCAIS VÁLIDOS, TANTO O SENDER ID COMO O RECEIVER ID.`**
+#### Grow-only data structure
+With the addition of associations, a way to prevent constantly querying the association source, but also to allow communication without the need for an association source to exist, a data structure was created to hold associations on the node. Currently, this data structure has a grow-only behavior, meaning that once it registers an association it is not removed at any point in the future. Being grow-only means that associations, no longer required, contribute to the exhaustion of memory resources.  
 
 ### Talk briefly about solutions explored before that did not work??
 
-## Close middleware
+# Close middleware
+### Problema
+Um mecanismo de encerramento é essencial para qualquer programa conseguir terminar de forma graciosa. Dito isto, um mecanismo que permite tal funcionalidade foi adicionado. 
 
-A implementação original do Exon tem como foco a prova do correto funcionamento do algoritmo com garantia de entrega exactly-once, e portanto não contempla um mecanismo de fecho. No entanto, como um mecanismo de fecho é essencial para qualquer programa consiga terminar de forma graciosa, este mecanismo foi adicionado.
+É importante mencionar que uma instância do middleware Exon não pode ser encerrada a qualquer momento. Para garantir que as mensagens são entregues exactamente uma vez, os nodos que participam na troca de mensagens possuem estados que se complementam. Se um dos nodos decidir eliminar tal estado num momento inadequado, o correto funcionamento do algoritmo já não é garantido. Portanto, a abordagem atual para o encerramento do middleware, passa por esperar por um momento em que não existe qualquer mensagem por entregar ou por receber, e só nesse momento é que o middleware encerra.
+### Solução
+#### Novos métodos
+A API da biblioteca passou a incluir mais dois métodos, ambos responsáveis por acionar o encerramento do middleware Exon. A distinção entre eles reside no facto de um ser bloqueante, esperando que o procedimento de encerramento termine antes de retornar, enquanto que o o outro é não bloqueante, retornando imediatamente após iniciar o procedimento de encerramento.
+#### Implementação
 
-A API da biblioteca inclui agora mais dois métodos. Ambos despoletam o encerramento do middleware Exon. A diferença está em um ser bloqueante, logo espera que o procedimento de encerramento acabe antes de retornar, e o outro ser não bloqueante, retornando imediatamente após iniciar o procedimento de fecho.
+A implementação deste mecanismo começou com a criação de uma variável para o estado de encerramento, com o seu próprio *lock* para lidar com concorrência, e na criação de *locks* para certas estruturas de dados, permitindo um controlo mais preciso dos períodos de contenção das estruturas em relação ao uso de variantes thread-safe dessas estruturas.
 
-Para implementar este mecanismo foi necessário substituir algumas estruturas de dados preparadas para efeitos de concorrência pelas suas variantes normais, de modo a possuir um controlo maior sobre o período de contenção das estruturas. Foi também necessário criar uma variável relativa ao estado de fecho com o seu próprio *lock*. Os estados possíveis são: RUNNING, CLOSING e CLOSED. Uma instância do middleware Exon é criada com o estado RUNNING indicando que a instância está a funcionar normalmente, permitindo o envio e receção de mensagens. Quando um dos métodos de fecho é invocado, o estado é mudado para CLOSING, deixando de ser possível enviar mensagens e sendo apenas permitido receber mensagens. O método de fecho também resulta na criação de um evento de fecho (CloseEvent) por parte da thread que executa o algoritmo (algoThread). O evento de fecho é reagendado até a algoThread verificar que o estado da instância é favorável ao fecho conclusivo. Para o estado ser favorável ao fecho, não podem existir registos de envio nem de receção e não podem haver mensagens por processar. Estando estas condições reunidas, o estado é mudado para CLOSED, a algoThread fecha o socket UDP permitindo à thread responsável por ler do socket (readerThread) que pode terminar e acorda todas as threads bloqueadas à espera de receber uma mensagem, por meio de uma condição associada ao lock da estrutura de entrega de mensagens. Com a terminação das threads do Exon, o método de fecho bloqueante pode agora retornar.
+Os estados de encerramento possíveis são: RUNNING, CLOSING e CLOSED. O estado RUNNING é atribuído na criação da instância do middleware, e indica que a instância se encontra a funcionar corretamente,  permitindo o envio e receção de mensagens. Após a invocação de um dos métodos de encerramento, o estado passa para CLOSING. A partir deste momento, o middleware recusa novos pedidos de envio de mensagens, e apenas permite que mensagens sejam recebidas. O acionamento do mecanismo de encerramento resulta na criação de um evento de fecho (CloseEvent) que se repetirá periodicamente até que a instância se encontre num estado favorável para o encerramento conclusivo. O estado favorável ao encerramento consiste na ausência de registos de envio e de receção, para além da falta de mensagens para processar. Ao ser processado um evento de fecho, se estas condições estiverem reunidas, o estado é alterado para CLOSED, o socket UDP é fechado, o que resulta na terminação da thread de leitura, e por meio de condições, associadas aos locks das estruturas de dados, todas as threads cliente que se encontrem a aguardar por algum recurso do middleware são acordadas para poderem verificar que a instância está encerrada. Por fim, a thread responsável pela execução do algoritmo termina, permitindo que o método de encerramento bloqueante possa retornar.
+
+Mesmo que a instância se encontre fechada, mensagens podem continuar a ser recebidas até que a queue de mensagens por entregar fique vazia.
+
+### Riscos da solução atual e Trabalho futuro
+
+Embora a implementação atual garanta que apenas é encerrado o middleware após serem enviadas e recebidas todas as mensagens, com a garantia de entrega Exactly-Once, existem alguns riscos acoplados com o encerramento de uma instância do middleware Exon:
+1. Se a instância for terminada e iniciada de seguida, existe o risco de mensagens duplicadas lhe serem entregues, possibilitando a criação, não pretendida, de registos localmente, ou até mesmo na corrupção de registos.
+2. Embora a instância possa não conter registos localmente, as instâncias com que comunicou podem conter registos que lhe estão associados e que não é possível eliminar.
+		`a.` Mensagens que têm a instância como destino, mas cuja tentativa de comunicação apenas foi iniciada após a terminação da instância, não conseguirão ser entregues a não ser que a instância volte a ser iniciada.
+		`b.` Registos de receção apenas são esquecidos quando não possuem slots, logo, se uma mensagem responsável por eliminar os slots não utilizados não for recebida (porque se perdeu), então esses registos não serão eliminados até que a instância volte a ser iniciada.
+
+A corrupção de registos, risco 1, é facilmente mitigado através da persistência do relógio local da instância.
+
+A solução para o risco 2.a. consiste em apenas acionar o mecanismo de encerramento em instâncias efémeras e quando é garantido que não existirá mais qualquer tentativa de comunicação com a instância.
+
+A solução para o risco 2.b. pode passar por aguardar um certo intervalo de tempo, período de resfriamento, sem que exista qualquer atividade. Após serem reunidas as condições de encerramento, aguarda-se um período de tempo, antes de encerrar definitivamente a instância, com o objetivo de esperar por mensagens duplicadas e cancelar os seus efeitos. Não existindo a necessidade para um encerramento definitivo, i.e., se o intuito é eventualmente reiniciar a instância, então a persistência do relógio local seria suficiente, e não seria necessário esperar um período de resfriamento. 
+
+
+# Recibos de receção
+
+### Problem
+A recurrent problem associated with messaging systems is knowing if a message has arrived at the destination. The solution requires the receiver to send an acknowledgment message (ACK) confirming the arrival of the message. Since the Exon middleware already receives such confirmation, by offering the possibility of requesting **reception receipts**, the Exon middleware avoids additional overhead by preventing the upper layer from the necessity of sending an acknowledgment message over the Exon transport.
+
+### Solution
+Essentially, the designed solution for this problem consists in generating a unique message identifier for outgoing messages. These identifiers are provided to the upper layer as the return value of the send() methods. If the upper layer requested a reception receipt, then, after the Exon confirms the reception of the message at the destination, a reception receipt is emitted. A reception receipt is the identifier of the message generated by the send() method. The upper layer can then poll reception receipts from a queue, and verify which messages have been received by the destination.
+#### Message identifiers
+To provide receipts, the first step required is the creation of locally unique identifiers for the messages. Since the identifiers will only be used locally, there is no need to guarantee that the message identifiers are unique across all the nodes.
+
+The simplest and most efficient solution, regarding computational costs, consists in using a circular counter. By using a sufficient amount of bits for the counter, it is possible to use the counter in a circular way, without risking the attribution of an identifier to more than one message simultaneously. A *long* value (64 bits) was chosen to represent the counter. Having in mind the Exactly-Once Delivery, theoretically, a message may never be delivered, therefore, no amount of bits would be enough to ensure local uniqueness. However, the amount of messages that a *long* counter allows to send is huge, consequently, the probability of message identifiers overlapping is immensely low, and thus, was deemed acceptable for the purpose.
+#### Reception Receipts
+To provide reception receipts the following modifications were required:
+- send() methods allow specifying the will to receive a reception receipt for the message;
+- send() methods generate and return unique message identifiers which can be used to track the respective reception receipt.
+- A limitless queue was created for receipts.
+	- As messages can only be delivered one time, the reception receipts can only be generated once. Therefore, the queue must be limitless. Furthermore, the upper layer may choose if receipts should be generated, and so, it has the responsibility of polling the receipts it requested and preventing memory exhaustion.
+- The identifiers of the messages must now stick with the payload (client message) until the acknowledgment of reception arrives. This is required to emit the reception receipt.
+- Several methods were created to allow polling receipts:
+	- `takeReceipt()` : Waits for a receipt to be available and returns it.
+	- `pollReceipt()` : Checks if there is a receipt available. If there is, returns it. Otherwise, returns null.
+	- `pollReceipt(long timeout)`: Waits a given amount time for a receipt to be available. Returns the available receipt, or 'null' if the time expires.
+	- `pollSpecificReceipt(MsgId receipt)`: Checks if the specified receipt is present in the receipts queue. If it is, removes the receipt from the queue and returns 'true'; otherwise, returns 'false'.
+# Métodos de eliminação de registos <span style="color:red">(É trabalho futuro?)</span>
+
+**As assumpções da tese assumem que não existem crashes e que será utilizado num ambiente seguro (sem nodos maliciosos), portanto, admitindo uma programação correta, não deve ser necessário recorrer a estes métodos.**
+
+Para administração, a possibilidade de eliminar registos forçosamente é algo que pode ser desejável. No entanto, esta funcionalidade possui riscos inerentes. Como explicado previamente, os registos funcionam em pares, um local e um remoto. A eliminação de um registo, num momento inadequado, resulta no mau funcionamento do algoritmo entre o nodo que eliminou o registo e o nodo associado ao registo. Por consequência, esses nodos deixam de conseguir comunicar. Se a camada superior pretender utilizar tais métodos, então deve garantir que os utiliza nas situações devidas, ou assegurar que consegue recuperar das possíveis consequências.
 
 # Páginas Relacionadas
 
-[Adaptação e reestruturação do Exon (antiga)](Adaptação%20e%20reestruturação%20do%20Exon%20(antiga).md)
+[Adaptacao e reestruturacao do Exon (antiga)](Adaptacao%20e%20reestruturacao%20do%20Exon%20(antiga).md)

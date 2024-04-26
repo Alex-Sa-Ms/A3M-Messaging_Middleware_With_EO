@@ -87,5 +87,3 @@ Este mecanismo tem como alvo nodos efémeros que podem entrar e desaparecer sem 
 		- Mas sem ele, também não é possível desaparecer por completo, sem que seja possível deixar registos noutros nodos por serem eliminados. Mesmo com mecanismos de administração que permitem eliminar registos é necessário esperar por um tempo de cooldown antes de ser seguro eliminar o registo. 
 			- Por exemplo, digamos que um peer manda uma mensagem sobre o Exon a indicar que não enviará mais mensagens. Ainda é possível que devido a eventos agendados ou a mensagens duplicadas que cheguem mensagens que voltam a criar um registo para esse nodo. Dito isto, existir métodos de administração para eliminar os registos é algo desejável, no entanto, estes mecanismos apenas devem realizar o seu trabalho após um intervalo apropriado de cooldown.
 A implementação da persistência do estado (apenas o clock seria necessário se não existirem registos nem mensagens) permitiria terminar a instância e reiniciá-la a qualquer momento. Possibilitaria até com a transferência de estado para outro dispositivo, retomar a comunicação num outro dispositivo.  
-### Ideias faladas na reunião
-- 
