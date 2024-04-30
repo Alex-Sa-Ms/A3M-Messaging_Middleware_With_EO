@@ -1,8 +1,29 @@
-# Concepção de socket genérico
+# Descrição
+- Nodos são contentores de sockets.
+- Cada socket possui um identificador que o distingue unicamente dentro do nodo a que pertence. Designemos este por *LocalSocketID*. 
+- O identificador global de um socket, *GlobalSocketID* ou *SocketID*, corresponde à combinação do identificador do nodo a que o socket pertence (NodeID) com o identificador local do socket (LocalSocketID).
+- A comunicação entre sockets será realizada utilizando *SocketID*s.
+- Como o protocolo de transporte utilizado é do tipo *unicast*, todas as mensagens devem possuir a identificação do socket emissor, para efeitos de backtrace, e a identificação do socket destino, para que a mensagem possa ser entregue corretamente quando chegar ao nodo destino.
+- Essencialmente, um socket genérico é responsável por enviar mensagens para sockets e por servir como uma *message box* ou *incoming queue*, permitindo assim a receção de mensagens.
 
-No ponto de concepção atual, a biblioteca do Exon foi alterada para que sejam utilizados identificadores globalmente únicos para identificar e comunicar com nodos.
 
-A ideia agora é tornar os nodos em contentores de sockets. Os sockets são entidades lógicas que possuem identificadores únicos locais, e que são efetivamente os transmissores e recetores de mensagens. 
+# Ideias
+## Especialização do socket
+
+### Ideia 1 - Por composição 
+- Os sockets genéricos podem ser utilizados para construir sockets especializados que se focam em fornecer lógica associada a padrões de comunicação.
+### Ideia 2 - Com gestor de contextos
+#### Descrição da ideia
+- Os sockets genéricos podem permitir a associação de um gestor de contextos (ContextManager).
+- Cada socket especializado deve ter o seu próprio gestor de contextos, que no fundo será uma fábrica de contextos, e que serve para direcionar as mensagens recebidas para os respetivos contextos.
+#### Problemas
+- Como modificar/restringir a API? Por exemplo, impedir sends, ou impedir receives, ou permitir efetuar subscricoes, etc.
+
+
+
+- Utilizar contextos de comportamento à parte.
+- Também deve ser possível que nodos troquem informação entre si, para efeitos de controlo, mas não sendo disponibilizada tal funcionalidade para a API. Isto pode ser facilmente realizado ao criar sockets com identificadores especiais. Por exemplo, no MQTT, tópicos começados com '$' são reservados a uso interno.
+
 
 # Requisitos funcionais
 

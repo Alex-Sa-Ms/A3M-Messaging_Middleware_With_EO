@@ -1,6 +1,66 @@
-### Shutdown Exon
+# Dúvidas sobre Shutdown do Exon
+
 **Perguntas:**
-- Permitir enviar mensagens enquanto estiver no estado "CLOSING"?
-- Adicionar um intervalo de cooldown após se verificar que já não existem registos nem mensagens é uma possibilidade que permite aguardar por duplicados e garantir que os registos opostos são eliminados dos nodos com que houve comunicação.  
-	- Não permite reiniciar a instância de forma rápida (para reinicio rápido era necessário persistir o estado, mais em concreto, o clock)
-	- Para permitir fechos rápidos, seria necessário implementar mecanismos de administração para eliminar registos. No entanto, para eliminar os registos de forma segura, seria necessário esperar um tempo de cooldown para cada registo, pelas mesmas razões expressas acima. Estes mecanismos de administração poderiam ser invocados como consequência de por exemplo uma mensagem enviada pela camada acima a prometer que não iria enviar mais mensagens.
+- Permitir enviar mensagens enquanto estiver no estado "CLOSING"? <span style="color:orange">Not answered.</span>
+- Conclusão sobre o mecanismo de *shutdown*? <span style="color:red">Assumir que os nodos não se desligam para já.</span>
+	- Persistir o clock antes de terminar
+	- Criar métodos de administração que permitem a camada superior eliminar registos.
+		- A camada superior responsabiliza-se pelas consequências de invocar estes métodos.
+		- Pode ser relevante os registos de envio retornarem a lista de mensagens em queue.
+	- Admitindo que o protocolo de mensagens utilizado pela camada superior consegue definir quando já não existirá mais troca de mensagens entre os dois nodos, então, após aguardar um breve período de tempo, para permitir a receção de duplicados e outros tipos de mensagem, é possível eliminar o registo.
+		- Se uma nova entidade pertencente ao nodo pretender enviar mensagens para o nodo destino que se disse que não ia haver mais comunicação? Seria possível a camada superior verificar se ativou o mecanismo de shutdown para esse nodo. MUITO CHATO.
+	- Usar blacklists com tempos de expiração? Permite rejeitar mensagens vindas de certos nodos durante um certo tempo, assim é possível que mensagens duplicadas ou outro tipo de mensagens que já podiam estar a caminho cancelem a eliminação do registo.
+	- <span style="color:red">Já estou a ver que isto ainda dá muito que pensar. E assumir que os nodos não desaparecem para sempre.</span>
+
+# Relatório da reunião
+
+- Ignorar problema de shutdown do Exon.
+- Ignorar problemas laterais e focar no que é principal para a tese.
+- Etiquetas que comecem com '$' podem ficar reservadas para assuntos internos do middleware. Seja para mensagens de controlo entre nodos, ou por exemplo, para estatísticas. 
+- Um protocolo base para comunicação entre sockets é necessário. Este pode permitir distinguir entre mensagens administrativas dos sockets de mensagens que podem já dizer respeito a implementações de padrões.
+	- Por exemplo, é necessário existir um tipo de mensagem administrativa para verificar se o socket presente do outro lado é compatível. Esta é uma mensagem que é obrigatoriamente enviada para todos os padrões de comunicação. Não deve ser permitido cancelar o envio desta mensagem.
+- Socket genérico deve ser versátil. As suas funcionalidades devem permitir que diferentes funcionalidades sejam implementadas. 
+	- Funcionalidades:
+		- Enviar mensagens para socket identificado por um par (NodeID,TagID)
+		- Receber mensagens cujo destino possui a sua identificação (NodeId, TagID)
+		- Controlo de fluxo
+		- Selective receive(?) 
+		- ...
+- Para verificar se é versátil, pode-se fazer o exercício de pensar como é que diferentes implementações de alto nível poderiam ser implementadas por cima deles. Como ZeroMQ, NNG, etc.
+- Só depois de ter o socket genérico bem pensado, e de como é que as leituras e escritas para estes serão feitas, é que se pode pensar nas Implementações de sockets de alto nível, incluindo conceitos como o de contextos. 
+- Preciso pensar como ler recibos e mensagens numa única thread
+	- Pode tentar fazer poll não bloqueante de todos os recibos até esvaziar, e depois aguardar um X tempo por uma mensagem antes de voltar a verificar se existem recibos para processar.
+- 1 thread para ler mensagens e recibos **(readerThread)** + pool de threads (tamanho parametrizável) para tratar de eventos de envio, receção, sleep, com callbacks associados tipo NNG **(eventThreads)**?
+- Preciso pensar como é que depois de serem distribuídas as mensagens para os diferentes sockets, como é que pode ser feito polling eficiente para tratar destas mensagens?
+	- Gerar evento de leitura, a ser processado por uma eventThread. 
+	- Queue de eventos tem condição para sinalizar thread que esteja à espera de um evento.
+	- *Ou, pode ser utilizada **Programação reativa*** em que as eventThreads são observers de uma hot stream de eventos
+	- Existindo um evento de leitura, pode-se assumir que existem interessados em receber a mensagem.
+		- Podem existir capturadores que pretendem receber todas as mensagens. Exemplo: estatisticas
+		- E podem existir consumidores, que consomem a mensagem e precisam de demonstrar interesse em receber novamente. 
+		- Sejam consumidores ou capturadores devem registar o interesse sobre ler de um socket previamente, desta forma, um evento de leitura resulta na notificação de observadores desse socket.
+			- Utilizando a tipica abordagem com condições resultaria em acordar threads. O que significa a existência de demasiadas threads.
+			- Registos de callbacks pode ser uma solução que evita o uso desnecessário de threads
+				- E que facilita a integração de programacao reativa
+	- Pode ser utilizado o padrão observer? Pode ser utilizado para permitir mais flexibilidade, e não impede que o método notify() seja utilizado como ponte para a programação reativa.
+- Contextos dos sockets é algo a se pensar posteriormente.
+	- Explorar novamente este conceito presente no NNG.
+	- Se não estou enganado, consiste em separar a lógica, relacionada com o padrão de comunicação, do socket em si. Os padrões em que não faz sentido ter vários contextos, possuem um principal.
+- Pensar numa solução para fazer polling de vários sockets não genéricos admitindo que podem existir múltiplas threads cuja interseção das seleções de sockets para polling não é vazia.
+	- Cada poller possui um lock, uma condição criada para esse lock e uma queue de mensagens.
+	- Assuma-se que pollers podem ser individuais ou múltiplos, i.e., dar *listen* em um ou mais sockets não genéricos.
+	- Seja um poller individual ou múltiplo, este regista-se como interessado para todos os sockets não genéricos em que tem interesse.
+	- Os interessados devem ficar numa queue do tipo FIFO, assim é possível adicionar a mensagem à queue dos interessados e acordá-los com a condição do lock.
+		- Apenas usar a condição para acordar não é suficiente, já que o poller precisaria de fazer poll em cada socket que tem interesse podendo remover uma mensagem para a qual não foi notificado.
+- Como é que funcionaria um evento de envio? E se o controlo de fluxo não permite enviar mais mensagens porque a janela não tem espaço?
+	- Cuidado com deadlocks do controlo de fluxo. A reader thread ao receber um recibo precisa de conseguir devolver o crédito. 
+		- Semáforos devem funcionar bem para as janelas do controlo de fluxo e evitar deadlocks.
+	- O semáforo pode ser *acquired* no momento em que uma thread client faz send() e *released* no momento em que se recebe o recibo de receção. Desta forma, todas as mensagens que entram para o sistema do middleware é garantido que têm permissão para ser entregues.
+- Fair queuing das client threads. Usar a versão *fair* dos mecanismos de concorrência.
+- Batching de mensagens no middleware A3M?
+- Poller para receber mensagens é uma funcionalidade a implementar. E um poller para escrita faz sentido?
+	- Se for feito um poller para escrita, seria para uso por um utilizador mais experiente.
+		- Exige consumir o semáforo do socket antes de notificar o poller.
+		- O poller teria uma queue FIFO para indicar a ordem dos sockets a utilizar para enviar as mensagens.
+		- Ao ser acordado o poller, seria devolvido o identificador do socket que permite o envio de uma mensagem. O semáforo de controlo de fluxo já estaria consumido, logo se não for pretendido enviar mensagem deve ser invocado um método a identificar q n será emitida uma mensagem para libertar a permissão do semáforo.
+		- O método de envio e de libertar a permissão não necessitam mencionar o semáforo já que a ordem é definida pela queue.

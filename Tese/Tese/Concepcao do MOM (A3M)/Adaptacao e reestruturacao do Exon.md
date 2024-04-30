@@ -130,6 +130,11 @@ A solução para o risco 2.a. consiste em apenas acionar o mecanismo de encerram
 
 A solução para o risco 2.b. pode passar por aguardar um certo intervalo de tempo, período de resfriamento, sem que exista qualquer atividade. Após serem reunidas as condições de encerramento, aguarda-se um período de tempo, antes de encerrar definitivamente a instância, com o objetivo de esperar por mensagens duplicadas e cancelar os seus efeitos. Não existindo a necessidade para um encerramento definitivo, i.e., se o intuito é eventualmente reiniciar a instância, então a persistência do relógio local seria suficiente, e não seria necessário esperar um período de resfriamento. 
 
+<span style="color:red">
+Persistência do clock faz sentido.
+Tempo de resfriamento no Exon é inútil. No contexto exactly-once não existem assunções de tempo, logo não existe período de resfriamento que se possa aguardar na esperança que o outro lado elimine o registo que já não será eliminado. Para garantir que efetivamente os registos são eliminados, então deve-se fornecer mecanismo de administração que permite eliminar registos. Assim, a camada superior após receber uma mensagem que indique que não haverá mais contacto por parte do nodo transmissor, pode esperar um período de tempo para possíveis duplicados cheguem e só depois eliminar o registo explicitamente.</span>
+
+
 
 # Recibos de receção
 
@@ -154,11 +159,27 @@ To provide reception receipts the following modifications were required:
 	- `pollReceipt()` : Checks if there is a receipt available. If there is, returns it. Otherwise, returns null.
 	- `pollReceipt(long timeout)`: Waits a given amount time for a receipt to be available. Returns the available receipt, or 'null' if the time expires.
 	- `pollSpecificReceipt(MsgId receipt)`: Checks if the specified receipt is present in the receipts queue. If it is, removes the receipt from the queue and returns 'true'; otherwise, returns 'false'.
-# Métodos de eliminação de registos <span style="color:red">(É trabalho futuro?)</span>
+# Eliminação de registos <span style="color:red">(É trabalho futuro?)</span>
 
-**As assumpções da tese assumem que não existem crashes e que será utilizado num ambiente seguro (sem nodos maliciosos), portanto, admitindo uma programação correta, não deve ser necessário recorrer a estes métodos.**
+**As assumpções da tese assumem que não existem crashes e que será utilizado num ambiente seguro (sem nodos maliciosos), portanto, admitindo uma programação correta, não deve ser necessário recorrer a estes métodos para eliminar registos de nodos que despoletam a criação de um registo num nodo remoto e depois desaparecem de forma não expectável.**
 
 Para administração, a possibilidade de eliminar registos forçosamente é algo que pode ser desejável. No entanto, esta funcionalidade possui riscos inerentes. Como explicado previamente, os registos funcionam em pares, um local e um remoto. A eliminação de um registo, num momento inadequado, resulta no mau funcionamento do algoritmo entre o nodo que eliminou o registo e o nodo associado ao registo. Por consequência, esses nodos deixam de conseguir comunicar. Se a camada superior pretender utilizar tais métodos, então deve garantir que os utiliza nas situações devidas, ou assegurar que consegue recuperar das possíveis consequências.
+
+# Controlo de fluxo
+
+A implementação original do protocolo Exon já emprega um mecanismo de controlo de fluxo. O mecanismo tem como base duas variáveis: P e N. **P** representa o número de mensagens que podem estar em trânsito, num dado momento, para um certo nodo. **N** representa o número de envelopes máximo que um registo de envio pode ter num dado momento. Como um envelope é necessário para enviar uma mensagem, a variável N, que limita o número de envelopes que se pode ter em posse, é efectivamente a variável que define o controlo de fluxo. No momento, a variável N é um múltiplo da variável P, com o intuito de prevenir a interrupção da transmissão por falta de novos envelopes.
+
+Agora que a base do mecanismo de controlo de fluxo foi explicada, podemos passar a apresentar as razões pelas quais é necessário alterar este mecanismo:
+1. Para calcular o valor P é utilizado o protocolo de transporte TCP, são realizados 100 round-trips para calcular o RTT médio e 10000 one-trips para calcular a bandwidth. Após obter estes valores, o valor de P é calculado através da seguinte fórmula: $$ P = RTT * bandwidth / message\_size $$ Como podemos perceber, isto resulta num overhead inicial extremamente grande.
+2. Este cálculo é realizado apenas com o primeiro nodo com que a comunicação é feita. Logo, nodos que se encontrem sobre condições de rede diferentes, não terão um valor de P e N ajustados às suas situações.
+3. Os valores de P e N não são atualizados. As condições de rede sobre as quais os nodos atuam podem não se manter iguais ao longo do tempo, logo, ajustar os valores em função das mudanças apresentadas é algo desejável.
+
+**Problema:** É necessário realizar a concepção de um mecanismo de controlo de fluxo adaptável a diferentes condições de rede e às mudanças que estas possam exibir, para além de não exigir um overhead inicial para estimar a largura de banda para cada nodo.
+
+**Solução:** Este problema, embora relevante, não é o principal objetivo desta dissertação. Dito isto, no momento, assume-se que o middleware será utilizado em redes privadas e controladas, em que todos os nodos se encontram sobre as mesmas condições de rede, e deixa-se este problema para exploração futura, já que é essencial para permitir a utilização do middleware numa escala global, i.e., no nível da internet.
+
+<span style="color:red">Ver notas da reunião 22 abril para mais informações</span>
+([[Reuniao 22 abril - Recibos rececao e controlo de fluxo Exon]])
 
 # Páginas Relacionadas
 
