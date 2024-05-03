@@ -1,3 +1,43 @@
+# Problemas
+### Enviar mensagens de qualquer tipo (para socket ou para nodo)
+### Enviar mensagens por um socket
+- Como é que um socket pode enviar mensagens?
+	- Necessário contactar o sistema de gestão de mensagens (SGM) para enviar uma mensagem.
+- Como é que se pode contactar o SGM para enviar uma mensagem?
+	- Contactar directamente o SGM ou utilizar qualquer classe que sirva de ponte para o SGM.
+	- O SGM deve ter métodos que permitam submeter mensagens para envio.
+- Como é que se exige que o socket utilize um desses métodos de contacto e que não possa alterá-lo?
+	- Exigir não dá, mas dá para pelos menos garantir que o objeto existe e que não pode ser removido.
+	- Através de hierarquia de classes. Definindo uma superclasse com variáveis finais para os atributos/objetos obrigatórios.
+### Receber mensagens
+- Como é que um socket pode receber mensagens?
+	1. ~~Precisa requisitar uma mensagem ao SGM~~
+		- Exige uma thread por cada socket para que o sistema consiga ser reactivo, logo não é uma boa solução para atingir eficiência.
+	1. **Ou** ser informado pelo SGM da chegada de uma mensagem.
+		- Boa solução. Não exige uma thread por cada socket à espera que uma mensagem seja recebida. 
+		- Uma única thread pode notificar o socket da chegada e executar a lógica específica do socket para cada mensagem recebida.  
+- Como é que o socket pode ser informado da chegada da mensagem?
+	- O socket precisa de ter um método que permite notificar a chegada de mensagens direcionadas para esse socket.
+- Como é que se exige que um socket possua esta método para notificação?
+	1. Deve implementar uma interface e ser registado no SGM.
+	2. **Ou,** definindo uma classe Socket abstrata e definir esse método como abstrato.
+### Criação do socket ficar conectada à instância do middleware correta
+### Como é que se pode exigir um comportamento inicial por parte dos sockets?
+
+### Como é que se pode criar forwarders/dispatchers?
+### É possível evitar handshake entre sockets?
+### Como exigir certos comportamentos?
+Definir esses comportamentos em camadas responsáveis e que não podem ser expandidas em runtime. Por exemplo, para criar um socket. Criar uma instância e iniciar as suas variáveis não é suficiente. O middleware precisa que este socket seja registado. Logo, o middleware deve possuir um método que permite criar qualquer tipo de socket.
+### O que fazer a mensagens cujo socket destino não existe?
+
+
+
+---
+
+Separador entre problemas e o resto do documento
+
+---
+
 # Descrição
 - Nodos são contentores de sockets.
 - Cada socket possui um identificador que o distingue unicamente dentro do nodo a que pertence. Designemos este por *LocalSocketID*. 

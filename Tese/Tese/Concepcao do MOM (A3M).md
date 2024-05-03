@@ -176,7 +176,7 @@
     - Initially off
     - When message rate increases toogle it to increase throughput
 
-# Concepção da arquitetura geral
+# Concepção da arquitetura geral (antiga)
 
 ## Problemas
 
@@ -320,7 +320,7 @@ Falar de queues, quebras de comunicação,
 
 Protocolo deve definir a necessidade de implementacao de metodos para certos frames especificos. Mensagens só são retornadas quando for recebido mesmo um frame do tipo “Mensagem”. Por exemplo, um frame “Reconnect” seria tratado por um método específico. 
 
-# Concepção de socket genérico
+# Concepção de socket genérico (antiga)
 
 ## Pontos importantes a considerar
 
