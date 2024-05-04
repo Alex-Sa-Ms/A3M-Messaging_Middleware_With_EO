@@ -1,4 +1,29 @@
-# Problemas
+# Requisitos e Problemas
+## Requisitos para envio de mensagens
+### Permitir o envio de mensagens, de qualquer tipo, para outro nodo
+- Tem de existir um formato básico das mensagens para que a mensagem seja aceitada no nodo destino. Caso contrário o nodo destino descartará a mensagem por não conseguir processá-la.
+	- Criar uma classe responsável pela construção e verificação do formato das mensagens.
+	- Esta classe permite assegurar que as mensagens são criadas corretamente, para além de permitir que na receção de mensagens se possa descartar as mensagens que não seguem o formato correto.
+- Necessário criar uma classe que converte as mensagens para um array de bytes e as envia através de uma instância do Exon.
+
+### Permitir enviar mensagens com um socket como destino
+### Permitir enviar mensagens com um nodo como destino
+### Permitir definir/alterar limite para o número de mensagens que podem estar em trânsito em simultâneo (limite global)
+### Permitir definir/alterar limite para o número de mensagens que podem estar em trânsito para cada socket
+### Devido à garantia de entrega Exactly-Once não podem ser descartadas mensagens
+#### Problemas
+1. Envio deve ser bloqueante para que as mensagens não sejam descartadas
+#### Soluções
+### ... 
+## Requisitos para receção de mensagens
+### Permitir a receção de mensagens de qualquer tipo
+
+## Requisitos de sockets
+### Permitir criar sockets
+- A instância do middleware deve possuir um método para criar sockets.
+### Permitir registar sockets customizados
+- A operação de registo deve registar uma fábrica de sockets (do tipo customizado) associando esse socket a um identificador que permitirá invocar o método de criação de sockets da instância do middleware.
+
 ### Enviar mensagens de qualquer tipo (para socket ou para nodo)
 ### Enviar mensagens por um socket
 - Como é que um socket pode enviar mensagens?
