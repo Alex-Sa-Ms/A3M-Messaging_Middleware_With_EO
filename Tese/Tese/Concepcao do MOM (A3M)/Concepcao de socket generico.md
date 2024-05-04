@@ -1,20 +1,25 @@
-# Requisitos e Problemas
+# Requisitos
 ## Requisitos para envio de mensagens
 ### Permitir o envio de mensagens, de qualquer tipo, para outro nodo
 - Tem de existir um formato básico das mensagens para que a mensagem seja aceitada no nodo destino. Caso contrário o nodo destino descartará a mensagem por não conseguir processá-la.
 	- Criar uma classe responsável pela construção e verificação do formato das mensagens.
 	- Esta classe permite assegurar que as mensagens são criadas corretamente, para além de permitir que na receção de mensagens se possa descartar as mensagens que não seguem o formato correto.
 - Necessário criar uma classe que converte as mensagens para um array de bytes e as envia através de uma instância do Exon.
-
-### Permitir enviar mensagens com um socket como destino
 ### Permitir enviar mensagens com um nodo como destino
+- Classe de construção de mensagens deve permitir criar mensagens que indicam que se trata de uma mensagem direcionada ao nodo.
+### Permitir enviar mensagens com um socket como destino
+- Classe de construção de mensagens deve permitir criar mensagens que indicam que se trata de uma mensagem direcionada a um socket.
+- Deve existir uma classe que serve de "porta" para um socket poder enviar as mensagens. Esta porta tem de estar obviamente conectada à instância do middleware com que se criou o socket.
 ### Permitir definir/alterar limite para o número de mensagens que podem estar em trânsito em simultâneo (limite global)
+- Necessário um semáforo global que deve ser adquirido antes de enviar cada mensagem.
+- Este método deve ser exposto pela instância do middleware.
 ### Permitir definir/alterar limite para o número de mensagens que podem estar em trânsito para cada socket
-### Devido à garantia de entrega Exactly-Once não podem ser descartadas mensagens
-#### Problemas
-1. Envio deve ser bloqueante para que as mensagens não sejam descartadas
-#### Soluções
-### ... 
+- Necessário associar um semáforo a cada socket que deve ser adquirido antes de enviar cada mensagem que tem esse socket como fonte.
+- Este método deve ser exposto pela instância do socket ou pelo middleware?
+- (Isto permite definir prioridade do tráfego dos sockets)
+### Não podem ser descartadas mensagens (Devido à garantia de entrega Exactly-Once)
+- Métodos de envio de mensagens devem ser bloqueantes.
+ 
 ## Requisitos para receção de mensagens
 ### Permitir a receção de mensagens de qualquer tipo
 
@@ -23,6 +28,15 @@
 - A instância do middleware deve possuir um método para criar sockets.
 ### Permitir registar sockets customizados
 - A operação de registo deve registar uma fábrica de sockets (do tipo customizado) associando esse socket a um identificador que permitirá invocar o método de criação de sockets da instância do middleware.
+
+# Problemas
+1. Threads clientes que pretendem enviar uma mensagem devem tratar de enviar a mensagem ou apenas submeter uma mensagem para envio?
+	1. Se as threads clientes apenas submeterem a mensagem, pelo menos devem esperar que a mensagem passe pelos estágios de verificação da mensagem e de controlo de fluxo (responsável por permitir que a mensagem seja "agendada" para envio).
+2. A lógica de um socket especializado pode exigir o envio de mensagens de controlo, ou seja, que não são geradas pela aplicação que utiliza o middleware. Como o envio de mensagens deve seguir a garantia de entrega Exactly-Once, o envio destas pode bloquear devido aos mecanismos de controlo de fluxo seja do próprio middleware ou do Exon. O problema está no facto de não ser uma thread cliente a ser bloqueada mas o facto de ser uma thread do middleware. Admitindo que se alocou apenas uma thread de processamento para o middleware, se a única thread capaz de processar eventos ficar bloqueada significa que o middleware fica essencialmente parado.
+3. O padrão "Chain of Responsibility" pode ser utilizado para permitir definir um fluxo de envio/receção expansível aos quais se pode adicionar diferentes estágios quando pretendido.
+	1. Por exemplo, consideremos que uma thread cliente invoca um método de envio de um socket. 
+4. A ordem pelos quais uma mensagem passa são importantes. Se o método de `trySend()` for invocado, então a mensagem pode não vir a ser enviada, logo, a mensagem não deve passar pelo processamento especial do seu socket, já que exigiria rever as mudanças no estado do socket.
+	- Utilizando uma versão do design pattern "Template", criar estágios para os diferentes estágios de envio pode ser uma solução. Pode-se criar um estágio preparatório que é executado logo após a invocação do método mas antes de passar pelo estágio de controlo de fluxo. Após ser confirmado que a mensagem será enviada, pode passar por um estágio que executa lógica que apenas pode ser executada depois de se confirmar que a mensagem será efetivamente enviada.
 
 ### Enviar mensagens de qualquer tipo (para socket ou para nodo)
 ### Enviar mensagens por um socket
