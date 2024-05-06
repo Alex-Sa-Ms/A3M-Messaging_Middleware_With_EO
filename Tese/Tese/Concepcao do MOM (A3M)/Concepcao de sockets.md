@@ -70,7 +70,6 @@
 	1. Por exemplo, consideremos que uma thread cliente invoca um método de envio de um socket. 
 4. A ordem pelos quais uma mensagem passa são importantes. Se o método de `trySend()` for invocado, então a mensagem pode não vir a ser enviada, logo, a mensagem não deve passar pelo processamento especial do seu socket, já que exigiria rever as mudanças no estado do socket.
 	- Utilizando uma versão do design pattern "Template", criar estágios para os diferentes estágios de envio pode ser uma solução. Pode-se criar um estágio preparatório que é executado logo após a invocação do método mas antes de passar pelo estágio de controlo de fluxo. Após ser confirmado que a mensagem será enviada, pode passar por um estágio que executa lógica que apenas pode ser executada depois de se confirmar que a mensagem será efetivamente enviada.
-
 ### Enviar mensagens de qualquer tipo (para socket ou para nodo)
 - Reader Thread cria um evento de leitura para que as Event Threads processem a mensagem recebida.
 - As Event Threads ao processarem o evento de leitura entregam a mensagem para a entidade responsável.
@@ -128,7 +127,8 @@ Por exemplo, um socket está fortemente relacionado com um nodo. Como uma instâ
 	- Possíveis Soluções:
 		1. Definir o valor de controlo de fluxo do Exon muito alto para não resultar no bloqueio das worker threads já que isso resultaria no atraso da realização de outras tarefas, só porque o nodo destino da mensagem está a receber demasiadas mensagens.
 		2. No momento, o Exon possui duas variáveis associadas a controlo de fluxo por nodo: P e N. P define a janela de mensagens que pode estar em trânsito num dado momento. N é o número de envelopes máximo que um registo de receção pode ter num dado momento. N é definido como um múltiplo de P. Se removermos esta ligação, é possível tornar o P o valor que dita quantas mensagens o Exon pode ter em fila para enviar para um dado nodo, e o valor de N continua com o mesmo significado mas passa a ser este o valor que dita o controlo de fluxo e limita o nº de mensagens em trânsito para cada nodo.
-
+### Event Threads e operações bloqueantes
+- Como as event threads serão utilizadas para realizar tarefas intrínsecas ao middleware, como lógica dos sockets após receber ou enviar mensagens e outro tipo de tarefas, é necessário criar uma framework de IO assíncrono que permita adiar as tarefas que seguem uma tarefa bloqueante para quando a tarefa bloqueante terminar. O tipo de tarefas bloqueantes devem ser apenas as contempladas pelo middleware, como esperar pela receção de uma mensagem num socket, esperar pelo envio de uma mensagem, esperar um certo período de tempo antes de executar um callback, etc. Nos casos que for possível evitar o uso de operações bloqueantes, então devem ser evitadas.
 # Controlo de fluxo
 Para garantir o correto funcionamento da plataforma e para que esta não sofra de problemas de problemas relacionados com memória ou até de recursos computacionais, devem ser implementados mecanismos de controlo de fluxo tanto para controlar o envio como a receção de mensagens.
 ## Controlo de fluxo no envio
