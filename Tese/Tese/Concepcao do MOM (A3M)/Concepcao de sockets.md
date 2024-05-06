@@ -1,3 +1,20 @@
+# Descrição
+- Nodos são contentores de sockets.
+- Cada socket possui uma etiqueta. Uma etiqueta é um identificador que distingue o socket unicamente dentro do nodo a que pertence. Designemos este por *TagID* ou *LocalSocketID*. 
+- O identificador global de um socket, *SocketID* ou *GlobalSocketID*, corresponde à combinação do identificador do nodo a que o socket pertence (NodeID) com o identificador local do socket (TagID).
+- A comunicação entre sockets será realizada utilizando *SocketID*s.
+- Como o protocolo de transporte utilizado é do tipo *unicast*, todas as mensagens devem possuir a identificação do socket emissor, para efeitos de backtrace, e a identificação do socket destino, para que a mensagem possa ser entregue corretamente quando chegar ao nodo destino.
+- Essencialmente, um socket genérico é responsável por enviar mensagens para sockets e por servir como uma *message box* ou *incoming queue*, permitindo assim a receção de mensagens.
+
+# Ideias
+- Criação de **grupos**
+	- Sockets poderem inscrever-se em grupos. 
+	- Mensagens passam a poder a ser enviadas para grupos de sockets. 
+	- E para o grupo pode ser escolhida a estratégia de entrega: entregar a mensagem a todos os sockets do grupo; entregar apenas a um socket; etc.
+# Observações
+- Apesar de os sockets serem *thread-safe* não é possível "bloquear" a etiqueta dos sockets remotos[^1] e utilizar apenas o identificador do nodo para diferenciar. Isto porque dependendo do tipo de padrão podem existir diferentes tipos de sockets compatíveis entre si. Para além de que pode se pretender utilizar múltiplos sockets com o mesmo propósito mas que não se pretende que sejam partilhados por múltiplas threads.
+
+[^1] Com bloquear a etiqueta, pretendo passar a ideia de que ao criar-se um socket indicaria-se o nome que os nodos remotos compatíveis deveriam ter para que as suas mensagens fossem aceites.
 # Requisitos
 ## Requisitos para envio de mensagens
 ### Permitir o envio de mensagens, de qualquer tipo, para outro nodo
@@ -19,7 +36,22 @@
 - (Isto permite definir prioridade do tráfego dos sockets)
 ### Não podem ser descartadas mensagens (Devido à garantia de entrega Exactly-Once)
 - Métodos de envio de mensagens devem ser bloqueantes.
- 
+### Mensagens direcionadas a um socket do próprio nodo não devem recorrer ao Exon
+- Desnecessário delegar a mensagem para o Exon quando a mensagem é direcionada a um socket do próprio nodo
+- Trade-off:
+	- Maior overhead a enviar para nodos externos devido a uma condição *if* adicional.
+	- Menor overhead a enviar para nodos internos já que não é preciso recorrer ao algoritmo de exactly-once do Exon.
+### Controlo de fluxo na receção
+- O Exon quando detecta que a queue de entrega está cheia deixa de aceitar mensagens. De modo a aproveitar este mecanismo e impedir que ocorram problemas por falta de memória, deve ser imposto um limite que bloqueie a reader thread de ler mais mensagens quando as event threads já se encontram demasiado ocupadas.
+
+- **Solução:**
+	- Definir um tamanho limite na queue dos eventos.
+	- Deste modo, pode-se utilizar o método **offer()** para verificar se existe espaço para adicionar um novo evento de leitura.
+	- Não existindo espaço, a reader thread guarda o evento de leitura e continua a processar recibos de receção até que exista espaço na queue de eventos.
+	- Após ser detectado que já existe espaço, a reader thread entrega o evento guardado e retoma a leitura de mensagens.
+	- Para que isto funcione corretamente, é importante criar uma queue que seja capaz de estabelecer níveis de prioridade para os eventos. Já que impedir que novos eventos de leitura sejam adicionados mas continuar a permitir que eventos de envio sejam criados não faz muito sentido. 
+		- Facilmente realizado com o estabelecimento de porcentagens por tipo de evento, e utilizando contadores para verificar essas porcentagens antes de permitir que um evento seja adicionado.
+		- Isto leva a que um evento de send() também passe pelo controlo de fluxo da queue de eventos e não só pelo controlo de fluxo de envio.
 ## Requisitos para receção de mensagens
 ### Permitir a receção de mensagens de qualquer tipo
 
@@ -40,6 +72,10 @@
 	- Utilizando uma versão do design pattern "Template", criar estágios para os diferentes estágios de envio pode ser uma solução. Pode-se criar um estágio preparatório que é executado logo após a invocação do método mas antes de passar pelo estágio de controlo de fluxo. Após ser confirmado que a mensagem será enviada, pode passar por um estágio que executa lógica que apenas pode ser executada depois de se confirmar que a mensagem será efetivamente enviada.
 
 ### Enviar mensagens de qualquer tipo (para socket ou para nodo)
+- Reader Thread cria um evento de leitura para que as Event Threads processem a mensagem recebida.
+- As Event Threads ao processarem o evento de leitura entregam a mensagem para a entidade responsável.
+- No caso de ser uma mensagem direcionada para um socket, então a mensagem é entregue ao socket genérico associado com a etiqueta destino. O socket genérico ao receber a mensagem notifica os interessados (subscritores) que na fase de protótipo deve corresponder unicamente ao socket de alto nível.
+	- A invocação do método **notify()** deve despoletar assim a execução da lógica necessária por parte do socket de alto nível.
 ### Enviar mensagens por um socket
 - Como é que um socket pode enviar mensagens?
 	- Necessário contactar o sistema de gestão de mensagens (SGM) para enviar uma mensagem.
@@ -99,15 +135,6 @@ Por exemplo, um socket está fortemente relacionado com um nodo. Como uma instâ
 Separador entre problemas e o resto do documento
 
 ---
-
-# Descrição
-- Nodos são contentores de sockets.
-- Cada socket possui um identificador que o distingue unicamente dentro do nodo a que pertence. Designemos este por *LocalSocketID*. 
-- O identificador global de um socket, *GlobalSocketID* ou *SocketID*, corresponde à combinação do identificador do nodo a que o socket pertence (NodeID) com o identificador local do socket (LocalSocketID).
-- A comunicação entre sockets será realizada utilizando *SocketID*s.
-- Como o protocolo de transporte utilizado é do tipo *unicast*, todas as mensagens devem possuir a identificação do socket emissor, para efeitos de backtrace, e a identificação do socket destino, para que a mensagem possa ser entregue corretamente quando chegar ao nodo destino.
-- Essencialmente, um socket genérico é responsável por enviar mensagens para sockets e por servir como uma *message box* ou *incoming queue*, permitindo assim a receção de mensagens.
-
 
 # Ideias
 ## Especialização do socket

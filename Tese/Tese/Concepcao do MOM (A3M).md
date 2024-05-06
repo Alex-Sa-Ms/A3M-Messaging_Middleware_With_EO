@@ -6,7 +6,7 @@
 
 [Adaptacao e reestruturacao do Exon](Adaptacao%20e%20reestruturacao%20do%20Exon.md)
 
-[Concepcao de socket generico](Concepcao%20de%20socket%20generico.md)
+[Concepcao de sockets](Concepcao%20de%20sockets.md)
 
 [Concepção de controlo de fluxo](Concepção%20de%20controlo%20de%20fluxo.md)
 
