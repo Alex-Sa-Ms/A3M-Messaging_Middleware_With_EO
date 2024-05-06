@@ -129,12 +129,30 @@ Por exemplo, um socket está fortemente relacionado com um nodo. Como uma instâ
 		1. Definir o valor de controlo de fluxo do Exon muito alto para não resultar no bloqueio das worker threads já que isso resultaria no atraso da realização de outras tarefas, só porque o nodo destino da mensagem está a receber demasiadas mensagens.
 		2. No momento, o Exon possui duas variáveis associadas a controlo de fluxo por nodo: P e N. P define a janela de mensagens que pode estar em trânsito num dado momento. N é o número de envelopes máximo que um registo de receção pode ter num dado momento. N é definido como um múltiplo de P. Se removermos esta ligação, é possível tornar o P o valor que dita quantas mensagens o Exon pode ter em fila para enviar para um dado nodo, e o valor de N continua com o mesmo significado mas passa a ser este o valor que dita o controlo de fluxo e limita o nº de mensagens em trânsito para cada nodo.
 
+# Controlo de fluxo
+Para garantir o correto funcionamento da plataforma e para que esta não sofra de problemas de problemas relacionados com memória ou até de recursos computacionais, devem ser implementados mecanismos de controlo de fluxo tanto para controlar o envio como a receção de mensagens.
+## Controlo de fluxo no envio
+### Controlo de fluxo por socket local no envio 
+Implementar um mecanismo de controlo de fluxo de envio nos sockets permite ajustar o tráfego produzido por cada socket. Isto é importante para que exista igual oportunidade no envio de mensagens entre os diferentes sockets mas também permite definir prioridades de tráfego. 
+- Admitindo que temos dois sockets: A e B. Se definirmos os tamanhos das janelas dos sockets A e B, respetivamente, como 100 e 1000, é facilmente perceptível que o throughput do socket B pode ser 10 vezes maior do que o socket A, logo este controlo de fluxo permite definir, indiretamente, prioridade no tráfego.
+### Controlo de fluxo por socket remoto no envio
+Realizar esta tarefa não é de todo ideal já que exige guardar informação para todos os sockets remotos com que existe, existiu ou existirá comunicação. Como se pode perceber, é uma tarefa que resulta num crescente uso de memória e não é viável especialmente para peças estáticas da topologia (servidores) que podem vir a ser contactadas por grandes quantidades de nodos (clientes).
+### Controlo de fluxo global no envio
+Considerando que os próprios nodos podem querer trocar mensagens ou que podem vir a existir entidades diferentes de sockets que possam necessitar de enviar mensagens, é necessário existir um mecanismo de controlo de fluxo global que permita limitar a quantidade de mensagens que podem estar em trânsito[^1]. Uma janela de controlo de fluxo global configurável é essencial para que o mecanismo seja ajustável aos recursos dos diferentes dispositivos em que poderá ser utilizado e assim permitir a escolha de valores que não resultem na exaustão da memória ou de recursos computacionais.  
 
----
+[^1] Uma mensagem fica em trânsito a partir do momento que é colocada numa queue para ser enviada para o destino até que é confirmada a sua receção no destino.
+## Controlo de fluxo na receção
+### Controlo de fluxo por socket remoto na receção
+Mesma problema que "Controlo de fluxo por socket remoto no envio".
+### Controlo de fluxo por socket local na receção
+É possível implementar mas é muito complexo e é super ineficiente já que exige coordenação entre o socket local e todos os sockets remotos. Para além de exigir de que a coordenação exigiria que fosse guardada demasiada informação. 
+### Controlo de fluxo global na receção
+Apesar de não ser viável implementar uma solução de controlo de fluxo na receção a nível do socket, implementar um controlo de fluxo global para a receção permite salvaguardar a plataforma de problemas de recursos de armazenamento. O Exon aplica um limite para o número de mensagens que pode ter na queue de entrega (*delivery queue*). Atingindo esse limite, o Exon não aceita a chegada de mais mensagens, mas fá-lo de modo a continuar a garantir que as mensagens serão entregues exatamente uma vez. Ao permitir ajustar o tamanho da *delivery queue* do Exon e através da criação de uma janela para o número de mensagens que podem existir por ser processadas ou a ser processadas no middleware consegue-se proteger a plataforma da exaustão de memória (contando também com o mecanismo de controlo de fluxo global no envio).
+- Por exemplo, se o tamanho da delivery queue for 100 000 mensagens e a janela de controlo de fluxo tiver um tamanho de 10 000 (10% do tamanho da delivery queue), mantém se um ritmo de leitura aceitável, por parte da reader thread, e assegura-se que apenas 100 000 + 10 000 = 110 000 mensagens podem existir por processar. Se o MTU do middleware for de 1000 bytes, pode-se contar com um uso máximo aproximado de 110 000 * 1000 bytes = 1,1 Gigabytes de memória para as mensagens recebidas (faltam os valores das estruturas em que as mensagens são guardadas).
 
-Separador entre problemas e o resto do documento
+## Cálculos de memória em função dos valores definidos para o controlo de fluxo
 
----
+<span style="color:red">TODO: Realizar estas contas quando tiver os mecanismos bem definidos</span>
 
 # Ideias
 ## Especialização do socket
