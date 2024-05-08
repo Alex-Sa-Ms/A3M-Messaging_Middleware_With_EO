@@ -99,7 +99,7 @@
 ### Criação do socket ficar conectada à instância do middleware correta
 ### Como é que se pode exigir um comportamento inicial por parte dos sockets?
 
-### Como é que se pode criar forwarders/dispatchers?
+### ~~Como é que se pode criar forwarders/dispatchers?~~
 ### É possível evitar handshake entre sockets para verificação do tipo de socket?
 **Objetivo do handshake:**
 O principal objetivo de um handshake inicial é certificar que um certo socket existe e que este é do tipo expectável, i.e., compatível.
@@ -138,6 +138,7 @@ Implementar um mecanismo de controlo de fluxo de envio nos sockets permite ajust
 ### Controlo de fluxo por socket remoto no envio
 Realizar esta tarefa não é de todo ideal já que exige guardar informação para todos os sockets remotos com que existe, existiu ou existirá comunicação. Como se pode perceber, é uma tarefa que resulta num crescente uso de memória e não é viável especialmente para peças estáticas da topologia (servidores) que podem vir a ser contactadas por grandes quantidades de nodos (clientes).
 ### Controlo de fluxo global no envio
+<span style="color:red">Professor diz que não pensa ser necessário já que vai atrasar todos os envios e já existe a possibilidade de configurar cada socket. No entanto, não se contempla mensagens que não têm sockets como origem.</span>
 Considerando que os próprios nodos podem querer trocar mensagens ou que podem vir a existir entidades diferentes de sockets que possam necessitar de enviar mensagens, é necessário existir um mecanismo de controlo de fluxo global que permita limitar a quantidade de mensagens que podem estar em trânsito[^1]. Uma janela de controlo de fluxo global configurável é essencial para que o mecanismo seja ajustável aos recursos dos diferentes dispositivos em que poderá ser utilizado e assim permitir a escolha de valores que não resultem na exaustão da memória ou de recursos computacionais.  
 
 [^1] Uma mensagem fica em trânsito a partir do momento que é colocada numa queue para ser enviada para o destino até que é confirmada a sua receção no destino.
