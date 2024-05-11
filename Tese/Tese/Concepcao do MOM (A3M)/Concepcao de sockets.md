@@ -3,7 +3,9 @@
 - Cada socket possui uma etiqueta. Uma etiqueta é um identificador que distingue o socket unicamente dentro do nodo a que pertence. Designemos este por *TagID* ou *LocalSocketID*. 
 - O identificador global de um socket, *SocketID* ou *GlobalSocketID*, corresponde à combinação do identificador do nodo a que o socket pertence (NodeID) com o identificador local do socket (TagID).
 - A comunicação entre sockets será realizada utilizando *SocketID*s.
-- Como o protocolo de transporte utilizado é do tipo *unicast*, todas as mensagens devem possuir a identificação do socket emissor, para efeitos de backtrace, e a identificação do socket destino, para que a mensagem possa ser entregue corretamente quando chegar ao nodo destino.
+- Para que os sockets possam comunicar entre si e de modo a verificar a compatibilidade entre os sockets de alto nível, a existência de um *handshake* é desejável. O método que inicia esta associação pode ser chamado de `link()`. `unlink()`deve cancelar uma associação, mas apenas pode ser invocado após a associação ser criada com sucesso. 
+- Com a existência do handshake, é essencial que as mensagens contenham a identificação do socket fonte para que a informação do socket possa ser acedida (permite confirmar se é uma fonte válida). 
+- A identificação do socket destino deve ser incluída nas mensagens para permitir que o socket destino consiga encaminhar a mensagem para o socket correto.
 - Essencialmente, um socket genérico é responsável por enviar mensagens para sockets e por servir como uma *message box* ou *incoming queue*, permitindo assim a receção de mensagens.
 
 # Ideias
