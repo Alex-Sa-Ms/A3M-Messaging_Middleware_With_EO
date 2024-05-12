@@ -89,6 +89,11 @@
 - Métodos bloqueantes e não bloqueantes para esperar por um recibo
 - Método de test e remove (versão não bloqueante)
 	- Versão bloqueante é muito trabalhosa e não é algo *core*
+		- Uma versão mais simples da versão bloqueante é:
+			- Realizar test & remove não bloqueante. Se sucedido, retorna. Se falhou, bloqueia à espera de ser emitido um novo recibo.
+			- Após ser notificado da existência de um novo recibo, volta a executar o test & remove não bloqueante. Este passo é feito em loop até o test & remove ser bem sucedido.
+			- (Optimização) Dado que em princípio os recibos serão postos numa queue, itera-se a começar do fim, já que novos recibos serão postos na cauda da queue.
+			- (Nota) É da responsabilidade do utilizador garantir que não se espera pelo mesmo recibo em múltiplas threads.
 ### Receipt handler para comportamento pós-receção
 - A emissão dos recibos de receção é algo interessante já que permite executar um certo tipo de comportamento quando uma mensagem é dita como recebida pelo destino.
 #### Quem deve receber os recibos?
@@ -108,6 +113,23 @@
 - Como o conteúdo pode ser muito variável, em vez de criar um handler genérico, pode optar-se por criar um handler específico para essa mensagem e associá-lo ao identificador da mensagem.
 - Não existe risco de interferir com o middleware, já que os handlers serão executados por uma thread do utilizador.
 
+### É necessário um Handshake?
+- Handshake serve como:
+	1. Segurança, pois permite verificar se o socket destino existe e para verificar que é um destino compatível. 
+		1. Enquanto não se confirmar que existe e é do tipo compatível, evita-se enviar mensagens que simplesmente serão descartadas, e portanto, desafiam assim a garantia de entrega Exactly-Once.
+	2. Para formar associações que permitem dar a conhecer o socket a outros sockets com que pretendem comunicar e para se conseguir utilizar mecanismos de routing justos (tipo round-robin na distribuição de mensagens).
+- Associações são necessárias para todos os padrões de comunicação?
+	- Em princípio, todos os padrões beneficiam da criação de associações, para controlo de fluxo, encaminhamento justo, etc.
+	- No entanto, alguns padrões conseguiriam sobreviver sem tais associações. Por exemplo, uma implementação leve e simples do padrão PUSH-PULL, poderia ter os sockets PULL a receber de forma indiscriminada, e processar as mensagens pela ordem que elas chegam. Se não se pretender ser justo para com as diferentes fontes de mensagens, nem utilizar um mecanismo de controlo de fluxo para controlar as fontes, então a existência de um handshake é descartável.
+	- Não existir um handshake, não invalida a criação destes mecanismos, já que todas as mensagens possuem as informações necessárias para identificar o socket.
+### Handshake e noção de terminação (EOF)
+- O Professor falou que existindo handshake para associação e o respetivo pedido de desassociação é possível tratar os sockets como ficheiros e ler até se atingir o EOF (end-of-file). 
+	- Exigiria que o EOF apenas pudesse ser emitido após pelo menos uma associação ter sido iniciada.
+	- Após ter existido pelo menos uma associação, assim que deixasse de existir associações era possível emitir o EOF para avisar que já não deve existir mais nada para ler.
+- **Problemas:** 
+	1. Pode não se pretender que seja emitido EOF, já que não existir associações no momento, pode não ser indicativo de que nunca mais haverá associações.
+	2. Não existe noção de bind e connect para que isto faça sentido. Criar associações é uma operação simétrica. Qualquer socket o pode fazer desde que conheça o socket destino.
+		- Se existisse uma noção de bind e connect, era possível determinar quem é a peça estática. Vamos admitir que as peças estáticas são produtores de mensagens ,sockets do tipo PUSH, e os sockets do tipo PULL são peças dinâmicas. Como os sockets do tipo PULL têm a liberdade de iniciar as associações, quando estes deixassem de ter associações então seria uma oportunidade em que faz sentido emitir o EOF. Mas no caso em que os sockets do tipo PULL são peças estáticas, logo, são as que são contactadas por outros sockets, não faz sentido emitir o EOF porque não se sabe se alguém contactará o socket posteriormente.
 # Conclusões minhas
 ### Ordem nas mensagens
 - Identificadores das mensagens podem ser criados em vários níveis, no entanto, para implementação dos protocolos apenas deve ser relevante a nível do socket. Dito isto, o socket de alto nível deve implementar essa lógica se o pretender.<span style="color:red"> (Perguntar ao prof se concorda.)</span>

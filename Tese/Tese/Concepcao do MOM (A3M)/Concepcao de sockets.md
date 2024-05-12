@@ -101,7 +101,10 @@
 ### Criação do socket ficar conectada à instância do middleware correta
 ### Como é que se pode exigir um comportamento inicial por parte dos sockets?
 
-### ~~Como é que se pode criar forwarders/dispatchers?~~
+### Como é que se pode criar forwarders/dispatchers? <span style="color:yellow">(Pensar melhor nisto)</span>
+- Não sei como funciona exatamente no NNG, mas tenho ideia que existe um objeto especial que utiliza a versão *raw* dos sockets[^1].
+- ...
+[^1]A versão *raw* dos sockets ignora toda a lógica que a versão *cooked* executa.
 ### É possível evitar handshake entre sockets para verificação do tipo de socket?
 **Objetivo do handshake:**
 O principal objetivo de um handshake inicial é certificar que um certo socket existe e que este é do tipo expectável, i.e., compatível.
