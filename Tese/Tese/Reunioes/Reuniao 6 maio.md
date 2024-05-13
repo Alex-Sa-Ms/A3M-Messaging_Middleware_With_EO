@@ -96,7 +96,9 @@
 - Quando é que se define o valor a dizer que é permitido?
 	- 
 - Quando é que se define o valor para dizer que já não é permitido?
-	- 
+- O poller deve ser livre ou ficar associado a uma instância do middleware?
+	- Ser livre possibilitaria juntar sockets de diferentes instâncias no mesmo poller. Se bem que não sei até que ponto é que se pretende duas instâncias no mesmo processo.
+	- Ficar associado a uma instância permite associar o poller aos objetos que devem ser fechados se a instância for fechada. (Embora o mecanismo de fecho não seja para agora) 
 - Fluxo para receção de mensagem:
 	1. 
 ### Associações dos sockets
