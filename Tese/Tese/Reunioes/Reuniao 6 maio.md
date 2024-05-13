@@ -65,9 +65,40 @@
 - Notas:
 	- Pode servir para impor ordem nas mensagens.
 ### Selectors / Pollers
-...
-...
-...
+(**Ouvir parte 2 da reunião para tentar apanhar mais alguma ideia**)
+#### ZeroMQ
+- O ZeroMQ permite criar **Pollers**. 
+	- Têm tamanho fixo (definido na criação).
+	- Podem ser utilizados leitura (POLL IN), escrita (POLL OUT) e para erros (POLL ERR).
+	- Pollers podem conter uma mistura dos diferentes tipos de poll. 
+	- Um socket apenas pode ser registado uma vez, para um dos tipos de poll. Se registado mais do que uma vez, apenas o último registo é funcional. *(Pelo menos é o que parece que acontece)*
+	- Acedidos através do índice utilizado para registar o socket. Se foi registado em primeiro, o índice do socket é 0. Se foi registado em segundo, o índice é 1, e por aí em diante.
+#### Ideia para Solução:
+- Como os sockets têm etiquetas associadas utilizam-se as etiquetas em vez de índices para verificar se o socket está disponível para fazer a tal operação (leitura inicialmente, pensar na escrita mais tarde).
+- Ao registarem-se os sockets, deve ficar guardado qual o tipo de operação em que o se tem interesse para o socket. Guardando-se isto num map, é possível ter uma flag ao lado do tipo de operação para indicar se é possível realizar a operação ou não. A flag é alterada pelo próprio socket.
+- A operação de registar um socket no poller, resulta no poller se registar no socket também para ser informado de quando pode realizar a operação.
+- Como os sockets são thread-safe, um socket pode indicar que a operação é realizável e logo de seguida uma outra thread tornar essa operação não realizável.
+	- O objetivo de ser thread-safe é permitir que múltiplas threads possam ficar à espera de mensagens ou até solicitar o envio de mensagens em simultâneo. Se o utilizador quiser usar métodos bloqueantes (que garantem que a operação será realizada) após o poller informar que é possível realizar a operação, então o utilizador deve garantir que outras threads não atuam sobre os sockets registados no poller, pelo menos no tipo de operação que o poller tem interesse. Se o poller tem interesse em saber quando se pode enviar uma mensagem, então não há problema se outras threads tentarem receber mensagens nesse socket.
+	- Se for pretendido que múltiplas threads utilizem o mesmo socket para o tipo de operação registado no poller, então para garantir que não existe o bloqueio, deve optar-se por utilizar métodos que apenas tentam realizar a operação e não são bloqueantes (tryReceive/trySend).
+- Múltiplos pollers e invocação direta no socket:
+	- É possível que existam múltiplos pollers com interesse no mesmo tipo de operação para o(s) mesmo(s) socket(s), para além de threads que não recorram a pollers e que pretendem executar essas operações chamando diretamente o socket.
+	- Problemas:	
+		- Como acordar o interessado que está disposto a processar a mensagem imediatamente?
+			- Para ser processado imediatamente, acho que acordar uma thread que já tenha chamado a operação bloqueante é o ideal. Para isto é necessário que ao invocar esta operação, seja incrementado um contador para indicar que existe uma thread à espera dessa operação. Deve ser decrementado após a thread deixar de estar bloqueada. 
+				- Se quer enviar uma mensagem, então mal invoca o método e antes de que possa ficar bloqueada, incrementa o contador referente aos interessados em enviar uma mensagem, depois de bloquear (ou não) e executar o envio, deve decrementar esse contador.
+			- O contador se estiver a nulo, então quer dizer que pode ser sinalizado um poller que esteja interessado.
+		- Como evitar acordar todos os interessados de modo a dar oportunidade a cada um?
+			- ~~A solução anterior já dá uma solução para isto.~~ Utiliza-se a condição do socket referente à operação apenas quando existem threads bloqueadas à espera dessa operação. E utiliza-se os pollers (e as suas próprias condições) apenas quando não existem threads diretamente interessadas.
+				- Mas e se a operação não bloqueia? A thread registou-se mas já está a executar a operação e pode não pretender voltar a realizar a operação, logo, nenhuma thread é acordada e provavelmente ninguém vai executar a operação. Mas se um poller tivesse sido sinalizado, então a operação poderia vir a ser realizada.
+					- Basta decrementar o contador logo que a thread fique desbloqueada. Se a operação não bloquear, então a thread é a dona do lock e nenhuma outra thread foi capaz de sinalizar que era possível realizar a operação.
+		- Um poller pode já estar ocupado a realizar outra operação. Se outro, não ocupado, fosse notificado, seria melhor.
+			- Acho que é demasiado difícil. O ideal é ser justo (definir uma ordem pela qual se sinaliza os pollers registados) e admitir que eventualmente a mensagem será processada pelo poller que foi notificado, seja isso cedo ou tarde. O utilizador é que deve ser responsável por escolher a solução mais rápida e eficiente, que consiste em evitar múltiplos pollers (e threads independentes) a utilizar o mesmo socket para o mesmo tipo de operação.
+- Quando é que se define o valor a dizer que é permitido?
+	- 
+- Quando é que se define o valor para dizer que já não é permitido?
+	- 
+- Fluxo para receção de mensagem:
+	1. 
 ### Associações dos sockets
 - Sockets associam-se entre si através de um handshake.
 - O handshake permite verificar se o socket destino existe e se é compatível antes de se passar ao envio de mensagens. 
