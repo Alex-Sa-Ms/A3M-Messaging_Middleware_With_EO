@@ -7,8 +7,60 @@
 - A comunicação entre sockets será realizada utilizando *SocketID*s.
 - Para que os sockets possam comunicar entre si e de modo a verificar a compatibilidade entre os sockets de alto nível, a existência de um *handshake* é desejável. O método que inicia esta associação pode ser chamado de `link()`. `unlink()`deve cancelar uma associação, mas apenas pode ser invocado após a associação ser criada com sucesso. 
 - Com a existência do handshake, é essencial que as mensagens contenham a identificação do socket fonte para que a informação do socket possa ser acedida (permite confirmar se é uma fonte válida). 
-- A identificação do socket destino deve ser incluída nas mensagens para permitir que o socket destino consiga encaminhar a mensagem para o socket correto.
+- A identificação do socket destino deve ser incluída nas mensagens para permitir que o nodo destino consiga encaminhar a mensagem para o socket correto.
 - Essencialmente, um socket genérico é responsável por enviar mensagens para sockets e por servir como uma *message box* ou *incoming queue*, permitindo assim a receção de mensagens.
+# Objetivos
+O objetivo é fazer a concepção base da arquitetura do middleware que permita criar sockets de alto nível e possibilitar a comunicação entre estes.
+Antes de pensar na criação de sockets de alto nível é necessário criar métodos que permitam enviar e receber mensagens, tendo sockets como fontes e destinos, garantindo que as mensagens são entregues exatamente uma vez. Além disso, convém existir um mecanismo de controlo de fluxo para limitar e controlar o fluxo gerado por cada socket. Todas as decisões tomadas na concepção da arquitetura devem ter em mente a garantia de entrega Exactly-once que implica que as mensagens não sejam descartadas até que sejam entregues. Isto implica que o controlo de fluxo não deve resultar no descarte das mensagens, mas sim no bloqueio das threads até que estas recebam permissão para enviar as mensagens.
+## Resumo dos objetivos
+1. Criar socket genérico
+	1. Permitir o envio de mensagens para outros sockets
+	2. Permitir a receção de mensagens de outros sockets.
+	3. Controlar o fluxo de envio de mensagens.
+	4. Garantir que mensagens são entregues exatamente uma vez (não podem ser descartadas em nenhum momento)
+# Problemas
+## Exactly-Once delivery guarantee
+### Descrição
+Necessário garantir que as mensagens são entregues exatamente uma vez ao socket destino, e caso aplicável, entregues exatamente uma vez à aplicação pelo socket destino.
+### Solução
+A solução é:
+	1. Utilizar a biblioteca Exon.
+		- Isto garante que as mensagens são entregues exatamente uma vez ao nodo destino 
+	2. As instância do middleware que interagirem com a mensagem (instância fonte e instância destino) devem ficar bloqueadas até que o controlo de fluxo permita o envio da mensagem.
+		- Assim evita-se que mensagens sejam descartadas quando o controlo de fluxo não permite o envio.
+		- Threads clientes bloqueadas são desta forma controladas e impedidas de gerar mais mensagens quando o mecanismo de controlo de fluxo não permite o envio de mais mensagens para o dado socket.
+## Eficiência
+### Descrição
+A seguir a garantir *Exactly-once delivery*, o principal problema ao desenvolver o middleware é encontrar uma solução que forneça as funcionalidades necessárias da forma mais eficiente possível.
+### Solução
+A solução para este problema é evitar sincronização, contenção e trocas de contexto de threads onde for possível. Funcionalidades que possam ser executadas pelas threads clientes devem ser executadas por elas em vez de adicionar mais um ponto de sincronização (em que se transfere a tarefa de uma thread cliente para uma thread do middleware[^1]).
+
+[^1] Consideremos o exemplo do envio de uma mensagem. A thread cliente pretende enviar uma mensagem para um socket, no entanto, dada a garantia de entrega Exactly-Once, esta thread tem de ficar bloqueada até que o mecanismo de fluxo permita o envio da mensagem, desse modo a thread cliente não consegue gerar mais mensagens enquanto a atual não tiver sido enviada. Se a thread cliente tem de ficar bloqueada até que exista a confirmação do envio, então não há necessidade de criar mais threads do middleware para tratarem das operações de envio, resultando em menor desempenho e num maior consumo de memória.
+## Enviar mensagem para outro socket
+### Descrição
+Sendo os sockets os intervenientes principais na comunicação fornecida pelo middleware, então é necessário que estes sejam capazes de enviar mensagens para outros sockets, estejam estes num nodo remoto ou no próprio nodo.
+### Problemas relacionados
+- [[Concepcao de sockets#Exactly-Once delivery guarantee]]
+- [[Concepcao de sockets#Eficiência]]
+- [[Concepcao de sockets#Controlo de fluxo de envio]]
+### Solução
+Tendo em conta os problemas relacionados, a solução ideal consiste em:
+- Thread cliente deve executar toda a lógica até que a mensagem seja entregue ao Exon.
+	- A responsabilidade passa a ser do Exon que a deve entregar ao nodo destino.
+- 3 métodos de envio devem ser fornecidos pelo socket genérico:
+	- `send(m : Message, destID : SocketIdentifer)` - método bloqueante para envio de uma mensagem
+	- `trySend(m : Message, destID : SocketIdentifier) : boolean` - método não bloqueante que tenta enviar a mensagem.
+		- Retorna 'true' se a mensagem for enviada com sucesso, ou 'false' se o mecanismo de controlo de fluxo não permite que a mensagem seja enviada de imediato.
+	- `trySend(m : Message, destID : SocketIdentifier, tout : long)` - método semelhante ao acima mas que aguarda um intervalo de tempo (em milissegundos) pela permissão para enviar.
+		- Não tendo recibo permissão para enviar a mensagem dentro do intervalo de tempo, *tout*, então retorna com 'false' para indicar que a mensagem não foi enviada. Retorna 'true' se a mensagem foi entregue dentro do intervalo de tempo fornecido.
+## Receber mensagem de um socket
+
+## Controlo de fluxo de envio
+
+## Message Box e Selective Receive
+- Faz sentido o socket genérico servir como message box e permitir selective receive?
+- Como é que o selective receive funcionaria para permitir uma programação reativa?
+## 
 
 # Ideias
 - Criação de **grupos**
