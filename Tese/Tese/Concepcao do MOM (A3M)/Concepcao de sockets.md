@@ -53,9 +53,26 @@ Tendo em conta os problemas relacionados, a solução ideal consiste em:
 		- Retorna 'true' se a mensagem for enviada com sucesso, ou 'false' se o mecanismo de controlo de fluxo não permite que a mensagem seja enviada de imediato.
 	- `trySend(m : Message, destID : SocketIdentifier, tout : long)` - método semelhante ao acima mas que aguarda um intervalo de tempo (em milissegundos) pela permissão para enviar.
 		- Não tendo recibo permissão para enviar a mensagem dentro do intervalo de tempo, *tout*, então retorna com 'false' para indicar que a mensagem não foi enviada. Retorna 'true' se a mensagem foi entregue dentro do intervalo de tempo fornecido.
-## Receber mensagem de um socket
-
 ## Controlo de fluxo de envio
+- Não esquecer de falar que é necessário ter uma thread atenta aos recibos emitidos pelo Exon para atualizar a janela do controlo de fluxo dos sockets. Cada socket guarda os identificadores das suas mensagens enviadas e trata do controlo de fluxo como pretender. 
+
+## Receber mensagem num socket
+### Descrição
+Mensagens enviadas para um socket precisam de ser entregues a esse socket para que possam ser posteriormente acedidas e processadas.
+
+O percurso percorrido por uma mensagem é o seguinte: 
+	**Aplicação Fonte -> Socket Fonte -> Instância Exon Fonte** 
+	**-> Instância Exon Destino -> Socket Destino -> Aplicação Destino**.
+A primeira linha corresponde ao processo que acontece no nodo fonte e foi descrito em [[Concepcao de sockets#Enviar mensagem para outro socket]].
+A segunda linha corresponde ao processo que acontece no nodo destino e trata-se do problema atual. O problema atual é então definir qual o processo pelo qual uma mensagem deve passar para chegar ao socket destino.
+### Solução
+As mensagens chegam ao nodo destino por uma instância do Exon. Para evitar trocas de contexto desnecessárias entre threads e evitar ao máximo a contenção neste ponto central da arquitetura que é o Exon, basta uma única thread do middleware, designada *Reader Thread* para receber as mensagens do Exon e entregá-las aos sockets destinos a que estas dizem respeito. 
+
+~~Para além de uma thread do middleware para distribuir as mensagens recebidas, é também preciso que os sockets possuam um mecanismo para controlo de concorrência (*lock* por exemplo). Este mecanismo será utilizado para evitar *race conditions* entre threads que pretendam ~~
+- Não é necessário o lock aqui porque a reader thread é responsável pelo processamento da mensagem necessário antes de uma mensagem ficar pronta para ser entregue à aplicação.
+## Aceder a mensagens recebidas por um socket
+
+## Thread-safe sockets
 
 ## Message Box e Selective Receive
 - Faz sentido o socket genérico servir como message box e permitir selective receive?
