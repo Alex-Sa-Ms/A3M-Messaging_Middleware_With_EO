@@ -53,31 +53,62 @@ Tendo em conta os problemas relacionados, a solução ideal consiste em:
 		- Retorna 'true' se a mensagem for enviada com sucesso, ou 'false' se o mecanismo de controlo de fluxo não permite que a mensagem seja enviada de imediato.
 	- `trySend(m : Message, destID : SocketIdentifier, tout : long)` - método semelhante ao acima mas que aguarda um intervalo de tempo (em milissegundos) pela permissão para enviar.
 		- Não tendo recibo permissão para enviar a mensagem dentro do intervalo de tempo, *tout*, então retorna com 'false' para indicar que a mensagem não foi enviada. Retorna 'true' se a mensagem foi entregue dentro do intervalo de tempo fornecido.
-## Controlo de fluxo de envio
-- Não esquecer de falar que é necessário ter uma thread atenta aos recibos emitidos pelo Exon para atualizar a janela do controlo de fluxo dos sockets. Cada socket guarda os identificadores das suas mensagens enviadas e trata do controlo de fluxo como pretender. 
-
-## Receber mensagem num socket
+## Controlo de fluxo de envio <span style="color:red;">(TODO)</span>
+- Não esquecer de falar que é necessário ter uma thread atenta aos recibos emitidos pelo Exon para atualizar a janela do controlo de fluxo dos sockets. Cada socket guarda os identificadores das suas mensagens enviadas e trata do controlo de fluxo como pretender.
+## Como fazer as mensagens chegar ao destino
 ### Descrição
 Mensagens enviadas para um socket precisam de ser entregues a esse socket para que possam ser posteriormente acedidas e processadas.
 
 O percurso percorrido por uma mensagem é o seguinte: 
-	**Aplicação Fonte -> Socket Fonte -> Instância Exon Fonte** 
-	**-> Instância Exon Destino -> Socket Destino -> Aplicação Destino**.
-A primeira linha corresponde ao processo que acontece no nodo fonte e foi descrito em [[Concepcao de sockets#Enviar mensagem para outro socket]].
-A segunda linha corresponde ao processo que acontece no nodo destino e trata-se do problema atual. O problema atual é então definir qual o processo pelo qual uma mensagem deve passar para chegar ao socket destino.
+	**(1) Aplicação Fonte ->  Socket Fonte**
+	**(2) Socket Fonte -> Instância Exon Fonte**
+	**(3) Instância Exon Fonte -> Instância Exon Destino**
+	**(4) Instância Exon Destino -> Socket Destino**
+	**(5) Socket Destino -> Aplicação Destino**
+
+Os passos (1) e (2) foram descritos em [[Concepcao de sockets#Enviar mensagem para outro socket]]. O passo (3) é responsabilidade do Exon. Este problema pretende abordar os passos (4) e (5), de forma a definir qual o processo pelo qual uma mensagem deve passar desde que chega ao nodo destino até que é entregue ao seu destino. Podem existir mensagens direcionadas a um socket (mensagens de controlo) e mensagens cujo destino é uma aplicação (mensagens aplicacionais).
 ### Solução
-As mensagens chegam ao nodo destino por uma instância do Exon. Para evitar trocas de contexto desnecessárias entre threads e evitar ao máximo a contenção neste ponto central da arquitetura que é o Exon, basta uma única thread do middleware, designada *Reader Thread* para receber as mensagens do Exon e entregá-las aos sockets destinos a que estas dizem respeito. 
+A primeira tarefa a realizar consiste em receber as mensagens que chegam ao nodo pela instância do Exon. O Exon é um ponto central na arquitetura logo apenas utilizaremos uma thread do middleware, designada de *Reader Thread*, para receber as mensagens do Exon e entregá-las ao socket destino. A entrega das mensagens ao socket destino é acompanhada da lógica de processamento definida por esse socket. A carga computacional destas operações é suposto ser muito baixa e deve evitar operações bloqueantes[^1] que afetem o desempenho da thread do middleware. A entrega da mensagem, no caso de esta ser uma mensagem aplicacional, deve incluir a preparação para a sua receção por parte da aplicação, seja esta feita através de um método `receive()` do socket, ou através de um *poller*.
+
+[^1] Existindo necessidade de implementar lógica bloqueante, o socket ao ser inicializado deve criar os recursos (threads) necessários para tratar da lógica bloqueante que for necessária e assim evitar o bloqueio da thread do middleware.
 
 ~~Para além de uma thread do middleware para distribuir as mensagens recebidas, é também preciso que os sockets possuam um mecanismo para controlo de concorrência (*lock* por exemplo). Este mecanismo será utilizado para evitar *race conditions* entre threads que pretendam ~~
 - Não é necessário o lock aqui porque a reader thread é responsável pelo processamento da mensagem necessário antes de uma mensagem ficar pronta para ser entregue à aplicação.
+
+## Como é que um socket recebe mensagens (de forma genérica)
+### Descrição
+Como referido a Reader Thread é responsável por entregar as mensagens recebidas ao socket destino (incluído nas mensagens). A entrega inclui a lógica de processamento do socket para essa mensagem. Como um dos objetivos do middleware é permitir a extensibilidade do middleware no que diz respeito a protocolos de comunicação, é necessário encontrar uma forma genérica de entregar as mensagens aos diferentes tipos de sockets que possam vir a ser criados.
+### Solução
+Para entregar uma mensagem a um socket e provocar o processamento desta, é necessário o socket possuir um método de notificação, `receivedMessage(m : message)` para que a reader thread possa entregar as mensagens recebidas.
+### Notas
+Ao promover a extensibilidade existe o risco que o utilizador crie sockets cuja implementação do método `receivedMessage(m)` possua operações bloqueantes. Estas operações bloqueantes vão atrasar a reader thread e até poderão resultar em deadlocks. Apesar de existir este risco, dado que a criação de novos sockets é uma funcionalidade avançada, fica da responsabilidade do utilizador evitar executar esse tipo de tarefas no método `receivedMessage(m)`. Se pretender executar este tipo de tarefas deve optar por encontrar outra solução, como criar threads na inicialização do socket que possam realizar essas tarefas.  
+## Forçar comportamento genérico
+**Problemas:**
+- Forçar comportamento genérico
+- Injeção de comportamento customizado pre-send, post-send e post-receive.
+- Partilhar o lock do comportamento genérico com o comportamento customizado para realizar operações atómicas, ou adquirir o lock inicialmente e libertar após a execução do comportamento customizado?
+- É possível fornecer APIs dos sockets restritas, sem ser como as do ZeroMQ que aparece todos os métodos?
+	- Exemplos:
+		- Num socket REQ aparece os métodos subscribe mas não são utilizáveis. 
+		- Num socket PULL aparece o método send() mas não é utilizável. 
+		- Etc...
+
+## Como é que um socket envia mensagens (de forma genérica)
+### Descrição
+Os sockets, independentemente do protocolo de comunicação, precisa de enviar mensagens (pelo menos as mensagens de controlo), logo, é desejável encontrar uma forma genérica para o envio de mensagens por parte dos sockets.
+### Solução
+
+
 ## Aceder a mensagens recebidas por um socket
 
 ## Thread-safe sockets
+## Exigir handshake
+- Ter um handler predefinido é boa ideia, tendo apenas em conta o tipo de socket que fez o contacto, mas permitir a extensibilidade é algo ideal, no entanto, esta parte da compatibilidade deve ser exigida, portanto tentar fazer algo como o padrão de concepção Template?
 
 ## Message Box e Selective Receive
 - Faz sentido o socket genérico servir como message box e permitir selective receive?
 - Como é que o selective receive funcionaria para permitir uma programação reativa?
-## 
+## Pollers
 
 # Ideias
 - Criação de **grupos**
