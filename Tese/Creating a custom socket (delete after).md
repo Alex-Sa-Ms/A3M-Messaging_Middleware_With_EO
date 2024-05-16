@@ -65,26 +65,49 @@ public class CoreSocketFunctionality{
 public abstract class CustomSocket{
 	private final ISocketBridge bridge;
 	private final ISocketEventHandler eventHandler;
+	private final ProtocolFlag protoFlag;
+	
+	// copy & paste from NNG
+	public static enum ProtocolFlag{
+		RCV, // Protocol can receive
+		SND, // Protocol can send
+		SNDRCV, // Protocol can send & receive
+		RAW // Protocol is raw
+	}
 
-	public CustomSocket(ISocketBridge bridge){
+	// pode-se tentar usar alguma lógica com OR de bits para a flag do protocolo
+	private boolean canSend(){...}
+	private boolean canReceive(){...}
+
+	/**
+	 * @param protocolFlag used to identify which operations make sense for the protocol in question. 	
+	**/
+	public CustomSocket(ISocketBridge bridge, Protocolflag protoFlag){
 		this.bridge = bridge;
 		this.eventHandler = createEventHandler();
+		this.protoFlag = protoFlag;
 	}
 
 	// initialization
 	private ISocketEventHandler eventHandler(){
 		Consumer<Msg> msgConsumer = this::handleReceivedMessage;
 		Consumer<MsgId> receiptConsumer = this::handleReceipt;
-		Consumer<SocketIdentifier> linkConsumer = 
-		// TODO - falta o handler de link requests
+		Consumer<SocketIdentifier> linkConsumer; // TODO - falta o handler de novos links
+		Consumer<LinkRequest> linkRqstConsumer; // TODO - falta o handler de link requests
 	}
 
 	// sending messages
 	private abstract Msg preSendProcedure(Msg msg);
 	private abstract void postSendProcedure(Msg msg);
 	public MsgId send(byte[] payload){
-		Msg msg = new Msg(payload);
-		msg = preSendProcedure(msg);
+		if(protoFlag == SND || protoFlag == SNDRCV){
+			Msg msg = new Msg(payload);
+			msg = preSendProcedure(msg);
+		}
+		else if(protoFlag == RCV)
+			throw new NotSupportedException();
+		//else if(protoFlag == RAW)
+		//	... // what to do here?
 	}
 	// rest of the send methods...
 
@@ -93,9 +116,13 @@ public abstract class CustomSocket{
 	
 	// receiving messages
 	private abstract void handleReceivedMessage(Msg msg); // procedure to execute immediately after the message arriving at the socket
-	private abstract Msg receiveProcedure(); // procedure to execute before returning a message. There is only a pre receive procedure as returning the message ends the receive operation. 
+	private abstract Msg receiveProcedure(Msg msg); // procedure to execute before returning a message. There is only a pre receive procedure as returning the message ends the receive operation. 
 	public Msg receive(){
-		return receiveProcedure();
+		if(protoFlag == RCV || protoFlag == SNDRCV) // TODO - find a way to check this with only one operation (use bit operations)
+			return receiveProcedure();
+		else if(protoFlag == SND)
+			throw new NotSupportedException();
+		// else if (protoFlag == RAW) // is it supposed to do anything fancy with RAW? When not RAW hide some Msg information, while with RAW keep everything?
 	}
 	// rest of the receive methods...
 	
