@@ -64,36 +64,91 @@ public class CoreSocketFunctionality{
 ```java
 public abstract class CustomSocket{
 	private final ISocketBridge bridge;
+	private final ISocketEventHandler eventHandler;
 
 	public CustomSocket(ISocketBridge bridge){
 		this.bridge = bridge;
+		this.eventHandler = createEventHandler();
 	}
 
+	// initialization
+	private ISocketEventHandler eventHandler(){
+		Consumer<Msg> msgConsumer = 
+		Consumer<MsgId> receiptConsumer = 
+		Consumer<SocketIdentifier> linkConsumer = 
+	}
+
+	// sending messages
 	private abstract Msg preSendProcedure(Msg msg);
-	private abstract void postSendProcedure();
+	private abstract void postSendProcedure(Msg msg);
 	public MsgId send(byte[] payload){
 		Msg msg = new Msg(payload);
 		msg = preSendProcedure(msg);
-
 	}
+	// rest of the send methods...
 
-
-
+	// handling message receipts
+	private abstract void handleReceipt(MsgId receipt);
+	
+	// receiving messages
+	private abstract void handleReceivedMessage(Msg msg); // procedure to execute immediately after the message arriving at the socket
+	private abstract Msg receiveProcedure(); // procedure to execute before returning a message. There is only a pre receive procedure as returning the message ends the receive operation. 
+	public Msg receive(){
+		return receiveProcedure();
+	}
+	// rest of the receive methods...
+	
+	// linking / unlinking with sockets
+	private abstract boolean preLinkingConditions(SocketIdentifier id);
+	private abstract void preLinkingProcedure(SocketIdentifier id);
+	private abstract void postLinkingProcedure(SocketIdentifier id);
+	public void handleLink(SocketIdentifier id){
+		postLinkingProcedure(id);
+	}
 }
-
-public class SocketBridge implements ISocketBridge{}
-
 
 public interface ISocketBridge{
 	// Used to get the lock of the socket bridge for early acquisitions.
 	// The lock can be required for atomic operations.
 	Lock getLock();
 
-
 	// Must throw exception when a non null handler has been set previously.
-	void setSocketHandler(ISocketHandler handler);
+	void setSocketEventHandler(ISocketEventHandler eventHandler);
+
+	void setDefaultReceiptOption(boolean emitReceipts);
+	boolean getDefaultReceiptOption();
+
+	MsgId send(SocketIdentifier dest, byte[] payload);
+	MsgId send(SocketIdentifier dest, byte[] payload, boolean receipt);
+	MsgId trySend(SocketIdentifier dest, byte[] payload);
+	MsgId trySend(SocketIdentifier dest, byte[] payload, boolean receipt);
+	MsgId trySend(SocketIdentifier dest, byte[] payload, long tOut);
+	MsgId trySend(SocketIdentifier dest, byte[] payload, long tOut, boolean receipt);
+
+	void link(SocketIdentifier id); // issue link operation
+	void unlink(SocketIdentifier id); // issue unlink operation
+	void isLinked(SocketIdentifier id); // check if a socket is linked
+}
+
+public interface ISocketEventHandler{
+	void handleReceipt(MsgId msgId);
+	void handleMessage(Msg msg);
+	void handleLink(SocketIdentifier id); // new linked socket
+}
+```
 
 
+## Questions
+- How to make something like NNG raw sockets?
+- Could I have something like a pipe upon the establishment of a link? Does it make sense to exist? 
+- Can I create a basic RAW version and COOKED version, and implement the custom sockets over them?
+- Can I create a version that can already tip to a RAW version and COOKED version based on a flag defined at creation time?
+- How does a reader thread know which socket should receive the receipt?
+
+
+# Set custom socket options
+
+```java
 	// To option name to set the default for the emission of receipts is 'emitReceipts'. 
 	// `setOption("emitReceipts", true)` to emit a receipt as default. 
 	// `setOption("emitReceipts", false)` to not emit a receipt as default.
@@ -113,23 +168,4 @@ public interface ISocketBridge{
     //	  }
     //    return valueType.cast(value); 
     //}
-
-
-	MsgId send(SocketIdentifier dest, byte[] payload);
-	MsgId send(SocketIdentifier dest, byte[] payload, boolean receipt);
-	MsgId trySend(SocketIdentifier dest, byte[] payload);
-	MsgId trySend(SocketIdentifier dest, byte[] payload, boolean receipt);
-	MsgId trySend(SocketIdentifier dest, byte[] payload, long tOut);
-	MsgId trySend(SocketIdentifier dest, byte[] payload, long tOut, boolean receipt);
-}
-
-public interface ISocketHandler{
-	void handleReceipt(MsgId msgId);
-	void handleMessage(Msg msg);
-}
-```
-## Questions
-- How to make something like NNG raw sockets?
-- Could I have something like a pipe upon the establishment of a link? Does it make sense to exist? 
-- Can I create a basic RAW version and COOKED version, and implement the custom sockets over them?
-- Can I create a version that can already tip to a RAW version and COOKED version based on a flag defined at creation time?
+    ```
