@@ -61,9 +61,10 @@ public class CoreSocketFunctionality{
 ```
 
 # Solution attempt 2
+
 ```java
-public abstract class CustomSocket{
-	private final ISocketBridge bridge;
+public abstract class Socket{
+	private final ISocketCore core;
 	private final ISocketEventHandler eventHandler;
 	private final ProtocolFlag protoFlag;
 	
@@ -82,8 +83,8 @@ public abstract class CustomSocket{
 	/**
 	 * @param protocolFlag used to identify which operations make sense for the protocol in question. 	
 	**/
-	public CustomSocket(ISocketBridge bridge, Protocolflag protoFlag){
-		this.bridge = bridge;
+	public CustomSocket(ISocketCore core, Protocolflag protoFlag){
+		this.core = core;
 		this.eventHandler = createEventHandler();
 		this.protoFlag = protoFlag;
 	}
@@ -137,13 +138,15 @@ public abstract class CustomSocket{
 		postLinkingProcedure(id);
 	}
 }
+```
 
-public interface ISocketBridge{
+```java
+public interface ISocketCore{
 	// Used to get the lock of the socket bridge for early acquisitions.
 	// The lock can be required for atomic operations.
 	Lock getLock();
 
-	// Must throw exception when a non null handler has been set previously.
+	// Must throw exception when a not null handler has been set previously.
 	void setSocketEventHandler(ISocketEventHandler eventHandler);
 
 	void setDefaultReceiptOption(boolean emitReceipts);
@@ -161,15 +164,17 @@ public interface ISocketBridge{
 	void unlink(SocketIdentifier id); // issue unlink operation
 	void isLinked(SocketIdentifier id); // check if a socket is linked
 }
+```
 
+```java
 public interface ISocketEventHandler{
 	void handleReceipt(MsgId msgId);
 	void handleReceivedMessage(Msg msg);
 	LinkResponse.RefuseReason handleLinkRequest(LinkRequest request); // if the link should be accepted return 'null', otherwise return the reason for the refusal
 	void handleLink(SocketIdentifier id); // new linked socket
 }
-```
 
+```
 
 ## Questions
 - How to make something like NNG raw sockets?
@@ -177,6 +182,8 @@ public interface ISocketEventHandler{
 - Can I create a basic RAW version and COOKED version, and implement the custom sockets over them?
 - Can I create a version that can already tip to a RAW version and COOKED version based on a flag defined at creation time?
 - How does a reader thread know which socket should receive the receipt?
+	- Exon permitir o utilizador criar MsgId?
+		- Assim é possível adicionar a etiqueta do socket para ser possível entregar o recibo ao socket sem que seja necessário introduzir mais um ponto de contenção com uma estrutura que mapeia o `MsgId` para o socket fonte. As associações têm de ser criadas pelos próprios sockets e depois acedida pela `ReaderThread` para saber a que socket entregar o recibo. 
 - Linking operation must contemplate that the higher level socket may also want to verify the request before accepting the link. Another callback it is. 
 
 
