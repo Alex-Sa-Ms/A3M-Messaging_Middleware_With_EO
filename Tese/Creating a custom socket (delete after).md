@@ -73,9 +73,10 @@ public abstract class CustomSocket{
 
 	// initialization
 	private ISocketEventHandler eventHandler(){
-		Consumer<Msg> msgConsumer = 
-		Consumer<MsgId> receiptConsumer = 
+		Consumer<Msg> msgConsumer = this::handleReceivedMessage;
+		Consumer<MsgId> receiptConsumer = this::handleReceipt;
 		Consumer<SocketIdentifier> linkConsumer = 
+		// TODO - falta o handler de link requests
 	}
 
 	// sending messages
@@ -99,10 +100,13 @@ public abstract class CustomSocket{
 	// rest of the receive methods...
 	
 	// linking / unlinking with sockets
+	// TODO - linking methods must contemplate receiving requests and issueing requests
+	private ...
+	
 	private abstract boolean preLinkingConditions(SocketIdentifier id);
 	private abstract void preLinkingProcedure(SocketIdentifier id);
 	private abstract void postLinkingProcedure(SocketIdentifier id);
-	public void handleLink(SocketIdentifier id){
+	private void handleLink(SocketIdentifier id){
 		postLinkingProcedure(id);
 	}
 }
@@ -125,6 +129,7 @@ public interface ISocketBridge{
 	MsgId trySend(SocketIdentifier dest, byte[] payload, long tOut);
 	MsgId trySend(SocketIdentifier dest, byte[] payload, long tOut, boolean receipt);
 
+	// missing the method to send custom negociation properties for the linking operation
 	void link(SocketIdentifier id); // issue link operation
 	void unlink(SocketIdentifier id); // issue unlink operation
 	void isLinked(SocketIdentifier id); // check if a socket is linked
@@ -132,7 +137,8 @@ public interface ISocketBridge{
 
 public interface ISocketEventHandler{
 	void handleReceipt(MsgId msgId);
-	void handleMessage(Msg msg);
+	void handleReceivedMessage(Msg msg);
+	LinkResponse.RefuseReason handleLinkRequest(LinkRequest request); // if the link should be accepted return 'null', otherwise return the reason for the refusal
 	void handleLink(SocketIdentifier id); // new linked socket
 }
 ```
@@ -144,6 +150,7 @@ public interface ISocketEventHandler{
 - Can I create a basic RAW version and COOKED version, and implement the custom sockets over them?
 - Can I create a version that can already tip to a RAW version and COOKED version based on a flag defined at creation time?
 - How does a reader thread know which socket should receive the receipt?
+- Linking operation must contemplate that the higher level socket may also want to verify the request before accepting the link. Another callback it is. 
 
 
 # Set custom socket options
