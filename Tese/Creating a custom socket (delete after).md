@@ -1,0 +1,135 @@
+# Delete this after writing the conclusions in the appropriate note
+# Checklist
+The final architecture should pass this checklist.
+- [ ] Can use custom socket API?
+- [ ] Received messages are handled by a core object before being delivered to the custom processing method?
+	- Required for control core messages such as Link Request, Link Ack, Link Refuse, etc.
+- [ ] Link related messages can be understood by all sockets regardless of their type?
+- [ ] Does every method need to be implemented from scratch for every socket implementation?
+- [ ] Can RAW and COOKED sockets be created? Are they implemented as two different sockets?
+
+
+# Solution attempt 1
+
+```java
+public class CoreSocketFunctionality{
+	private Lock lock = new ReentrantLock();
+
+	public MsgId send(byte[] payload, SocketIdentifier dest){
+		... // blocks until space in flow control window
+	}
+
+	public MsgId trySend(byte[] payload, SocketIdentifier dest){
+		... // checks if there is space in flow control window
+	}
+
+	// allowing to check the state of the flow control might be useful also
+	// public boolean canSend();
+	// public int getSendPermits();
+
+
+	// What if it is required to store custom information about the linked sockets?
+		//	Store information in two different places, in the custom class and in here?
+			// Store ongoing link requests here, and use a notification method to notify the
+			// custom socket that a new link was created.
+	// Link messages should be capable of carrying a custom payload to include custom information
+	// that can be used to determine if the linking operation should happen.
+
+	// Linking exchange:
+	//	1. Send link request
+	//  2.1. If link request is valid, send link ack message which may contain custom payload to carry properties important for the linking negotiation.
+	//  2.2. if link request is not valid (compatible), send link refuse message containing the reason.
+	//  2.3. If the destination socket of the link does not exist (at least currently) then send link refuse containing as reason (socket does not exist).
+	//  3. If the information in the link ack is compatible, send a link ack with empty custom payload (custom payload is not necessary as this information was already sent in the link request message).
+
+
+	// How will this different messages be distinguished? 
+		// They should always pass through the CoreSocketFunctionality before being delivered to the custom socket.
+
+	public link(SocketIdentifier id){
+		... // needs custom info
+	}
+
+	public unlink(SocketIdentifier id){
+		... 
+	}
+
+	public handleReceipt(MsgId id){
+		... // to update flow control window
+	}
+}
+```
+
+# Solution attempt 2
+```java
+public abstract class CustomSocket{
+	private final ISocketBridge bridge;
+
+	public CustomSocket(ISocketBridge bridge){
+		this.bridge = bridge;
+	}
+
+	private abstract Msg preSendProcedure(Msg msg);
+	private abstract void postSendProcedure();
+	public MsgId send(byte[] payload){
+		Msg msg = new Msg(payload);
+		msg = preSendProcedure(msg);
+
+	}
+
+
+
+}
+
+public class SocketBridge implements ISocketBridge{}
+
+
+public interface ISocketBridge{
+	// Used to get the lock of the socket bridge for early acquisitions.
+	// The lock can be required for atomic operations.
+	Lock getLock();
+
+
+	// Must throw exception when a non null handler has been set previously.
+	void setSocketHandler(ISocketHandler handler);
+
+
+	// To option name to set the default for the emission of receipts is 'emitReceipts'. 
+	// `setOption("emitReceipts", true)` to emit a receipt as default. 
+	// `setOption("emitReceipts", false)` to not emit a receipt as default.
+	// To handle the receipt a socket handler must be provided.
+	
+	<T> void setOption(String option, T value);
+    <T> T getOption(String option, Class<T> valueType);
+
+	// use clone() for security (both at setOption() and getOption())
+
+    //public <T> T getOption(String optionName, Class<T> valueType) {
+    //    Object value = options.get(optionName);
+    //    if (value == null) {
+    //        return null;
+    //    }else if (!valueType.isInstance(value)){
+    //		  throw new IllegalArgumentException("The option value is not an instance of the given value type.");	
+    //	  }
+    //    return valueType.cast(value); 
+    //}
+
+
+	MsgId send(SocketIdentifier dest, byte[] payload);
+	MsgId send(SocketIdentifier dest, byte[] payload, boolean receipt);
+	MsgId trySend(SocketIdentifier dest, byte[] payload);
+	MsgId trySend(SocketIdentifier dest, byte[] payload, boolean receipt);
+	MsgId trySend(SocketIdentifier dest, byte[] payload, long tOut);
+	MsgId trySend(SocketIdentifier dest, byte[] payload, long tOut, boolean receipt);
+}
+
+public interface ISocketHandler{
+	void handleReceipt(MsgId msgId);
+	void handleMessage(Msg msg);
+}
+```
+## Questions
+- How to make something like NNG raw sockets?
+- Could I have something like a pipe upon the establishment of a link? Does it make sense to exist? 
+- Can I create a basic RAW version and COOKED version, and implement the custom sockets over them?
+- Can I create a version that can already tip to a RAW version and COOKED version based on a flag defined at creation time?
