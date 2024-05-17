@@ -60,7 +60,7 @@ public class CoreSocketFunctionality{
 }
 ```
 
-# Solution attempt 2
+# Solution attempt 2 (outdated)
 
 ```java
 public abstract class Socket{
@@ -185,6 +185,7 @@ public interface ISocketEventHandler{
 	- Exon permitir o utilizador criar MsgId?
 		- Assim é possível adicionar a etiqueta do socket para ser possível entregar o recibo ao socket sem que seja necessário introduzir mais um ponto de contenção com uma estrutura que mapeia o `MsgId` para o socket fonte. As associações têm de ser criadas pelos próprios sockets e depois acedida pela `ReaderThread` para saber a que socket entregar o recibo. 
 - Linking operation must contemplate that the higher level socket may also want to verify the request before accepting the link. Another callback it is. 
+- Separar os diferentes handlers necessários em vários métodos *set()* do ISocketCore, em vez de obrigar à criação de um objeto que contém esses handlers?
 
 
 # Set custom socket options
