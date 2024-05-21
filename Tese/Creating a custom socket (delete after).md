@@ -1,6 +1,6 @@
 # Delete this after writing the conclusions in the appropriate note
 # Checklist
-The final architecture should pass this checklist.
+The final architecture should pass this checklist. Open checked boxes to see solution.
 - [ ] Can use custom socket API?
 - [ ] Received messages are handled by a core object before being delivered to the custom processing method?
 	- Required for control core messages such as Link Request, Link Ack, Link Refuse, etc.
@@ -8,6 +8,30 @@ The final architecture should pass this checklist.
 - [ ] Does every method need to be implemented from scratch for every socket implementation?
 - [ ] Can RAW and COOKED sockets be created? Are they implemented as two different sockets?
 
+- [ ] How to make something like NNG raw sockets?
+- [ ] Could I have something like a pipe upon the establishment of a link? Does it make sense to exist? 
+- [ ] Can I create a basic RAW version and COOKED version, and implement the custom sockets over them?
+- [ ] Can I create a version that can already tip to a RAW version and COOKED version based on a flag defined at creation time?
+- [ ] How does a reader thread know which socket should receive the receipt?
+	-  Exon permitir o utilizador criar MsgId?
+		-  Assim é possível adicionar a etiqueta do socket para ser possível entregar o recibo ao socket sem que seja necessário introduzir mais um ponto de contenção com uma estrutura que mapeia o `MsgId` para o socket fonte. As associações têm de ser criadas pelos próprios sockets e depois acedida pela `ReaderThread` para saber a que socket entregar o recibo. 
+
+# Decisions
+- Socket core has own private lock that should be released before entering unknown territory (protocol callbacks).
+# Diagram
+![[Pasted image 20240521154534.png]]
+# Future work
+- Check if sharing the socket lock with the socket core is mandatory.
+	- For the sockets to be thread-safe, they require a lock. However, this lock is required not only by the objects related to the protocol but also by the core of the socket, for example, to make threads idle while the resources they are waiting for are not available.
+		-  **Solution:** Inject the socket lock into these objects.
+- Linking requests containing custom payload and handling of such custom payloads to decide if the link request should be accepted or refused.
+	- Linking operations are handled by the socket core. However, a high-level socket may which to add further requirements for a link to be created. (Example: Can be useful to implement authentication.)
+	- Socket core must allow a custom payload to be included in the link request.
+	- A handler for the custom payload must be provided to the socket core so that the it can be analysed when the peer is compatible and a custom payload does exist.
+	- **Solutions:**
+		1. Injecting a protocol specific object in the socket core may be the solution to access both the handler and the custom payload.
+		2. Another solution is to use setter methods, to the set the custom payload and the handler.
+- 
 
 # Solution attempt 1
 
@@ -176,17 +200,6 @@ public interface ISocketEventHandler{
 
 ```
 
-## Questions
-- How to make something like NNG raw sockets?
-- Could I have something like a pipe upon the establishment of a link? Does it make sense to exist? 
-- Can I create a basic RAW version and COOKED version, and implement the custom sockets over them?
-- Can I create a version that can already tip to a RAW version and COOKED version based on a flag defined at creation time?
-- How does a reader thread know which socket should receive the receipt?
-	- Exon permitir o utilizador criar MsgId?
-		- Assim é possível adicionar a etiqueta do socket para ser possível entregar o recibo ao socket sem que seja necessário introduzir mais um ponto de contenção com uma estrutura que mapeia o `MsgId` para o socket fonte. As associações têm de ser criadas pelos próprios sockets e depois acedida pela `ReaderThread` para saber a que socket entregar o recibo. 
-- Linking operation must contemplate that the higher level socket may also want to verify the request before accepting the link. Another callback it is. 
-- Separar os diferentes handlers necessários em vários métodos *set()* do ISocketCore, em vez de obrigar à criação de um objeto que contém esses handlers?
-
 
 # Set custom socket options
 
@@ -211,3 +224,10 @@ public interface ISocketEventHandler{
     //    return valueType.cast(value); 
     //}
     ```
+# Protocolos
+## Ficheiros importantes NNG
+- *socket.c*
+- *protocol.h*
+- ficheiros de implementacao de protocolo, tipo *xrep.c*
+- pollable.* pode ajudar a fazer a parte do poll
+## 
