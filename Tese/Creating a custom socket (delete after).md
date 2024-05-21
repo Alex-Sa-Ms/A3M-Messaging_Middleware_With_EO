@@ -18,7 +18,7 @@ The final architecture should pass this checklist. Open checked boxes to see sol
 
 # Decisions
 - Socket core has own private lock that should be released before entering unknown territory (protocol callbacks).
-# Diagram
+# Diagram (in progress)
 ![[Pasted image 20240521154534.png]]
 # Future work
 - Check if sharing the socket lock with the socket core is mandatory.
@@ -31,7 +31,7 @@ The final architecture should pass this checklist. Open checked boxes to see sol
 	- **Solutions:**
 		1. Injecting a protocol specific object in the socket core may be the solution to access both the handler and the custom payload.
 		2. Another solution is to use setter methods, to the set the custom payload and the handler.
-- 
+- Similarly to NNG, maybe later there can be something like link options. 
 
 # Solution attempt 1
 
@@ -230,4 +230,189 @@ public interface ISocketEventHandler{
 - *protocol.h*
 - ficheiros de implementacao de protocolo, tipo *xrep.c*
 - pollable.* pode ajudar a fazer a parte do poll
-## 
+## Algumas estruturas importantes
+```c
+struct nni_socket {
+	nni_list_node s_node;
+	nni_mtx       s_mx;
+	nni_cv        s_cv; // condition variable
+	nni_cv        s_close_cv; // close condition variable
+
+	uint32_t s_id;
+	uint32_t s_flags;
+	unsigned s_ref;  // protected by global lock
+	void    *cs_data; // Protocol private
+	size_t   s_size;
+
+	nni_msgq *s_uwq; // Upper write queue
+	nni_msgq *s_urq; // Upper read queue
+
+	nni_proto_id s_self_id;
+	nni_proto_id s_peer_id;
+
+	nni_proto_pipe_ops s_pipe_ops;
+	nni_proto_sock_ops s_sock_ops;
+	nni_proto_ctx_ops  s_ctx_ops;
+
+	// options
+	nni_duration s_sndtimeo;  // send timeout
+	nni_duration s_rcvtimeo;  // receive timeout
+	nni_duration s_reconn;    // reconnect time
+	nni_duration s_reconnmax; // max reconnect time
+	size_t       s_rcvmaxsz;  // max receive size
+	nni_list     s_options;   // opts not handled by sock/proto
+	char         s_name[64];  // socket name (legacy compat)
+
+	nni_list s_listeners; // active listeners
+	nni_list s_dialers;   // active dialers
+	nni_list s_pipes;     // active pipes
+	nni_list s_ctxs;      // active contexts (protected by global sock_lk)
+
+	bool s_closing; // Socket is closing
+	bool s_closed;  // Socket closed, protected by global lock
+	bool s_ctxwait; // Waiting for contexts to close.
+
+	nni_mtx          s_pipe_cbs_mtx;
+	nni_sock_pipe_cb s_pipe_cbs[NNG_PIPE_EV_NUM];
+
+#ifdef NNG_ENABLE_STATS
+	nni_stat_item st_root;      // socket scope
+	nni_stat_item st_id;        // socket id
+	nni_stat_item st_name;      // socket name
+	nni_stat_item st_protocol;  // socket protocol
+	nni_stat_item st_dialers;   // number of dialers
+	nni_stat_item st_listeners; // number of listeners
+	nni_stat_item st_pipes;     // number of pipes
+	nni_stat_item st_rx_bytes;  // number of bytes received
+	nni_stat_item st_tx_bytes;  // number of bytes received
+	nni_stat_item st_rx_msgs;   // number of msgs received
+	nni_stat_item st_tx_msgs;   // number of msgs sent
+	nni_stat_item st_rejects;   // pipes rejected
+#endif
+};
+
+typedef struct nni_sockopt {
+	nni_list_node node;
+	char         *name;
+	nni_type      typ;
+	size_t        sz;
+	void         *data;
+} nni_sockopt;
+
+struct nni_ctx {
+	nni_list_node     c_node;
+	nni_sock         *c_sock;
+	nni_proto_ctx_ops c_ops;
+	void             *c_data;
+	size_t            c_size;
+	bool              c_closed;
+	unsigned          c_ref; // protected by global lock
+	uint32_t          c_id;
+	nng_duration      c_sndtimeo;
+	nng_duration      c_rcvtimeo;
+};
+
+// nni_proto_pipe contains protocol-specific per-pipe operations.
+struct nni_proto_pipe_ops {
+	// pipe_size is the size of a protocol pipe object.  The common
+	// code allocates this memory for the protocol private state.
+	size_t pipe_size;
+
+	// pipe_init initializes the protocol-specific pipe data structure.
+	// The last argument is the per-socket protocol private data.
+	int (*pipe_init)(void *, nni_pipe *, void *);
+
+	// pipe_fini releases any pipe data structures.  This is called after
+	// the pipe has been removed from the protocol, and the generic
+	// pipe threads have been stopped.
+	void (*pipe_fini)(void *);
+
+	// pipe_start is called to register a pipe with the protocol.  The
+	// protocol can reject this, for example if another pipe is already
+	// active on a 1:1 protocol.  The protocol may not block during this.
+	int (*pipe_start)(void *);
+
+	// pipe_close is an idempotent, non-blocking, operation, called
+	// when the pipe is being closed.  Any operations pending on the
+	// pipe should be canceled with NNG_ECLOSED.  (Best option is to
+	// use nng_aio_close() on them)
+	void (*pipe_close)(void *);
+
+	// pipe_stop is called during finalization, to ensure that
+	// the protocol is absolutely finished with the pipe.  It should
+	// wait if necessary to ensure that the pipe is not referenced
+	// any more by the protocol.  It should not destroy resources.
+	void (*pipe_stop)(void *);
+};
+
+struct nni_proto_ctx_ops {
+	// ctx_size is the size of a protocol context object.  The common
+	// code allocates this memory for the protocol private state.
+	size_t ctx_size;
+
+	// ctx_init initializes a new context. The second argument is the
+	// protocol specific socket structure.
+	void (*ctx_init)(void *, void *);
+
+	// ctx_fini destroys a context.
+	void (*ctx_fini)(void *);
+
+	// ctx_recv is an asynchronous recv.
+	void (*ctx_recv)(void *, nni_aio *);
+
+	// ctx_send is an asynchronous send.
+	void (*ctx_send)(void *, nni_aio *);
+
+	// ctx_options array.
+	nni_option *ctx_options;
+};
+
+struct nni_proto_sock_ops {
+	// ctx_size is the size of a protocol socket object.  The common
+	// code allocates this memory for the protocol private state.
+	size_t sock_size;
+
+	// sock_init initializes the protocol instance, which will be stored
+	// on the socket. This is run without the sock lock held.
+	void (*sock_init)(void *, nni_sock *);
+
+	// sock_fini destroys the protocol instance.  This is run without the
+	// socket lock held, and is intended to release resources.  It may
+	// block as needed.
+	void (*sock_fini)(void *);
+
+	// Open the protocol instance.  This is run with the lock held,
+	// and intended to allow the protocol to start any asynchronous
+	// processing.
+	void (*sock_open)(void *);
+
+	// Close the protocol instance.  This is run with the lock held,
+	// and intended to initiate closure of the socket.  For example,
+	// it can signal the socket worker threads to exit.
+	void (*sock_close)(void *);
+
+	// Send a message.
+	void (*sock_send)(void *, nni_aio *);
+
+	// Receive a message.
+	void (*sock_recv)(void *, nni_aio *);
+
+	// Options. Must not be NULL. Final entry should have NULL name.
+	nni_option *sock_options;
+};
+
+typedef struct nni_proto_id {
+	uint16_t    p_id;
+	const char *p_name;
+} nni_proto_id;
+
+struct nni_proto {
+	uint32_t                  proto_version;  // Ops vector version
+	nni_proto_id              proto_self;     // Our identity
+	nni_proto_id              proto_peer;     // Peer identity
+	uint32_t                  proto_flags;    // Protocol flags
+	const nni_proto_sock_ops *proto_sock_ops; // Per-socket operations
+	const nni_proto_pipe_ops *proto_pipe_ops; // Per-pipe operations
+	const nni_proto_ctx_ops * proto_ctx_ops;  // Context operations
+};
+```
