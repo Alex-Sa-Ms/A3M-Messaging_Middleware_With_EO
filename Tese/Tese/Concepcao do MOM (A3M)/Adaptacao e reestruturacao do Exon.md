@@ -139,9 +139,38 @@ Tempo de resfriamento no Exon é inútil. No contexto exactly-once não existem 
 # Recibos de receção
 
 ### Problem
-A recurrent problem associated with messaging systems is knowing if a message has arrived at the destination. The solution requires the receiver to send an acknowledgment message (ACK) confirming the arrival of the message. Since the Exon middleware already receives such confirmation, by offering the possibility of requesting **reception receipts**, the Exon middleware avoids additional overhead by preventing the upper layer from the necessity of sending an acknowledgment message over the Exon transport.
-
+A recurrent problem associated with messaging systems is knowing if a message has arrived at the destination. The solution requires the receiver to send an acknowledgment message (ACK) confirming the arrival of the message. Since the Exon middleware already receives such confirmation, by offering the possibility of emitting **reception receipts**, the upper layer can avoid the additional overhead produced through sending acknowledgment messages over the Exon transport.
 ### Solution
+The designed solution for this problem allows the upper layer to create their own receipts and associate them with individual outgoing messages. The reception receipts are not a requirement for the Exon algorithm to work properly, therefore, delegating the design of the receipts to the upper layer is possible and contributes to flexibility. For instance, the upper layer may opt to create receipts as holders of callback methods instead of plain message identifiers. These callback methods, tailored to the sent messages, could then be executed upon receiving the confirmation that the message arrived at the destination, i.e., when the upper layer receives the receipt object emitted by Exon.
+#### Modifications
+- Added new variants of the `send()` and `trySend()` methods that enable specifying the receipt that should be emitted when the outgoing message is confirmed to have arrived at the destination:
+	- `send(msg : byte[], receipt : Receipt)`
+	- `trySend(msg : byte[], timeout : long, receipt : Receipt)`
+- Providing a 'null' receipt or using the *send* method that do not allow the specification of receipt is equivalent, and results in no receipt being emitted for the outgoing message.
+- `receive()` and `tryReceive()`methods return an `Object`which can be a `ClientMsg` or a `Receipt`. This enables a single thread to receive incoming messages and receipts without resorting to active waiting. An example of the active waiting would be the following:
+	```java
+		while(true){
+			// waits a maximum of 100 ms to receive an incoming message 
+			ClientMsg msg = tryReceiveMsg(100);
+			if(msg != null)
+				doSomethingWithMsg(msg);
+
+			// Does not wait for a receipt to be available. If there is one
+			// receipt available, handles it.
+			Receipt receipt = tryReceiveMsg(0);
+			if(receipt != null)
+				doSomethingWithReceipt(receipt);
+		}
+	```
+- Creation of methods to receive a specific resource, i.e., creation of methods that only return messages and another methods that only return receipts:
+	-  `receiveMsg() : ClientMsg'
+	- `tryReceiveMsg(timeout : long) : ClientMsg`
+	- `receiveReceipt() : Receipt`
+	- `tryReceiveReceipt(timeout : long) : Receipt`
+- The receipts could be represented by the class `Object` to indicate that any object could be provided as a receipt, however, by forcing the "implementation" of the `Receipt`interface it becomes possible to distinguish between `ClientMsg` and `Receipt`when using the methods that return both messages and receipts.
+- Incoming messages and receipts ready to be received are stored in different queues. The incoming messages queue (`deliveryQueue`) remains bounded to enable flow control at reception and consequently prevent memory exhaustion. The receipts queue is unbounded which means that no receipts are discarded. As the upper layer is responsible for generating the receipts and defining which messages should emit receipts, it is also their responsibility to poll for receipts and handle them to prevent memory exhaustion.
+- Exon is thread-safe so it is mandatory to support a scenario where multiple threads manifest interest in receipts and/or messages simultaneously. <span style="color:red">Write about having 3 conditions, one to wait for receipts, one to wait for messages and another to wait for both messages and receipts. When a receipt/message is emitted (stored in the respective queue), two conditions are used to `signal()`. The first condition to be signaled is the one specific of the resource. The second condition signaled is the one that is for the methods that want to receive any resource (either a message or a receipt). **Problem:** Threads waiting for either may starve, it is the responsibility of the upper layer to be aware of this problem and design the thread model accordingly.</span> 
+# Recibos de receção (antigo) - serve para adicionar mais conteúdo à tese
 Essentially, the designed solution for this problem consists in generating a unique message identifier for outgoing messages. These identifiers are provided to the upper layer as the return value of the send() methods. If the upper layer requested a reception receipt, then, after the Exon confirms the reception of the message at the destination, a reception receipt is emitted. A reception receipt is the identifier of the message generated by the send() method. The upper layer can then poll reception receipts from a queue, and verify which messages have been received by the destination.
 #### Message identifiers
 To provide receipts, the first step required is the creation of locally unique identifiers for the messages. Since the identifiers will only be used locally, there is no need to guarantee that the message identifiers are unique across all the nodes.
