@@ -33,5 +33,5 @@ O tipo de operações de interesse que serão suportados são: leitura (*IN*) e 
 		- A solução deve passar por fazer o utilizador assumir a responsabilidade de querer seguir uma programação absurda. Se apenas tiver uma thread interessada em realizar o tipo de operação sobre o socket então não existirá problemas. Pode esperar que o poller informe que o socket está disponível para realizar a operação e utilizar o método bloqueante dessa operação sem que resulte no bloqueio da thread. Se optar por ter múltiplas threads a realizar a mesma operação, dentro das quais algumas utilizam um poller para verificar a disponibilidade da operação, então correm o risco das threads competirem pela execução da operação, e no caso de ser utilizado o método bloqueante, resultar no bloqueio de múltiplas threads. Portanto, deve optar por utilizar o método não bloqueante que tenta realizar a operação, e retorna "falha" se a operação devesse bloquear. 
 - Adicionar respostas discutidas no email com o Professor.
 - Reuniao 6 Maio - Ideias sobre pollers 
-	![[Reuniao 6 maio#Selectors / Pollers]]
+	![[Reuniao 2024-05-06#Selectors / Pollers]]
 - 
