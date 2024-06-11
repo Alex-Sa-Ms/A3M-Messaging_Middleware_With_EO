@@ -1,5 +1,6 @@
 # Paginas relacionas
 - [[Concepcao de mecanismo de poll]]
+- [[Concepcao do protocolo de comunicacao]]
 # Descrição
 - Nodos são contentores de sockets.
 - Cada socket possui uma etiqueta. Uma etiqueta é um identificador que distingue o socket unicamente dentro do nodo a que pertence. Designemos este por *TagID* ou *LocalSocketID*. 
