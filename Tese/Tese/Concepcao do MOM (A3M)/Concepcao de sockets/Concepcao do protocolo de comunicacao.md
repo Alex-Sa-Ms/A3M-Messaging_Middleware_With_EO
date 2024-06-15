@@ -2,9 +2,8 @@
 <b style="color:red">Check MQTT and AMQP specifications to organize everything.</b>
 ## Message structure
 - **Fixed Header:**
-	- **Version (2 bytes)**: Version of the middleware implementation.
-	- **Middleware-level Protocol (1 byte)**: Identifies the middleware-level protocol. 
-	- **Message Type (1 byte)**: Specifies the message type within the middleware-level protocol.
+	- **Version (2 bytes)**: Version of the protocol. Used to allow different protocol versions to talk with each other, and identify if they are compatible.
+	- **Message Type (1 byte)**: Specifies the type of message.
 	- **Remaining Length (4 bytes)**: Remaining length of the message in bytes.
 	- **Source Node Identifier (Omitted**[^1]**)**: identifier of the node that sent the message.
 	- **Destination Node Identifier (Omitted**[^1]**)**: identifier of the node that should receive the message.
@@ -14,18 +13,11 @@
 	- **Data (variable length)**: Message content, treated as binary blob.
 
 [^1] Omitted because the Exon library messages already carry such identifiers.
-### Middleware-level protocol
-The middleware-level protocol should not be confused with the messaging protocols that high-level sockets implement. It can be interpreted as the scope of the messages.
-Currently, the middleware only contemplates a protocol. The contemplated middleware-level protocol is related to the sockets. However, in the future, new middleware-protocols may be implemented. One example could be a protocol related to nodes. Having a protocol identifier is useful for modularity, extensibility and efficiency[^3].
-The message type is used to define the content of the extended header.
-Defined message types:
-- **Sockets (`0x01`)**: Messages related to socket operations.
-- **Nodes (`0x02`)**: Messages related to node operations (for future use).
-[^3] Efficiency in routing and message processing based on the header fields. 
-# Socket middleware-level protocol
-
+### Message Type
+The **message type** is essential for determining how to handle each message. To keep it compact and organized, we allocate just 1 byte for this purpose. Since we don't anticipate the need for additional categories beyond the current ones, we group messages into two categories: node messages and socket messages. The first bit of the byte indicates the category: 0 for node messages and 1 for socket messages. The remaining 7 bits specify the exact type of message within that category, allowing for up to 128 unique message types per group. Since it is unlikely that either group will need all 128 types, we have options for future expansion: (1) reassign 1 or 2 of the 7 bits used for message types to increase the number of groups; or (2) we could simply expand the message type field to 2 bytes.
+# Socket messages
 ## Socket messages format
-The socket middleware-level protocol is identified by **`0x01`**. It's a symmetrical protocol used by sockets to communicate with each other. It is symmetrical because peers do not assume different roles, like client and server.
+Socket messages are identified by a 1 in the first bit of the message type field.  These messages form a symmetrical protocol used by sockets to communicate with each other. It is symmetrical because peers do not assume different roles, like client and server.
 ### Extended Header
 The extender header of this protocol includes:
 - **Source Tag (4 bytes)**: tag of the socket that sent the message.
@@ -158,7 +150,7 @@ Every linking process is uniquely identified[^3] by a pair of clocks, one from e
 [^3] While there can only be one active link at a time between two participants, multiple links can be established and severed over the sockets' lifetimes. The two clocks uniquely identify each link within this sequence.
 
 ## Flow control
-The socket flow control is performed per link.
+The socket flow control is performed per link. Having in mind that Exon does not provide ordering guarantees, the design of the flow control mechanism must take this into consideration. 
 
 <span style="color:red">Ver processo de controlo de fluxo do AMQP </span>
 
