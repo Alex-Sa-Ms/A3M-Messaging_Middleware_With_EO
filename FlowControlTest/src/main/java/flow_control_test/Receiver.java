@@ -1,12 +1,13 @@
-package final_version;
+package flow_control_test;
 
-import final_version.msgs.*;
+import flow_control_test.msgs.*;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+
 
 public class Receiver extends Peer {
     private int capacity; // max amount of credits the transmitter may have
@@ -20,13 +21,21 @@ public class Receiver extends Peer {
     private Thread readerThread;
 
     public Receiver(int capacity, float batchSizePercentage){
+        if(capacity < 0)
+            throw new IllegalArgumentException("Capacity must not be null.");
+        if(batchSizePercentage <= 0 || batchSizePercentage > 1)
+            throw new IllegalArgumentException("Batch size percentage must be a value between 0 (exclusive) and 1 (inclusive).");
         this.capacity = capacity;
         this.batchSizePercentage = batchSizePercentage;
         batchSize = calculateBatchSize(capacity, batchSizePercentage);
     }
 
+    // The minimum size for a batch if the capacity is a positive value is 1.
     private int calculateBatchSize(int capacity, float percentage){
-        return (int) ((float) capacity * percentage);
+        int bs = (int) ((float) capacity * percentage);
+        if(capacity > 0 && bs == 0)
+            bs = 1;
+        return bs;
     }
 
     public void setSender(Sender sender){
@@ -50,20 +59,16 @@ public class Receiver extends Peer {
             while ((msg = deliverQueue.poll()) == null)
                 newMsgCond.await();
             batch++; // add msg to batch
+
             // send batch if the batch size was reached
-            if(batch == batchSize)
-                sendBatch(batch);
+            if(batch == batchSize) {
+                send(sender, new CreditsMsg(batch));
+                batch = 0;
+            }
             return msg;
         }finally {
             lock.unlock();
         }
-    }
-
-    // sends batch with the given amount of credits
-    private void sendBatch(int credits){
-        assert batch >= credits;
-        send(sender, new CreditsMsg(credits));
-        batch -= credits;
     }
 
     // To change capacity
@@ -79,7 +84,6 @@ public class Receiver extends Peer {
             batchSize = calculateBatchSize(capacity, batchSizePercentage);
             // sends the difference in capacity plus the current batch
             send(sender, new CreditsMsg(diff + batch));
-            System.out.println("CreditsMsg: " + (diff + batch));
             batch = 0;
         }finally {
             lock.unlock();

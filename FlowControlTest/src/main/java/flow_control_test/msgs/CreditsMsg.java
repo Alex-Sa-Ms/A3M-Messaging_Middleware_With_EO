@@ -1,4 +1,4 @@
-package final_version.msgs;
+package flow_control_test.msgs;
 
 public class CreditsMsg extends Msg {
     int credits;

@@ -1,5 +1,7 @@
-package final_version;
+package flow_control_test;
 
+import flow_control_test.Receiver;
+import flow_control_test.Sender;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;

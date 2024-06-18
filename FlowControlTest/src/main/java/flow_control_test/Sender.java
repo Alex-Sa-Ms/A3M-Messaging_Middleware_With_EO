@@ -1,6 +1,8 @@
-package final_version;
+package flow_control_test;
 
-import final_version.msgs.*;
+import flow_control_test.msgs.CreditsMsg;
+import flow_control_test.msgs.DataMsg;
+import flow_control_test.msgs.Msg;
 
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -13,6 +15,8 @@ public class Sender extends Peer {
 
     // Invoked using the credits received in the link establishment
     public Sender(int credits){
+        //if(credits < 0)
+        //    throw new IllegalArgumentException("Starting credits must not be a negative value.");
         this.credits = credits;
     }
 

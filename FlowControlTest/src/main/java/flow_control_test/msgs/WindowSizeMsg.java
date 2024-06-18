@@ -1,6 +1,6 @@
-package version1.msgs;
+package flow_control_test.msgs;
 
-public class WindowSizeMsg extends Msg{
+public class WindowSizeMsg extends Msg {
     int windowSize;
 
     public WindowSizeMsg(int windowSize) {

@@ -1,4 +1,4 @@
-package version2.msgs;
+package flow_control_test.msgs;
 
 public class RecoverMsg extends Msg {
     int totalCredits;

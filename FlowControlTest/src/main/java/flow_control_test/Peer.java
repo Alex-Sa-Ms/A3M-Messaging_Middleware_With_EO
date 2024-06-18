@@ -1,6 +1,6 @@
-package version1;
+package flow_control_test;
 
-import version1.msgs.Msg;
+import flow_control_test.msgs.Msg;
 
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -16,15 +16,15 @@ class Peer {
         p.newIncomingMsg(msg);
     }
 
+    public boolean isQueueEmpty(){
+        return inqueue.isEmpty();
+    }
+
     protected Msg receive(){
         try {
             return inqueue.take();
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
-    }
-
-    public boolean isQueueEmpty(){
-        return inqueue.isEmpty();
     }
 }
