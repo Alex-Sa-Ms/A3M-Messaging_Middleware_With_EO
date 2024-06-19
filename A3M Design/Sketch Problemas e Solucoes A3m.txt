@@ -1,0 +1,201 @@
+***** SOLUCAO Client-Take Over *****
+
+Semelhante ao que acontece no MQTT. CONNECT packet para estabelecer a comunicação. 
+Este CONNECT packet deve conter o identificador do socket que envia o packet. 
+Assim como o CONNACK. Desta forma é possível associar os sockets a nomes lógicos.
+Até os pacotes serem associados a um nome lógico, estes são isolados e ficam à espera que a 
+identificação do socket seja recebida. Se for detetado que o peer remoto fala o protocolo,
+mas que ainda não enviou a sua identificação é necessário solicitar tal informação através de
+algum packet especial (faz sentido usar o CONNECT? Usa-se um especial REQ_ID?). 
+Quando o middleware detetar a chegada da identificação e de que se trata 
+de um client-take over, por exemplo numa situação de mobilidade, este deve invocar o
+merge dos channels. O merge dos channels é necessário para que mensagens que ainda não tenham 
+sido enviadas / recebidas de um channel sejam unificadas num único channel (ao usar ids nas mensagens
+no nível do middleware, é também possível ordenar as mensagens se a ordem tiver sido requisitada).
+
+(Mensagens recebidas por nodos nao identificados nao podem ser retornadas à aplicação, 
+ficam armazenadas à parte até a identificação ser recebida)
+
+
+
+***** SOLUCAO Exon Client-Take Over *****
+
+Num caso de mobilidade, é necessário, de alguma forma, unificar as mensagens enviadas entre os dois 
+identificadores (par de endereço e porta) distintos.
+
+(Ao detetar-se a mudança de endereço era importante fazer a reavaliação do nr de slots a requisitar tendo em conta a
+nova bandwidth e latencia)
+
+Ideias de Soluções:
+	a)  - Primeira mensagem enviada tem de indicar o identificador do nodo. (usar nome especial para o comando? Piggyback noutro comando?)
+			- Mandar num TOKEN frame, como uma flag a indicar que o que se segue é a identificação?
+		- Metodo "send" desbloqueado de inicio, mas apenas começa a enviar as mensagens após a troca de identificadores ter acontecido entre os dois nodos
+		- Ao haver uma mudança de endereço, possivelmente não será detetada pelo ExonMiddleware local, mas ao nao receber como primeira mensagem um identificador,
+		   o próprio nodo envia a sua identificação. O nodo que teve o seu endereço alterado, ao verificar a receção do comando de identificação, retribui enviando a 
+		   sua identificacao. Ao ser recebida a identificacao pelo nodo que detetou a falta do envio de identificacao, é possivel agora atribuir as mensagens a um nodo 
+		   identificado para que estas possam ser passadas à aplicação. (Mensagens recebidas por nodos nao identificados nao podem ser retornadas à aplicação, ficam armazenadas numa estrutura à parte até a identificação ser recebida)
+	b) 	- Metodo de API que permite associar pares de endereço IP e porta para identificadores arbitrários (podem ser gerados automaticamente pelo middleware inicialmente, e depois atribuídos quando já se souber o identificador logico do nodo). 
+		- Exemplo:
+			- As estruturas em que são guardados os SendRecords e ReceiveRecords, seriam do seguinte formado Map<LogicalIdentifier,Record>, ou seja, associam um endereço logico a um registo.
+				- Provavelmente, a implementação tem uma estrutura para SendRecords e outra para ReceiveRecords. 
+			- O LogicalIdentifier é criado inicialmente de forma aleatória.
+				- Criados de forma aleatória, já que a aplicação que utilizar o EOMiddleware pode não usar o conceito de identificadores lógicos.
+				- No entanto, estes identificadores aleatórios podem ser atualizados para identificadores específicos, como é o caso do messaging middleware
+				em que pretende associar identificadores únicos para casos de mobilidade. 
+				- API:
+					- void changeNodeId(previousNodeId, newNodeId) -> para mudar o identificador
+					- NodeId getNodeId(pairIpAddressPort) -> para obter o identificador de um nodo através do endereço
+			- Ao utilizar endereços lógicos, é possível reconciliar um estado "perdido" quando um peer muda de endereço IP.
+			- Pode ser necessário manter registo dos endereços anteriores, e principalmente do novo, caso o endereço anterior seja
+			utilizado para enviar mensagens, é necessario o sendrecord ter o endereço atualizado.
+			- Mensagens (de qualquer tipo, REQSLOTS, SLOTS, TOKEN, ACK) apenas são recebidas/enviadas quando se sabe da identificação do outro peer. Para saber a identificação é necessário existir comandos especiais de requisição de identificação e de envio da identificação. O resultado do envio/rececao destes é idempotente portanto o envio/rececao deste multiplas vezes (quando associado ao mesmo endereço e porta) não deve resultar num estado diferente.
+			- Todas as mensagens recebidas antes de existir uma associacao do endereço e porta do nodo a um nome logico são ignoradas, resultando no envio de um comando
+			a requisitar a identificao do nodo. Cria-se uma entrada para evitar o bombardeamento de pedidos de identificacao a cada mensagem recebida em caso de mudança de IP? Cria-se um evento para que o pedido seja reenviado até uma resposta ser recebida (detetada quando já existir uma associacao correta do endereço a um nome logico) ou até exceder um nr de pedidos sem resposta (Quando for excedido o limite a entrada criada para evitar reenvios desnecessarios deve ser eliminada, para que no caso de ser recebida uma mensagem o processo de reenvio possa ser retomado novamente.)  
+		- Ao fazer isto, permite solicitar o envio de uma mensagem utilizando um nome lógico em vez do par (endereço, porta). Obviamente, que não se conhecendo o nodo com tal nome, não é possível enviar nada até se receber uma mensagem de algum nodo a identificar-se com o identificador lógico referido. Pode criar-se o SendRecord que fica associado ao nome, e dá schedule ao envio das mensagens, no entanto, estas só serão enviadas quando um par (endereço, porta) for associado ao identificador lógico.
+		- Nao remover o par (endereço, porta) anterior pode levar a um caso extremo em que apos se mudar de endereço, outro nodo fica com o mesmo endereço e tenta conectar-se usando a mesma porta. Ou seja, um nodo completamente diferente, poderia interferir com um estado que não lhe compete.
+
+
+*** Solucao para close ***
+
+Criar sistema de dependencias de sockets? Se não existir dependencias, então podem ser fechados por qualquer ordem, tanto listeners como sockets.
+Se forem atribuidos Ids aos listeners e aos sockets, dentro do mesmo espaço de ids, é possível definir uma arvore de dependencias, em que são fechados os
+sockets/listeners das folhas para as raizes.
+
+--
+
+Ou, simplesmente, assumir que protocolos connection-less seguirão uma abordagem parecida ao que se vai fazer com o Exon. O transport listener ouve todas as 
+mensagens para descobrir novos peers, e encaminha as mensagens para as queues associadas aos identificadores desses peers.
+
+
+*** Client Take-Over Exon ***
+
+Problemas:
+- Nodo não sabe que o seu endereço mudou, e portanto, gasta envelope que nunca vai ser acknowledged pelo recetor. Ou seja, tanto o token como o slot nunca vao ser removidos. Tem momentos em que esses tokens são reenviados mas parece que deixam de ser a partir de um certo momento.   
+- 
+
+
+Acknowledgments: Hugo, ouviu um chato como eu, e surgiu me a ideia a falar com ele.
+
+Será que se pode identificar os nodos pelo encarnation number?
+
+
+*** Camada intermedia sobre Exon ***
+
+Implementar uma classe adaptadora sobre o Exon. Responsável por ouvir todas as mensagens, distinguir novos peers e por consequencia criar dummy sockets para estes que  serão utilizados para armazenar as mensagens numa queue até a operação receive() ser realizada, e para enviar mensagens através do roteamento das mensagens de volta para a classe adaptadora (criar uma interface para a classe adaptadora que isola os métodos que podem ser invocados pelos dummy sockets).
+
+
+
+
+
+
+
+Criar uma noção de tarefas para que uma thread de pools trabalhe em conjunto? Operações síncronas também criam tarefas e espera que a pool de threads trate da tarefa antes de retornar.
+Onde é que uma abordagem event-driven pode entrar aqui?
+
+
+
+
+
+
+Accept operation of the transport listener is different from the accept of the listener. The transport listener only establishes the communication, the listener must confirm that the remote endpoint talks the middleware's protocol.
+
+Channels must have a unique logical identifier. Ideally, this identifier corresponds to the remote socket identifier. By doing this, the routing information uses the sockets identification. Otherwise, I dont know how to route stuff.
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------------------------------
+
+
+Falar com o Professor:
+
+- Estrategia de Client-Take Over para multiplos transportes (ou seja, CONNECT e CONNACK como MQTT ao estabelecer inicialmente a comunicacao entre nodos do middleware)
+- Client-Take Over com o Exon (falar estrategia apresentada ao Hugo)
+- Overhead de inicio da conexão do Exon (e necessidade para ajuste dinamico do intervalo de slots em funcao do estado da rede)
+- Falar de como o listener e o caller funcionarao para connection-less transports (nomeadamente como será para o Exon)
+- Criar framework de IO assincrono, ou procurar por uma framework de IO assincrono, que permite fazer algo parecido ao fornecido pela framework de IO assincrono do NNG.
+	- Isto é, permite criar tarefas de envio, rececao e sleep, seguidas da execucao de um callback. A ideia é usar uma pool de threads para executar tarefas contidas em eventos (programacao reativa). O sleep, que não seria propriamente um sleep, mas um indicaria um timeout a partir do qual a tarefa deve ser executada, permitiria que qualquer tipo de tarefa fosse executada.
+
+
+
+
+
+
+Ter uma maneira que permite integrar a informacao de presenca / diretoria de 
+forma generica e nao necessariamente usando as mensagens como eu estava a pensar.
+
+Pensar numa forma de usar apenas etiquetas logicas. Isto permite que em todo o lado dentro do middleware se utilize os nomes logicos para conectar, bind, etc.
+Apenas seria necessario uma classe que implementa uma interface que permite ler e ser atualiados.
+
+Nocao de nó e entidade (etiqueta) dentro do nó
+
+
+
+flow control é importante ser a nivel do middleware, e pode se ignorar a nivel do Exon (pode-se meter o N a um valor mais altito e retirar o overhead do TCP)
+
+Assumir que o protocolo de transporte garante exactly-once (o TCP necessitaria que fosse feita a gestao de exactly-once fora, posso ignorar esse tipo de protocolos) 
+
+Mensagens genericas para listar servicos (etiquetas logicas) ou verificar a existencia de uma etiqueta.
+
+Mensagens enviadas para uma etiqueta não existente? O que fazer?
+
+Objetivo é que um único socket seja usado para todo o middleware (segundo o Professor). Mas é melhor pensar nos casos em que tal pode nao ser possível ou desejável.
+
+
+***********
+
+
+"Nós (Nodos ou Sockets) possuem um identificador lógico globalmente único. Os identificadores devem ter um endereço e porta associados para permitir o estabelecimento de comunicação." 
+	- Esta informação deve ser obtida de alguma forma, seja de um sistema de diretorias, de presenças, ou até de um ficheiro estático.
+	- Para ambientes controlados e com poucos nodos parece possível, mas não escala bem. Todos os clientes teriam de se registar no 
+	sistema de diretorias antes de utilizar os serviços.
+		- Existe outra solução que não exija que nodos dinâmicos se registem no sistema de diretorias?
+			- Exon Anonymous identification? 
+				1. Exon receives message from a peer.
+				2. Using the address + port pair, queries the directory system (DS) about the identification of the node.
+				3. The DS does not know the peer, so it replies informing that the peer is not known.
+				4. Since the peer does not have an identification, it will be identified by its address + port pair.
+				5.a. The receiver node will then detect the lack of identification of the remote peer, and request its identification.
+				5.b. The anonymous peer, knowing that it is not registered in the DS, sends a CONNECT message containing its identification.
+						- This CONNECT message serves as a way to check if the nodes talk the same protocol, and to inform of communication options (flow control windows, etc).	
+						- Could also be used for authentication/authorization.
+						- This message is replied with a CONNACK message, which confirms the identification and carries communication options as well.
+				6. Upon receiving the identification, the middleware can update the identification associated with the remote peer.
+					- A local identification storage (similar to a cache) can also be updated, 
+						which may be queried first before quering a remote DS system. 
+
+
+Exon may allow the identification of a peer to be updated independently of a DS system, as it may serve as a way to logically identify destinations.
+	- Exon may not even use a DS system directly, and delegate such work to an upper layer.
+	- Exon would only provide a way to associate logical identifiers (different from the address + port address) to the peers.
+		- Think how to do this in a way that the state can be recovered.
+			- When an unknown peer sends messages, a state is created for that new peer. Considering a mobility scenario, tokens/slots sent after changing 
+			the address, will not be acknowledged by the remote peer as valid and so will be retransmited later. Having said that, after updating the 
+			association of address to logical identifier, the Exon state can be recovered. 
+
+
+"Dentro dos nós podem existir entidades. Estas entidades serão as fontes e os destinos das mensagens."
+	- Se existem nodos e existem etiquetas, para enviar uma mensagem é necessário saber ambos os identificadores previamente.
+	- Mesmo que a comunicação com um nodo seja estabelecida, é importante garantir que as entidades destino existam, ou as mensagens
+	têm de ser armazenadas pela aplicação fonte para que possam ser reenviadas quando a entidade destino for criada.
+		- Se não for verificada a existência, é preciso lógica extra para garantir que as mensagens são entregues, nomeadamente, o 
+		envio de um erro a dizer que certa mensagem não foi entregue porque a entidade destino não existe, para além de exigir o 
+		armazenamento das mensagens e o descarte posterior destas assim que a sua receção é confirmada. 
+		- Se for verificada a existência, existe o overhead de perguntar sempre se um nodo existe.
+			- Exige que a verificação seja feita até ser confirmada a existência.
+
+
+
+***********
+
+Para serviço de diretoria:
+	- Fazer cache de endereços.
+	- Eliminar correspondencias antigas (casos de mobilidade)
+
+
+***********
+
+-> Preciso saber porque é que ao fim da primeira mensagem o send record nao é eliminado, assim como é feito depois de todas as restantes mensagens serem enviadas.
+-> Preciso ver como é que é possível ignorar as mensagens (de qlqr tipo) serem ignoradas quando um nodo não tem registo e tenta pedir algo q n faz sentido, como por exemplo quer entregar uma mensagem sem existir um registo com o slot correspondente (por causa de ser oblivious nao deve dar para fazer isto).
