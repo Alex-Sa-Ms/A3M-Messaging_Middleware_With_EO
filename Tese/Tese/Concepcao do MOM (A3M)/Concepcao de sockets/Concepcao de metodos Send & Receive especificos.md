@@ -39,14 +39,23 @@ public class ReqSocketInt extends SocketInternal {
 	}
 
 	// Returns 0 if the message was sent successfully. Otherwise, returns the error.
-	public int send(byte[] payload, boolean initiator){
+	public int send(byte[] payload, boolean throwIfNone){
+		// return error if a request was already sent, and 
+		// an answer as not yet been received
 		if(pendingReq)
 			return super.ERR_INV_STATE; // returns the error "invalid state"
 
-		// waits for any link. Always returns true, unless a "true" value is provided as argument and there are no links established and ongoing link establishments. 
-		boolean anylink = super.waitAnyLink(initiator);
-		if(anylink == false){
-			return super.ERR_NOLINKS; // returns the error "no links" 
+		// set immediatelly to prevent other send invocations
+		pendingReq = true;
+
+		// if the send order structure is empty, then wait for a link
+		// to be established
+		if(sendOrder.isEmpty()){
+			boolean anylink = super.waitForLink(throwIfNone);
+			if(anylink == false){
+				pendingReq = false; // request was not sent
+				return super.ERR_NO_LINKS; // returns the error "no links" 
+			}
 		}
 
 		// sends msg to a destination
@@ -99,3 +108,22 @@ The presented situations require following:
 3. 
 
 If every time a link is established or closed, a callback specific to the socket is called to handle such situations, the socket does not have to execute a method to get all possible destinations, since it already knows which destinations exist. However, existing is not the same as being available. An available destination is a destination that can receive a method, i.e., the socket has credits to send a message to that destination.
+
+
+- `getLinks() : List<SocketIdentifier>`
+- `getAvailableLinks() : List<SocketIdentifier>`
+- `waitForLink(throwIfNone : boolean) : SocketIdentifier` 
+	- global condition (`linkCond`) used to **notify all** when a new link is established. 
+		- Must notify all because there may be multiple threads waiting for the establishment of the link. They won't ever wake up if the signal is not for all.
+- `waitForAvailableLink(throwIfNone : boolean) : SocketIdentifier`
+	- global condition (`availableLinkCond`) used to **notify all** when credit is updated to a positive value
+		- Must notify all because multiple threads may be waiting. If only one thread is notified, the others may only wake up after multiple credit updates.
+- `waitForLinkEstablishment(sid : SocketIdentifier)`
+	- waits using the `linkCond`; After waking up checks the establishment process until there is an update that should result in returning or throwing the exception described in the next point;
+	- throws exception if there isn't an ongoing linking process for the referenced socket identifier.
+	- (each link has a condition associated with the flow control which could also be used to notify, however its primary objective is to notify when messages can be sent)
+- `waitForLinkAvailability(sid : SocketIdentifier)`
+	- uses the condition of the link associated with the flow control
+
+<span style="color:red">Check how things can be organized to prevent thundering herd and (eternal) starving simultaneously.</span>
+	
