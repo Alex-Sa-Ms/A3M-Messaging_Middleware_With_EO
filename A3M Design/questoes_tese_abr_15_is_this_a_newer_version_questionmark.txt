@@ -1,0 +1,57 @@
+Flow control - which type? who implements?
+Nodes, Sockets and Contexts?
+	- Why would contexts be required?
+Create generic socket?
+	- interface?
+	- functionalities?
+Specialized sockets
+	- Use the same public interface as the generic socket or allow custom interface?
+		- The PAIR socket does not need the destination to be specified as it was already specified at creation time
+Connection based?
+	- What happens if the destination is not online?
+		- Should a timeout be set and cancel the message?
+Exon cancelling messages?
+	- Only delete messages in queue and not ones that are tokens?
+
+Falar de ao fechar um socket se houver uma tentativa de contacto mas que nunca foi respondida (caso de clientes).
+
+Request-Reply faz roundrobin a enviar? E se tiver offline um does destinos?
+	- Assumir que eventualmente fica online
+
+Objetivo é permitir ser facil programar sem como no ZeroMQ em que é necessario pensar que as conexoes podem terminar e que as mensagens nas queues podem ser perdidas,
+sendo necessario pensar em formas de as guardar para retransmitir caso seja necessário.
+
+Criar janelas por socket para impedir que as mensagens enviadas por um nodo sejam monopolizadas por certos sockets.
+	Possivel problema para resolver: Valores de omissao para o controlo de fluxo do Exon calculados para
+
+---------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Problemas:
+	- Controlo de fluxo do Exon adaptavel em funcao do RTT
+	- Controlo de fluxo do A3M 
+	- estatisticas e permitir administracao para eliminar conexoes/recursos inativos (noa importante para ja)
+		- Para eliminar registos é necessário existir um periodo de tempo de inatividade para que a eliminação seja segura
+			e não exista risco de voltar a surgir o registo devido a eventos agendados ou mensagens duplicadas.
+	- Pensar nas etiquetas logicas e pensar que pode ser possivel usar wildcards para receber de ou enviar para varias etiquetas.
+
+---------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+
+1. Definir um valor P inicial. O N pode continuar a ser alterado usando o N_multiplier.
+2. Ver como os RTTs sao utilizados para calcular o P. Usar essa formula para ir modificando o P, e o N por consequencia.
+3. Alterar o P usando o AdjustableSemaphore é simples. É necessario ter cuidado que o valor nao pode ficar com uma janela mais pequena que 1 (um).
+4. Alterar o N a qualquer momento é seguro? É que nao vale a pena alterar o P se o N nao variar.
+
+(Estas janelas sao justas para nodos a distancias diferentes? Nodos mais perto devem ter um valor de P mais baixo do que nodos mais longe.)
+
+---------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Lembrar solucao de controlo de fluxo do A3M discutida com o Professor, em que se definem janelas, no lado transmissor, para controlar/limitar o envio dos 
+sockets. Permite definir tambem prioridades no trafego de certos sockets. Isto basicamente seria implementado utilizando um hash map que mapeia os ids das
+mensagens (retornados pelo Exon ao enviar uma mensagem) aos identificadores dos sockets.

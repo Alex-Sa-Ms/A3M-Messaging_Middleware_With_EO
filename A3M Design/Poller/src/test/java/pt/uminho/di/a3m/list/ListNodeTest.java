@@ -1,0 +1,423 @@
+package pt.uminho.di.a3m.list;
+
+import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.ListIterator;
+
+class ListNodeTest {
+
+    // Class that matches the operations of the ListNode with an ArrayList to check if the
+    // operations are consistent.
+    private static class ListConsistencyChecker<T>{
+        protected List<ListNode<T>> confirmList = new ArrayList<>();
+        protected ListNode<T> head = ListNode.init();
+
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder("ListConsistencyChecker{");
+            if(!confirmList.isEmpty()) {
+                sb.append('\n');
+                for (ListNode<T> node : confirmList)
+                    sb.append("\t").append(node.getObject().toString()).append(",\n");
+                sb.deleteCharAt(sb.length() - 2);
+            }
+            sb.append('}');
+            return sb.toString();
+        }
+
+        public void remove(ListNode<T> node) {
+            confirmList.remove(node);
+            ListNode.remove(node);
+        }
+
+        public void removeAndInit(ListNode<T> node) {
+            confirmList.remove(node);
+            ListNode.removeAndInit(node);
+        }
+
+        public void delete(ListNode<T> node) {
+            confirmList.remove(node);
+            ListNode.delete(node);
+        }
+
+        public void addHead(ListNode<T> node) {
+            confirmList.addFirst(node);
+            ListNode.addFirst(node, head);
+        }
+
+        public void addTail(ListNode<T> node) {
+            confirmList.addLast(node);
+            ListNode.addLast(node, head);
+        }
+
+        public void moveToFirst(ListNode<T> node) {
+            confirmList.remove(node);
+            confirmList.addFirst(node);
+            ListNode.moveToHead(node, head);
+        }
+
+        public void moveToLast(ListNode<T> node) {
+            confirmList.remove(node);
+            confirmList.addLast(node);
+            ListNode.moveToTail(node, head);
+        }
+
+        public void confirmEquality() {
+            // confirms that both lists agree on whether it is empty or not
+            assert ListNode.isEmpty(head) == confirmList.isEmpty();
+
+            // return if list is empty
+            if(ListNode.isEmpty(head))
+                return;
+
+            // gets first element
+            ListIterator<ListNode<T>> clIt = confirmList.listIterator(); // confirm list iterator
+            ListNode<T> node = head, nodeConfirm;
+
+            // checks links in the forward direction
+            while(clIt.hasNext()) {
+                node = node.getNext();
+                nodeConfirm = clIt.next();
+                assert node == nodeConfirm;
+            }
+
+            // assert that the head is the next entry
+            assert node.getNext() == head;
+
+            // reset the node to start at the head
+            node = head;
+
+            // checks links in the backward direction
+            while(clIt.hasPrevious()) {
+                node = node.getPrev();
+                nodeConfirm = clIt.previous();
+                assert node == nodeConfirm;
+            }
+
+            // assert that the head is the previous entry of node
+            assert node.getPrev() == head;
+        }
+    }
+
+    @Test
+    void createEntryAndGetObject() {
+        Object o1 = new Object(), o2 = new Object();
+        ListNode<Object> listNode = ListNode.create(o1);
+        Object obj = listNode.getObject();
+        assert obj == o1;
+        assert obj != o2;
+    }
+
+    @Test
+    void initList() {
+        Object o = new Object();
+        ListNode<Object> head = ListNode.init();
+        assert head.getObject() == null && head.getNext() == head && head.getPrev() == head;
+    }
+
+    @Test
+    void addHead() {
+        ListConsistencyChecker<String> lchecker = new ListConsistencyChecker<>();
+        lchecker.addHead(ListNode.create("2"));
+        lchecker.addHead(ListNode.create("1"));
+        lchecker.confirmEquality();
+        System.out.println(lchecker);
+    }
+
+    @Test
+    void addTail() {
+        ListConsistencyChecker<String> lchecker = new ListConsistencyChecker<>();
+        lchecker.addTail(ListNode.create("1"));
+        lchecker.addTail(ListNode.create("2"));
+        lchecker.confirmEquality();
+        System.out.println(lchecker);
+    }
+
+    @Test
+    void remove() {
+        ListConsistencyChecker<String> lchecker = new ListConsistencyChecker<>();
+        ListNode<String> node1 = ListNode.create("1");
+        ListNode<String> node2 = ListNode.create("2");
+        ListNode<String> node3 = ListNode.create("3");
+        lchecker.addHead(node3);
+        lchecker.addHead(node2);
+        lchecker.addHead(node1);
+        lchecker.confirmEquality();
+
+        lchecker.remove(node2);
+        lchecker.confirmEquality();
+        assert node2.getPrev() == node1 && node2.getNext() == node3;
+
+        lchecker.remove(node1);
+        lchecker.confirmEquality();
+        assert node1.getPrev() == lchecker.head && node1.getNext() == node3;
+
+        lchecker.remove(node3);
+        lchecker.confirmEquality();
+        assert node3.getPrev() == lchecker.head && node3.getNext() == lchecker.head;
+        System.out.println(lchecker);
+    }
+
+    @Test
+    void removeAndInit() {
+        ListConsistencyChecker<String> lchecker = new ListConsistencyChecker<>();
+        ListNode<String> node1 = ListNode.create("1");
+        ListNode<String> node2 = ListNode.create("2");
+        ListNode<String> node3 = ListNode.create("3");
+        lchecker.addHead(node3);
+        lchecker.addHead(node2);
+        lchecker.addHead(node1);
+        lchecker.confirmEquality();
+
+        lchecker.removeAndInit(node2);
+        lchecker.confirmEquality();
+        assert node2.getPrev() == node2 && node2.getNext() == node2;
+
+        lchecker.removeAndInit(node1);
+        lchecker.confirmEquality();
+        assert node1.getPrev() == node1 && node1.getNext() == node1;
+
+        lchecker.removeAndInit(node3);
+        lchecker.confirmEquality();
+        assert node3.getPrev() == node3 && node3.getNext() == node3;
+        System.out.println(lchecker);
+
+        ListNode<String> head = lchecker.head;
+        assert head.getPrev() == head && head.getNext() == head;
+    }
+
+    @Test
+    void delete() {
+        ListConsistencyChecker<String> lchecker = new ListConsistencyChecker<>();
+        ListNode<String> node1 = ListNode.create("1");
+        ListNode<String> node2 = ListNode.create("2");
+        ListNode<String> node3 = ListNode.create("3");
+        lchecker.addHead(node3);
+        lchecker.addHead(node2);
+        lchecker.addHead(node1);
+        lchecker.confirmEquality();
+
+        lchecker.delete(node2);
+        lchecker.confirmEquality();
+        assert node2.getPrev() == null && node2.getNext() == null;
+
+        lchecker.delete(node1);
+        lchecker.confirmEquality();
+        assert node1.getPrev() == null && node1.getNext() == null;
+
+        lchecker.delete(node3);
+        lchecker.confirmEquality();
+        assert node3.getPrev() == null && node3.getNext() == null;
+        System.out.println(lchecker);
+
+        ListNode<String> head = lchecker.head;
+        assert head.getPrev() == head && head.getNext() == head;
+    }
+
+    @Test
+    void moveToHead() {
+        ListConsistencyChecker<String> lchecker = new ListConsistencyChecker<>();
+        ListNode<String> node1 = ListNode.create("1");
+        ListNode<String> node2 = ListNode.create("2");
+        ListNode<String> node3 = ListNode.create("3");
+        lchecker.addHead(node3);
+        lchecker.addHead(node2);
+        lchecker.addHead(node1);
+        lchecker.confirmEquality();
+
+        lchecker.moveToFirst(node3);
+        lchecker.confirmEquality();
+
+        lchecker.moveToFirst(node2);
+        lchecker.confirmEquality();
+
+        lchecker.moveToFirst(node1);
+        lchecker.confirmEquality();
+
+        System.out.println(lchecker);
+    }
+
+    @Test
+    void moveToTail() {
+        ListConsistencyChecker<String> lchecker = new ListConsistencyChecker<>();
+        ListNode<String> node1 = ListNode.create("1");
+        ListNode<String> node2 = ListNode.create("2");
+        ListNode<String> node3 = ListNode.create("3");
+        lchecker.addHead(node3);
+        lchecker.addHead(node2);
+        lchecker.addHead(node1);
+        lchecker.confirmEquality();
+
+        lchecker.moveToLast(node1);
+        lchecker.confirmEquality();
+
+        lchecker.moveToLast(node2);
+        lchecker.confirmEquality();
+
+        lchecker.moveToLast(node3);
+        lchecker.confirmEquality();
+
+        System.out.println(lchecker);
+    }
+
+    @Test
+    void isFirst() {
+        ListNode<String> head = ListNode.init();
+        ListNode<String> node1 = ListNode.create("1");
+        ListNode<String> node2 = ListNode.create("2");
+        ListNode<String> node3 = ListNode.create("3");
+        assert !ListNode.isFirst(node1, head);
+        assert !ListNode.isFirst(node2, head);
+        assert !ListNode.isFirst(node3, head);
+        assert !ListNode.isFirst(head, head);
+
+        ListNode.addFirst(node3, head);
+        assert ListNode.isFirst(node3, head);
+
+        ListNode.addFirst(node2, head);
+        assert ListNode.isFirst(node2, head);
+        assert !ListNode.isFirst(node3, head);
+
+        ListNode.addFirst(node1, head);
+        assert ListNode.isFirst(node1, head);
+        assert !ListNode.isFirst(node2, head);
+        assert !ListNode.isFirst(node3, head);
+    }
+
+    @Test
+    void isLast() {
+        ListNode<String> head = ListNode.init();
+        ListNode<String> node1 = ListNode.create("1");
+        ListNode<String> node2 = ListNode.create("2");
+        ListNode<String> node3 = ListNode.create("3");
+        assert !ListNode.isLast(node1, head);
+        assert !ListNode.isLast(node2, head);
+        assert !ListNode.isLast(node3, head);
+        assert !ListNode.isLast(head, head);
+
+        ListNode.addLast(node3, head);
+        assert ListNode.isLast(node3, head);
+
+        ListNode.addLast(node2, head);
+        assert ListNode.isLast(node2, head);
+        assert !ListNode.isLast(node3, head);
+
+        ListNode.addLast(node1, head);
+        assert ListNode.isLast(node1, head);
+        assert !ListNode.isLast(node2, head);
+        assert !ListNode.isLast(node3, head);
+    }
+
+    @Test
+    void isHead() {
+        ListNode<String> head = ListNode.init();
+        assert ListNode.isHead(head, head);
+
+        ListNode<String> node1 = ListNode.create("1");
+        assert ListNode.isHead(head, head);
+        assert !ListNode.isHead(node1, head);
+
+        ListNode.addFirst(node1, head);
+        assert ListNode.isHead(head, head);
+        assert !ListNode.isHead(node1, head);
+    }
+
+    @Test
+    void isEmpty() {
+        ListNode<String> head = ListNode.init();
+        assert ListNode.isEmpty(head);
+
+        ListNode<String> node1 = ListNode.create("1");
+        ListNode.addFirst(node1, head);
+        assert !ListNode.isEmpty(head);
+
+        ListNode.removeAndInit(node1);
+        assert ListNode.isEmpty(head);
+
+        ListNode.addLast(node1, head);
+        assert !ListNode.isEmpty(head);
+    }
+
+    @Test
+    void getFirst() {
+        ListNode<String> head = ListNode.init();
+        assert ListNode.getFirst(head) == null;
+
+        ListNode<String> node1 = ListNode.create("1");
+        ListNode.addFirst(node1, head);
+        assert ListNode.getFirst(head) == node1;
+
+        ListNode.removeAndInit(node1);
+        assert ListNode.getFirst(head) == null;
+
+        ListNode.addLast(node1, head);
+        assert ListNode.getFirst(head) == node1;
+
+        ListNode<String> node2 = ListNode.create("2");
+        ListNode.addFirst(node2, head);
+        assert ListNode.getFirst(head) == node2;
+    }
+
+    @Test
+    void getLast() {
+        ListNode<String> head = ListNode.init();
+        assert ListNode.getLast(head) == null;
+
+        ListNode<String> node1 = ListNode.create("1");
+        ListNode.addFirst(node1, head);
+        assert ListNode.getLast(head) == node1;
+
+        ListNode.removeAndInit(node1);
+        assert ListNode.getLast(head) == null;
+
+        ListNode.addLast(node1, head);
+        assert ListNode.getLast(head) == node1;
+
+        ListNode<String> node2 = ListNode.create("2");
+        ListNode.addLast(node2, head);
+        assert ListNode.getLast(head) == node2;
+    }
+
+    @Test
+    void forEach() {
+        ListNode<String> head = ListNode.init();
+        ListNode<String> node1 = ListNode.create("1");
+        ListNode<String> node2 = ListNode.create("2");
+        ListNode<String> node3 = ListNode.create("3");
+        ListNode.addFirst(node3, head);
+        ListNode.addFirst(node2, head);
+        ListNode.addFirst(node1, head);
+
+        List<String> list = new ArrayList<>();
+        ListNode.forEach(head, list::add);
+        assert list.size() == 3;
+        assert list.indexOf("1") == 0;
+        assert list.indexOf("2") == 1;
+        assert list.indexOf("3") == 2;
+    }
+
+    @Test
+    void forEachReverse() {
+        ListNode<String> head = ListNode.init();
+        ListNode<String> node1 = ListNode.create("1");
+        ListNode<String> node2 = ListNode.create("2");
+        ListNode<String> node3 = ListNode.create("3");
+        ListNode.addFirst(node3, head);
+        ListNode.addFirst(node2, head);
+        ListNode.addFirst(node1, head);
+
+        List<String> list = new ArrayList<>();
+        ListNode.forEachReverse(head, list::add);
+        assert list.size() == 3;
+        assert list.indexOf("3") == 0;
+        assert list.indexOf("2") == 1;
+        assert list.indexOf("1") == 2;
+    }
+
+    @Test
+    void iterator() {
+
+    }
+}

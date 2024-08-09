@@ -1,0 +1,26 @@
+1. Otimizar a transmissao de tags
+	1.1) Solução?
+		- Cada socket tem um slot, identificador inteiro (similar ao channel do AMQP?), atribuído na criação.
+		- Durante o estabelecimento do link é trocado o identificador em formato string mas também o identificador inteiro
+		- Identificador inteiro é usado após o estabelecimento do link.
+	1.2) Como reinvindicar o slot sem que mensagens atrasadas cheguem e corrompam o fluxo?
+		- Para corromper o fluxo é necessário que os identificadores de 
+		ambos os sockets (fonte e destino) fizessem sentido, i.e., para além de o nodo (destino)
+		ter de possuir um socket com o slot mencionado, este também tem de ver o socket fonte 
+		como um socket linked (o par {nodeId, slotId} tem de aparecer na coleção de sockets ligados).
+		- A condição anterior exige que após ser feito unlink entre os dois sockets, dois sockets
+		com o mesmo par identificador {nodeId, slotId} teriam de estabelecer o link antes de a mensagem
+		atrasada chegar para que esta pudesse ser entregue ao socket destino.
+		- Slots reinvindicados postos numa queue com timeouts seria suficiente?
+
+2. Espera por link específico e por link arbitrário
+	2.1) waitUntilLinked() e waitForLink(sid : SocketIdentifier) expostos ao cliente
+	2.2) o Professor diz que o método waitForLink() / waitUntilLinked() não deve ver a flag 'throwIfNone',
+	mas eu discordo. 
+		- Se é um método a ser exposto, pode dar jeito querer que bloqueie até um link ser estabelecido ou até
+		que se confirme que não foram estabelecidos links. 
+		- O método com a flag ajuda no desenvolvimento dos sockets, como no exemplo do ReqSocket.
+	2.2) waitForAvailableLink() e waitForLinkAvailability(sid : SocketIdentifier) NÃO expostos ao cliente
+	2.3) 
+
+	falar como 
