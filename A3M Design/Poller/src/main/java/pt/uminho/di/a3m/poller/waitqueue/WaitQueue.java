@@ -2,7 +2,6 @@ package pt.uminho.di.a3m.poller.waitqueue;
 
 import pt.uminho.di.a3m.list.ListNode;
 
-import java.util.Iterator;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -87,7 +86,7 @@ public class WaitQueue implements WaitQueueInterface{
     public int wakeUp(int mode, int nrExclusive, int wakeFlags, int key) {
         try{
             lock.lock();
-            Iterator<WaitQueueEntryImpl> it = ListNode.iterator(head);
+            ListNode.Iterator<WaitQueueEntryImpl> it = ListNode.iterator(head);
             while(it.hasNext()){
                 WaitQueueEntryImpl entry = it.next();
                 int ret = entry.getFunc().apply(mode, wakeFlags, key);
@@ -123,7 +122,7 @@ public class WaitQueue implements WaitQueueInterface{
                     break;
                 if(ret != 0 && (entry.getWaitFlags() & WaitQueueFlags.EXCLUSIVE) != 0){
                     // moves woken up exclusive entries to the tail
-                    it.moveToTail();
+                    it.moveToLast();
                     // stops waking up if the number of exclusive entries have been woken up
                     // or if the recorded last entry before modifications is reached.
                     if(--nrExclusive == 0 || entry == last)

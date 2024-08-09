@@ -155,9 +155,7 @@ public class ListNode<T> {
             action.accept(it.getObject());
     }
 
-
-
-    public static class Iterator<T> implements java.util.Iterator<T> {
+    public static class Iterator<T> {
 
         private final ListNode<T> head;
         private ListNode<T> current;
@@ -174,19 +172,12 @@ public class ListNode<T> {
             this.current = head;
         }
 
-        @Override
         public boolean hasNext() {
             return current.next != head;
-            //if(current != null)
-            //    return current.next != head;
-            //else
-            //    return head.next != head;
         }
 
-        @Override
         public T next() {
             if(hasNext()) {
-                //current = current != null ? current.next : head.next;
                 current = current.next;
                 notReverse = true;
                 return current.getObject();
@@ -195,14 +186,12 @@ public class ListNode<T> {
 
         public boolean hasPrevious(){
             return current.prev != head;
-            //return current != null && current.prev != head;
         }
 
         public T previous(){
             if(hasPrevious()) {
                 current = current.prev;
                 notReverse = false;
-                //current = current != null ? current.prev : head.prev;
                 return current.getObject();
             }else throw new NoSuchElementException();
         }
@@ -213,10 +202,6 @@ public class ListNode<T> {
             ListNode<T> node = ListNode.create(t);
             ListNode._add(node, current, current.next);
             return node;
-            //if(current != null)
-            //    ListNode._add(node, current, current.next);
-            //else
-            //    throw new IllegalStateException("");
         }
 
         // If next() and previous() have never been invoked,
@@ -231,13 +216,34 @@ public class ListNode<T> {
         // Position is set based on the last next()/previous() operation. The position
         // is set so that the repetition of the last operation (next() or previous())
         // returns the same result as if this modifying operation was not executed.
-        @Override
-        public void remove() {
+        public ListNode<T> remove() {
+            ListNode<T> toRmv = null;
             if(current != head){
-                ListNode<T> toRmv = current;
-                current = notReverse ? current.prev : current.next;
+                toRmv = current;
+                setCurrentAfterModOp();
                 ListNode.remove(toRmv);
             }
+            return toRmv;
+        }
+
+        // Set current after modifying operation depending on the
+        // direction of the last iteration.
+        private void setCurrentAfterModOp(){
+            current = notReverse ? current.prev : current.next;
+        }
+
+        // Removes and inits last list node returned by next() or previous().
+        // Position is set based on the last next()/previous() operation. The position
+        // is set so that the repetition of the last operation (next() or previous())
+        // returns the same result as if this modifying operation was not executed.
+        public ListNode<T> removeAndInit() {
+            ListNode<T> toRmv = null;
+            if(current != head){
+                toRmv = current;
+                setCurrentAfterModOp();
+                ListNode.removeAndInit(toRmv);
+            }
+            return toRmv;
         }
 
         // Deletes last list node returned by next() or previous().
@@ -247,36 +253,31 @@ public class ListNode<T> {
         public void delete() {
             if(current != head){
                 ListNode<T> toDlt = current;
-                current = notReverse ? current.prev : current.next;
+                setCurrentAfterModOp();
                 ListNode.delete(toDlt);
             }
         }
 
-        @Override
-        public void forEachRemaining(Consumer<? super T> action) {
-            java.util.Iterator.super.forEachRemaining(action);
-        }
-
-        // Moves to the head the last list node returned by next() or previous().
+        // Moves to first the last list node returned by next() or previous().
         // Position is set based on the last next()/previous() operation. The position
         // is set so that the repetition of the last operation (next() or previous())
         // returns the same result as if this modifying operation was not executed.
-        public void moveToHead(){
+        public void moveToFirst(){
             if(current != head){
                 ListNode<T> toMv = current;
-                current = notReverse ? current.prev : current.next;
+                setCurrentAfterModOp();
                 ListNode.moveToHead(toMv, head);
             }
         }
 
-        // Moves to the tail the last list node returned by next() or previous().
+        // Moves to last the last list node returned by next() or previous().
         // Position is set based on the last next()/previous() operation. The position
         // is set so that the repetition of the last operation (next() or previous())
         // returns the same result as if this modifying operation was not executed.
-        public void moveToTail(){
+        public void moveToLast(){
             if(current != head){
                 ListNode<T> toMv = current;
-                current = notReverse ? current.prev : current.next;
+                setCurrentAfterModOp();
                 ListNode.moveToTail(toMv, head);
             }
         }
