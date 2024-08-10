@@ -1,6 +1,7 @@
 package pt.uminho.di.a3m.list;
 
 import java.util.NoSuchElementException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 /**
@@ -105,7 +106,6 @@ public class ListNode<T> {
             _remove(node.prev, node.next);
             node.prev = null;
             node.next = null;
-            node.object = null;
         }
     }
 
@@ -141,6 +141,10 @@ public class ListNode<T> {
         return node.prev != null && node.next != null && node.next != node;
     }
 
+    public static <T> boolean isDeleted(ListNode<T> node){
+        return node.prev == null;
+    }
+
     public static <T> ListNode<T> getFirst(ListNode<T> head){
         return head.next;
         // return head.next != head ? head.next : null;
@@ -159,6 +163,12 @@ public class ListNode<T> {
     public static <T> void forEachReverse(ListNode<T> head, Consumer<T> action){
         for(ListNode<T> it = head.prev; it != head; it = it.prev)
             action.accept(it.getObject());
+    }
+
+    public static <T> int size(ListNode<T> head){
+        AtomicInteger i = new AtomicInteger();
+        forEach(head, t -> i.addAndGet(1));
+        return i.get();
     }
 
     public static class Iterator<T> {

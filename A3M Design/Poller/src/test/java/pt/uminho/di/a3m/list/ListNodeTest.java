@@ -701,19 +701,19 @@ class ListNodeTest {
         s = it.next();
         it.delete();
         assert s.equals("1");
-        assert node1.getPrev() == null && node1.getNext() == null && node1.getObject() == null;
+        assert node1.getPrev() == null && node1.getNext() == null;
 
         // delete node2
         s = it.next();
         it.delete();
         assert s.equals("2");
-        assert node2.getPrev() == null && node2.getNext() == null && node1.getObject() == null;
+        assert node2.getPrev() == null && node2.getNext() == null;
 
         // delete node3
         s = it.next();
         it.delete();
         assert s.equals("3");
-        assert node3.getPrev() == null && node3.getNext() == null && node1.getObject() == null;
+        assert node3.getPrev() == null && node3.getNext() == null;
 
         // assert list is empty
         assert ListNode.isEmpty(head);

@@ -10,7 +10,8 @@ public interface WaitQueueFunc {
      * @param key Wake up key used by waiters to check if the event is of interest
      * @return NEGATIVE value if there was an error or
      * if the function was executed by a waiter with priority.
+     * 0 (ZERO) if the wake-up was not performed.
      * POSITIVE value if the task was handled by an exclusive waiter.
      */
-    int apply(int mode, int flags, int key);
+    int apply(WaitQueueEntry entry, int mode, int flags, int key);
 }
