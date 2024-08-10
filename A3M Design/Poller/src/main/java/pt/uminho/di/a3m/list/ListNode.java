@@ -19,11 +19,11 @@ public class ListNode<T> {
         return object;
     }
 
-    protected ListNode<T> getPrev() {
+    public ListNode<T> getPrev() {
         return prev;
     }
 
-    protected ListNode<T> getNext() {
+    public ListNode<T> getNext() {
         return next;
     }
 
@@ -137,12 +137,18 @@ public class ListNode<T> {
         return head.next == head;
     }
 
+    public static <T> boolean isQueued(ListNode<T> node){
+        return node.prev != null && node.next != null && node.next != node;
+    }
+
     public static <T> ListNode<T> getFirst(ListNode<T> head){
-        return head.next != head ? head.next : null;
+        return head.next;
+        // return head.next != head ? head.next : null;
     }
 
     public static <T> ListNode<T> getLast(ListNode<T> head){
-        return head.prev != head ? head.prev : null;
+        return head.prev;
+        // return head.prev != head ? head.prev : null;
     }
 
     public static <T> void forEach(ListNode<T> head, Consumer<T> action){
@@ -194,6 +200,10 @@ public class ListNode<T> {
                 notReverse = false;
                 return current.getObject();
             }else throw new NoSuchElementException();
+        }
+
+        public boolean isHead(){
+            return current == head;
         }
 
         // If next() and previous() have never been invoked,

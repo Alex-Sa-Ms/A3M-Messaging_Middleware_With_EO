@@ -1,5 +1,7 @@
 package pt.uminho.di.a3m.poller.waitqueue;
 
+import pt.uminho.di.a3m.list.ListNode;
+
 public class WaitQueueEntry {
     private WaitQueueEntryImpl entry = null;
     private WaitQueue queue;
@@ -50,5 +52,9 @@ public class WaitQueueEntry {
     public void delete(){
         if(entry != null)
             queue.deleteEntry(this);
+    }
+
+    public boolean isQueued(){
+        return entry != null;
     }
 }

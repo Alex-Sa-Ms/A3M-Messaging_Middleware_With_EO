@@ -343,14 +343,14 @@ class ListNodeTest {
     @Test
     void getFirst() {
         ListNode<String> head = ListNode.init();
-        assert ListNode.getFirst(head) == null;
+        assert ListNode.getFirst(head) == head;
 
         ListNode<String> node1 = ListNode.create("1");
         ListNode.addFirst(node1, head);
         assert ListNode.getFirst(head) == node1;
 
         ListNode.removeAndInit(node1);
-        assert ListNode.getFirst(head) == null;
+        assert ListNode.getFirst(head) == head;
 
         ListNode.addLast(node1, head);
         assert ListNode.getFirst(head) == node1;
@@ -363,14 +363,14 @@ class ListNodeTest {
     @Test
     void getLast() {
         ListNode<String> head = ListNode.init();
-        assert ListNode.getLast(head) == null;
+        assert ListNode.getLast(head) == head;
 
         ListNode<String> node1 = ListNode.create("1");
         ListNode.addFirst(node1, head);
         assert ListNode.getLast(head) == node1;
 
         ListNode.removeAndInit(node1);
-        assert ListNode.getLast(head) == null;
+        assert ListNode.getLast(head) == head;
 
         ListNode.addLast(node1, head);
         assert ListNode.getLast(head) == node1;

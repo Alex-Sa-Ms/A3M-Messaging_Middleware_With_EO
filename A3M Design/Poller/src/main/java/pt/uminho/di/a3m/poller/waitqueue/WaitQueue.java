@@ -11,7 +11,7 @@ public class WaitQueue implements WaitQueueInterface{
 
     // ***** private methods ***** //
 
-    private WaitQueueEntryImpl initEntryImpl(int waitFlags, WaitQueueFunc func, Object priv){
+    private WaitQueueEntryImpl createEntryImpl(int waitFlags, WaitQueueFunc func, Object priv){
         if(func == null || priv == null)
             throw new IllegalArgumentException("Could not initialize wait queue entry:" +
                     "A wake function and a private object linked to the waiter are required.");
@@ -21,17 +21,6 @@ public class WaitQueue implements WaitQueueInterface{
         return entry;
     }
 
-    // Must be called with lock acquired
-    private void moveToHead(WaitQueueEntryImpl entry) {
-        ListNode.moveToHead(entry.getNode(), head);
-    }
-
-    // Must be called with lock acquired
-    private void moveToTail(WaitQueueEntryImpl entry) {
-        ListNode.moveToTail(entry.getNode(), head);
-    }
-
-
     // ***** protected methods ***** //
 
     // Adds non-exclusive wait entry at the head of the list.
@@ -39,7 +28,7 @@ public class WaitQueue implements WaitQueueInterface{
         try{
             lock.lock();
             assert wait != null && wait.getEntry() != null;
-            WaitQueueEntryImpl entry = new WaitQueueEntryImpl(WaitQueueFlags.NO_FLAGS, func, priv);
+            WaitQueueEntryImpl entry = createEntryImpl(WaitQueueFlags.NO_FLAGS, func, priv);
             ListNode.addFirst(entry.getNode(), head);
             wait.setEntry(entry);
         }finally {
@@ -52,7 +41,7 @@ public class WaitQueue implements WaitQueueInterface{
         try{
             lock.lock();
             assert wait != null && wait.getEntry() != null;
-            WaitQueueEntryImpl entry = new WaitQueueEntryImpl(WaitQueueFlags.EXCLUSIVE, func, priv);
+            WaitQueueEntryImpl entry = createEntryImpl(WaitQueueFlags.EXCLUSIVE, func, priv);
             ListNode.addLast(entry.getNode(), head);
             wait.setEntry(entry);
         }finally {
@@ -87,9 +76,16 @@ public class WaitQueue implements WaitQueueInterface{
         try{
             lock.lock();
             ListNode.Iterator<WaitQueueEntryImpl> it = ListNode.iterator(head);
-            while(it.hasNext()){
-                WaitQueueEntryImpl entry = it.next();
-                int ret = entry.getFunc().apply(mode, wakeFlags, key);
+            // "current" and "next" variables are required to execute a loop
+            // safe against removals done by the wake function
+            WaitQueueEntryImpl curr = it.hasNext() ? it.next() : null,
+                               next;
+            while(curr != null){
+                // Saves the next entry to be processed, as the current
+                // entry's pointers to the next entry may be updated by
+                // the wake function.
+                next = it.hasNext() ? it.next() : null;
+                int ret = curr.getFunc().apply(mode, wakeFlags, key);
                 // Wake up until there is an error or a priority task handles the event
                 // (and does not want other waiters to be woken up)
                 if(ret < 0)
@@ -97,8 +93,9 @@ public class WaitQueue implements WaitQueueInterface{
                 // If the number of exclusive waiters woken up reaches 0, then stop waking up
                 // waiters. Exclusive waiters are assumed to be added at the tail, therefore,
                 // all non-exclusive waiters (if existent) have already been woken up.
-                if(ret != 0 && (entry.getWaitFlags() & WaitQueueFlags.EXCLUSIVE) != 0 && (--nrExclusive) == 0)
+                if(ret != 0 && (curr.getWaitFlags() & WaitQueueFlags.EXCLUSIVE) != 0 && (--nrExclusive) == 0)
                     break;
+                curr = next;
             }
         }finally {
             lock.unlock();
@@ -111,23 +108,30 @@ public class WaitQueue implements WaitQueueInterface{
         try{
             lock.lock();
             ListNode.Iterator<WaitQueueEntryImpl> it = ListNode.iterator(head);
+            WaitQueueEntryImpl curr = it.hasNext() ? it.next() : null,
+                               next,
+                               last;
             // Last entry. Since exclusive entries are moved to the tail
             // upon being woken up, it is required to break the loop
             // after waking up the last entry.
-            WaitQueueEntryImpl last = ListNode.getLast(head).getObject();
-            while(it.hasNext()){
-                WaitQueueEntryImpl entry = it.next();
-                int ret = entry.getFunc().apply(mode, wakeFlags, key);
+            last = ListNode.getLast(head).getObject();
+            while(curr != null){
+                next = it.hasNext() ? it.next() : null;
+                int ret = curr.getFunc().apply(mode, wakeFlags, key);
                 if(ret < 0)
                     break;
-                if(ret != 0 && (entry.getWaitFlags() & WaitQueueFlags.EXCLUSIVE) != 0){
-                    // moves woken up exclusive entries to the tail
-                    it.moveToLast();
+                if(ret != 0 && (curr.getWaitFlags() & WaitQueueFlags.EXCLUSIVE) != 0){
+                    // Moves woken up exclusive entries to the tail,
+                    // if they were not deleted. Shouldn't interfere
+                    // with the iterator as the iterator is positioned
+                    // in the node next to the current one
+                    ListNode.moveToTail(curr.getNode(), head);
                     // stops waking up if the number of exclusive entries have been woken up
                     // or if the recorded last entry before modifications is reached.
-                    if(--nrExclusive == 0 || entry == last)
+                    if(--nrExclusive == 0 || curr == last)
                         break;
                 }
+                curr = next;
             }
         }finally {
             lock.unlock();
@@ -143,5 +147,20 @@ public class WaitQueue implements WaitQueueInterface{
         }finally {
             lock.unlock();
         }
+    }
+
+    // ***** Default Wake function ***** //
+
+    // TODO - default wake function in case a "null" function is provided. Check the autoremove_wake_function
+    //          employed when a "null" function is provided in the poll table.
+    //          When "null" function is provided, the private object is set to the current task
+    //          to be used by the autoremove_wake_function.
+    //          The autoremove_wake_function wakes up the task identified saved in the private object.
+    public static int defaultWakeFunction(){
+        return 0; // TODO
+    }
+
+    public static int autoRemoveWakeFunction(){
+        return 0; // TODO
     }
 }
