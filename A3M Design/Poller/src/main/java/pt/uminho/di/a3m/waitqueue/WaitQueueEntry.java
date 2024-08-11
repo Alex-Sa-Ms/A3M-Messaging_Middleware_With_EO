@@ -1,9 +1,20 @@
-package pt.uminho.di.a3m.poller.waitqueue;
+package pt.uminho.di.a3m.waitqueue;
 
 import pt.uminho.di.a3m.list.ListNode;
 
+import java.util.Objects;
 import java.util.concurrent.locks.LockSupport;
 
+/**
+ * This class works in conjunction with the WaitQueue class.
+ * Since instances of both classes can be accessed by multiple
+ * threads concurrently, the use of locking mechanisms is essential.
+ * Having that said, two locking mechanisms are used:
+ *  1. WaitQueue lock;
+ *  2. WaitQueueEntry synchronized block.
+ * The locking mechanisms must be acquired in the order
+ * above to prevent deadlocks.
+ */
 public class WaitQueueEntry {
     private WaitQueue queue;
     private int waitFlags;
@@ -11,7 +22,7 @@ public class WaitQueueEntry {
     private Object priv;
     private ListNode<WaitQueueEntry> node;
 
-    protected WaitQueueEntry(WaitQueue queue, int waitFlags, WaitQueueFunc func, Object priv, ListNode<WaitQueueEntry> node) {
+    WaitQueueEntry(WaitQueue queue, int waitFlags, WaitQueueFunc func, Object priv, ListNode<WaitQueueEntry> node) {
         this.queue = queue;
         this.waitFlags = waitFlags;
         this.func = func;
@@ -83,70 +94,70 @@ public class WaitQueueEntry {
         _setNode(node);
     }
 
-    protected WaitQueue getQueue() {
+    WaitQueue getQueue() {
         synchronized (this) {
-            return _getQueue();
+            return queue;
         }
     }
 
     public int getWaitFlags() {
         synchronized (this) {
-            return _getWaitFlags();
+            return waitFlags;
         }
     }
 
     public WaitQueueFunc getFunc() {
         synchronized (this) {
-            return _getFunc();
+            return func;
         }
     }
 
     public Object getPriv() {
         synchronized (this) {
-            return _getPriv();
+            return priv;
         }
     }
 
-    protected ListNode<WaitQueueEntry> getNode() {
+    ListNode<WaitQueueEntry> getNode() {
         synchronized (this) {
-            return _getNode();
+            return node;
         }
     }
 
-    protected void setQueue(WaitQueue queue) {
+    void setQueue(WaitQueue queue) {
         synchronized (this) {
-            _setQueue(queue);
+            this.queue = queue;
         }
     }
 
-    protected void setNode(ListNode<WaitQueueEntry> node) {
+    void setNode(ListNode<WaitQueueEntry> node) {
         synchronized (this) {
-            _setNode(node);
+            this.node = node;
         }
     }
 
     // Must be used inside a synchronized block of this instance
-    protected void setWaitFlags(int waitFlags) {
+    void setWaitFlags(int waitFlags) {
         synchronized (this) {
-            _setWaitFlags(waitFlags);
+            this.waitFlags = waitFlags;
         }
     }
 
     // Must be used inside a synchronized block of this instance
-    protected void setFunc(WaitQueueFunc func) {
+    void setFunc(WaitQueueFunc func) {
         synchronized (this) {
-            _setFunc(func);
+            this.func = func;
         }
     }
 
     // Must be used inside a synchronized block of this instance
-    protected void setPriv(Object priv) {
+    void setPriv(Object priv) {
         synchronized (this) {
-            _setPriv(priv);
+            this.priv = priv;
         }
     }
 
-    protected void setAll(WaitQueue queue, int waitFlags, WaitQueueFunc func, Object priv, ListNode<WaitQueueEntry> node){
+    void setAll(WaitQueue queue, int waitFlags, WaitQueueFunc func, Object priv, ListNode<WaitQueueEntry> node){
         synchronized (this){
             this.queue = queue;
             this.waitFlags = waitFlags;
@@ -158,7 +169,7 @@ public class WaitQueueEntry {
 
     // Fills entry before adding to queue.
     // Must be used inside a synchronized block of this instance.
-    protected void setAllExceptQueue(int waitFlags, WaitQueueFunc func, Object priv, ListNode<WaitQueueEntry> node){
+    void setAllExceptQueue(int waitFlags, WaitQueueFunc func, Object priv, ListNode<WaitQueueEntry> node){
         synchronized (this){
             this.waitFlags = waitFlags;
             this.func = func;
@@ -172,38 +183,67 @@ public class WaitQueueEntry {
     // Error string for add operation
     private static String addErrorString(ListNode<WaitQueueEntry> node){
         String err = "The entry could not be added: ";
-        if(!ListNode.isEmpty(node))
+        if(node != null)
             err += "The entry has already been added to a queue.";
         else
             err += "After deletion, the entry cannot be added.";
         return err;
     }
 
-    public void add(WaitQueueFunc func, Object priv){
-        synchronized (this) {
-            if (node == null && queue != null) {
-                fillEntry(0, func, priv);
-                queue.addFirst(node);
-            } else throw new IllegalStateException(addErrorString(node));
+    private void _add(WaitQueueFunc func, Object priv, boolean exclusive){
+        // Racy attribution but it is safeguarded by
+        // re-checking the queue variable after
+        // acquiring the queue's lock and entering
+        // the synchronized block.
+        WaitQueue q = queue;
+        if(q != null) {
+            try {
+                q.getLock().lock();
+                synchronized (this) {
+                    if (node == null && queue != null) {
+                        // sets the exclusive wait flag if "exclusive" is true
+                        if(!exclusive){
+                            fillEntry(0, func, priv);
+                            q._addFirst(node);
+                        }else {
+                            fillEntry(WaitQueueFlags.EXCLUSIVE, func, priv);
+                            q._addLast(node);
+                        }
+                    } else throw new IllegalStateException(addErrorString(node));
+                }
+            }finally {
+                q.getLock().unlock();
+            }
         }
+    }
+
+    public void add(WaitQueueFunc func, Object priv){
+        _add(func,priv,false);
     }
 
     public void addExclusive(WaitQueueFunc func, Object priv){
-        synchronized (this) {
-            if (node == null && queue != null) {
-                fillEntry(WaitQueueFlags.EXCLUSIVE, func, priv);
-                queue.addLast(node);
-            } else throw new IllegalStateException(addErrorString(node));
-        }
+        _add(func,priv,true);
     }
 
     public void delete(){
-        synchronized (this) {
-            if (!ListNode.isEmpty(node)) {
-                // Cannot invoke ListNode.delete() because the lock
-                // of the queue must be acquired to modify the list
-                queue.delete(node);
-                queue = null;
+        // Racy attribution and comparisons,
+        // however, after acquiring the lock
+        // and entering the synchronized block,
+        // appropriate verifications are done
+        // before deleting the entry
+        WaitQueue q = queue;
+        if(node != null && q != null) {
+            try {
+                q.getLock().lock();
+                synchronized (this) {
+                    if (node != null) {
+                        queue._delete(node);
+                        queue = null;
+                        node = null;
+                    }
+                }
+            }finally {
+                q.getLock().unlock();
             }
         }
     }
@@ -216,11 +256,11 @@ public class WaitQueueEntry {
 
     public boolean isDeleted(){
         synchronized (this) {
-            return node != null && ListNode.isDeleted(node);
+            return queue == null;
         }
     }
 
-    // ***** Default Wake function ***** //
+    // ***** Default Wake functions ***** //
 
     // returns 0 if wake up was not performed.
     // returns positive number if wake up was performed.
@@ -274,62 +314,61 @@ public class WaitQueueEntry {
         return ret;
     }
 
+    // ***** Default Wait function ***** //
 
     /**
-     * Default wait function. Inserts the entry in the wait queue if it is not
-     * yet inserted. Then, waits until be woken up or the timeout expires.
-     * If the return value is negative and the user does not intend to wait
-     * again using the entry, then the entry should be deleted by invoking "entry.delete()".
-     * @param entry entry to be added to the queue
-     * @param exclusive if the entry should be added as exclusive or non-exclusive
-     * @param timeout maximum time (in milliseconds) allowed to be woken up before timing out.
-     *                A timeout value of 0 or less will result in no action, i.e.
-     *                the entry will not be queued.
-     * @return "false" if the thread was not woken up. "true" otherwise.
+     * Calculates end time based on the given timeout.
+     * @param timeout timeout in milliseconds
+     * @return end time if timeout is not null and positive.
+     * null if timeout is null. And -1L if timeout is zero or negative.
      */
-    public static boolean defaultWaitFunction(WaitQueueEntry entry, boolean exclusive, Long timeout){
-        Long endTime = null;
+    private static Long calculateEndTime(Long timeout){
+        Long endTime = timeout;
         if(timeout != null) {
-            if (timeout <= 0)
-                return false;
-            else {
+            if (timeout > 0){
                 try {
                     endTime = Math.addExact(System.currentTimeMillis(), timeout);
                 }catch (ArithmeticException ae){
                     endTime = Long.MAX_VALUE;
                 }
+            }else {
+                endTime = -1L;
             }
         }
-        
-        ParkState ps;
-        
-        // If the entry has not been added yet,
-        // creates park state object,
-        // sets the intent to park and
-        // adds the entry to the wait queue.
-        if(!entry.isQueued()) {
-            ps = new ParkState(Thread.currentThread());
-            ps.parked.set(true);
-            if (!exclusive)
-                entry.add(WaitQueueEntry::autoDeleteWakeFunction, ps);
-            else
-                entry.addExclusive(WaitQueueEntry::autoDeleteWakeFunction, ps);
-        }else {
-            // if entry is queued, gets park state
-            // from the entry
-            ps = (ParkState) entry.getPriv();
-        }
+        return endTime;
+    }
+
+    /**
+     * Auxiliary function of the default wait functions.
+     * This function parks the current thread until the end
+     * time or until it is given the permission to unpark.
+     * @param endTime timestamp at which the method should return
+     *                if the permit to unpark is not given. If
+     *                the thread should wait indefinitely then
+     *                this value may be null. Otherwise, it must
+     *                be a positive value obtained through the addition of
+     *                a timeout and System.currentTimeMillis()
+     * @param ps Park State object used to set when the thread parks and
+     *           unparks, but also to determine if the thread was given
+     *           the permission to unpark.
+     * @return true if the thread received the permission to unpark. 
+     *         false othewise (timed out).
+     */
+    private static boolean wait(Long endTime, ParkState ps){
+        // set the intent to park
+        ps.parked.set(true);
         
         // if a timeout was not provided,
         // parks until the flag is set to
         // false by the wake function
-        if (timeout == null) {
+        if (endTime == null) {
             while(ps.parked.get())
                 LockSupport.park();
         }
         // Else, parks until the timeout expires
         // or the park flag is set to false
         else {
+            long timeout;
             while ((timeout = (endTime - System.currentTimeMillis())) > 0 &&
                     ps.parked.get()) {
                 LockSupport.park(timeout);
@@ -338,23 +377,65 @@ public class WaitQueueEntry {
             ps.parked.set(false); // sets the park state to inform that the thread is no longer parked
             return ret;
         }
-        
+
         return true;
     }
 
     /**
-     * Default wait function. Inserts the entry in the wait queue if it is not
-     * yet inserted. Then, waits until be woken up or the timeout expires.
-     * If the return value is negative and the user does not intend to wait
-     * again using the entry, then the entry should be deleted by invoking "entry.delete()".
-     * @param exclusive If the entry should be added as exclusive or non-exclusive.
-     *                  If the entry has been added already, this value is ignored.
-     * @param timeout maximum time (in milliseconds) allowed to be woken up before timing out.
-     *                A timeout value of 0 or less will result in no action, i.e.
+     * Default wait function compatible with any wake function
+     * that uses park state. If the provided entry is queued,
+     * this function makes the current thread wait until woken up
+     * or until the expiration of the timeout (if not null and positive).
+     * Otherwise, with a not queued entry, the method returns 'true'
+     * immediately.
+     * @param entry entry to be added to the queue. If not queued, the
+     *              method will return 'true' immediately.
+     * @param ps Park state used to wait. If 'null' the park state is
+     *           assumed to be the private object.
+     * @param timeout maximum time (in milliseconds) allowed to wait before
+     *                being woken up, otherwise the operation should time out.
+     *                A timeout value of zero or less will result in no action, i.e.
      *                the entry will not be queued.
-     * @return "false" if the thread was not woken up. "true" otherwise.
+     * @return "false" if the thread was not woken up. "true" if the thread was
+     *         woken up or if the entry was not queued.
+     * @throws IllegalCallerException Thrown if the current thread is not the owner
+     *                                of the park state associated with the entry.
+     * @throws ClassCastException Thrown if a park state is not provided (i.e. is null)
+     *                            and the wait entry does not have a park state as
+     *                            its private object.
      */
-    public boolean defaultWaitFunction(boolean exclusive, Long timeout){
-        return WaitQueueEntry.defaultWaitFunction(this, exclusive, timeout);
+    public static boolean defaultWaitFunction(WaitQueueEntry entry, ParkState ps, Long timeout){
+        Long endTime = calculateEndTime(timeout);
+        if(Objects.equals(endTime,1L))
+            return false;
+
+        // If the entry is not queued,
+        // returns "true" immediatelly.
+        // This assumed the entry was indeed
+        // queued before, and may have been
+        // deleted as a consequence of the
+        // wake-up callback.
+        if(!entry.isQueued())
+            return true;
+
+        // Gets park state from the entry
+        if (ps == null)
+            ps = (ParkState) entry.getPriv();
+
+        // If current thread is not the owner
+        // of the park state, then it should
+        // not be waiting using this entry
+        if(ps.thread != Thread.currentThread())
+            throw new IllegalCallerException("The current thread is not the owner of the wait queue entry.");
+
+        return wait(endTime, ps);
+    }
+
+    public static boolean defaultWaitFunction(WaitQueueEntry entry, Long timeout){
+        return defaultWaitFunction(entry, null, timeout);
+    }
+
+    public static boolean defaultWaitFunction(WaitQueueEntry entry){
+        return defaultWaitFunction(entry, null, null);
     }
 }

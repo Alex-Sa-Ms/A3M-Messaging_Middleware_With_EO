@@ -1,4 +1,4 @@
-package pt.uminho.di.a3m.poller.waitqueue;
+package pt.uminho.di.a3m.waitqueue;
 
 import pt.uminho.di.a3m.list.ListNode;
 
@@ -8,38 +8,71 @@ import java.util.concurrent.locks.ReentrantLock;
 public class WaitQueue{
     private final Lock lock = new ReentrantLock();
     private final ListNode<WaitQueueEntry> head = ListNode.init();
+    private int size = 0;
 
-    // ***** protected methods ***** //
+    // ***** package methods ***** //
+
+    ListNode<WaitQueueEntry> getHead() {
+        return head;
+    }
+
+    int getSize() {
+        return size;
+    }
 
     // Adds non-exclusive wait entry at the head of the list.
-    protected void addFirst(ListNode<WaitQueueEntry> node) {
+    // Must have lock acquired
+    void _addFirst(ListNode<WaitQueueEntry> node) {
+        ListNode.addFirst(node, head);
+        size++;
+    }
+
+    // Adds non-exclusive wait entry at the head of the list.
+    void addFirst(ListNode<WaitQueueEntry> node) {
         try{
             lock.lock();
-            ListNode.addFirst(node, head);
+            _addFirst(node);
         }finally {
             lock.unlock();
         }
     }
 
     // Adds non-exclusive wait entry at the tail of the list.
-    protected void addLast(ListNode<WaitQueueEntry> node) {
+    // Must have lock acquired
+    void _addLast(ListNode<WaitQueueEntry> node) {
+        ListNode.addLast(node, head);
+        size++;
+    }
+
+    // Adds non-exclusive wait entry at the tail of the list.
+    void addLast(ListNode<WaitQueueEntry> node) {
         try{
             lock.lock();
-            ListNode.addFirst(node, head);
+            _addLast(node);
         }finally {
             lock.unlock();
         }
     }
 
     // Delete wait entry at the head of the list.
-    protected void delete(ListNode<WaitQueueEntry> node) {
+    // Must have lock acquired
+    void _delete(ListNode<WaitQueueEntry> node) {
+        ListNode.delete(node);
+        size--;
+    }
+
+    // Delete wait entry at the head of the list.
+    void delete(ListNode<WaitQueueEntry> node) {
         try{
             lock.lock();
-            // delete entry from the list
-            ListNode.delete(node);
+            _delete(node);
         }finally {
             lock.unlock();
         }
+    }
+
+    Lock getLock() {
+        return lock;
     }
 
     // ***** public methods ***** //
@@ -100,7 +133,8 @@ public class WaitQueue{
                     // if they were not deleted. Shouldn't interfere
                     // with the iterator as the iterator is positioned
                     // in the node next to the current one
-                    ListNode.moveToTail(curr.getNode(), head);
+                    if(ListNode.isQueued(curr.getNode()))
+                        ListNode.moveToTail(curr.getNode(), head);
                     // stops waking up if the number of exclusive entries have been woken up
                     // or if the recorded last entry before modifications is reached.
                     if(--nrExclusive == 0 || curr == last)
@@ -123,11 +157,13 @@ public class WaitQueue{
         }
     }
 
-    /*
-        This call iterates over all entries to calculate the size.
-        // TODO - maybe create a counter in the future
-     */
     public int size(){
-        return ListNode.size(head);
+        try{
+            lock.lock();
+            assert size == ListNode.size(head);
+            return size;
+        }finally {
+            lock.unlock();
+        }
     }
 }

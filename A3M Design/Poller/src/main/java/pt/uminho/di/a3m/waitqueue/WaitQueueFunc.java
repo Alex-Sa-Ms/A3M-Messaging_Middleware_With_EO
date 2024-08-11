@@ -1,4 +1,4 @@
-package pt.uminho.di.a3m.poller.waitqueue;
+package pt.uminho.di.a3m.waitqueue;
 
 @FunctionalInterface
 public interface WaitQueueFunc {

@@ -171,6 +171,22 @@ public class ListNode<T> {
         return i.get();
     }
 
+    public static <T> int index(ListNode<T> node, ListNode<T> head){
+        int i = 0;
+        for(ListNode<T> it = head.next; it != head && it != node; it = it.next, i++);
+        return i;
+    }
+
+    public static <T> T get(ListNode<T> head, int index){
+        if(index < 0 || ListNode.isEmpty(head))
+            throw new IndexOutOfBoundsException();
+        ListNode<T> it = head.next;
+        for(; it != head && index != 0; it = it.next, index--);
+        if(index != 0)
+            throw new IndexOutOfBoundsException();
+        return it.getObject();
+    }
+
     public static class Iterator<T> {
 
         private final ListNode<T> head;
