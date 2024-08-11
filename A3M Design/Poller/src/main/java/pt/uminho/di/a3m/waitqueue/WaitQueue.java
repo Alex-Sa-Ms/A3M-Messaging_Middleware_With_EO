@@ -16,10 +16,6 @@ public class WaitQueue{
         return head;
     }
 
-    int getSize() {
-        return size;
-    }
-
     // Adds non-exclusive wait entry at the head of the list.
     // Must have lock acquired
     void _addFirst(ListNode<WaitQueueEntry> node) {

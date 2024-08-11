@@ -4,7 +4,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ParkState {
     public final Thread thread;
-    public final AtomicBoolean parked = new AtomicBoolean(true);
+    public final AtomicBoolean parked = new AtomicBoolean(false);
 
     /**
      * Creates a park state instance, and sets the 
@@ -21,5 +21,13 @@ public class ParkState {
      */
     public ParkState(Thread thread) {
         this.thread = thread;
+    }
+
+    @Override
+    public String toString() {
+        return "{" +
+                "t=" + thread.getName() + " | " + thread.getState() +
+                ", p=" + parked +
+                '}';
     }
 }

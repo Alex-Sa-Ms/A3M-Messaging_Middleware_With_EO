@@ -83,7 +83,7 @@ public class WaitQueueEntry {
 
     // Fills entry before adding to queue.
     // Must be used inside a synchronized block of this instance.
-    private void fillEntry(int waitFlags, WaitQueueFunc func, Object priv){
+    private void _fillEntry(int waitFlags, WaitQueueFunc func, Object priv){
         if(func == null || priv == null)
             throw new IllegalArgumentException("Could not initialize wait queue entry:" +
                     "A wake function and a private object linked to the waiter are required.");
@@ -203,10 +203,10 @@ public class WaitQueueEntry {
                     if (node == null && queue != null) {
                         // sets the exclusive wait flag if "exclusive" is true
                         if(!exclusive){
-                            fillEntry(0, func, priv);
+                            _fillEntry(0, func, priv);
                             q._addFirst(node);
                         }else {
-                            fillEntry(WaitQueueFlags.EXCLUSIVE, func, priv);
+                            _fillEntry(WaitQueueFlags.EXCLUSIVE, func, priv);
                             q._addLast(node);
                         }
                     } else throw new IllegalStateException(addErrorString(node));
@@ -373,9 +373,8 @@ public class WaitQueueEntry {
                     ps.parked.get()) {
                 LockSupport.park(timeout);
             }
-            boolean ret = timeout > 0 || !ps.parked.get();
-            ps.parked.set(false); // sets the park state to inform that the thread is no longer parked
-            return ret;
+            // sets the park state to inform that the thread is no longer parked
+            return timeout > 0 || !ps.parked.getAndSet(false);
         }
 
         return true;
@@ -409,12 +408,9 @@ public class WaitQueueEntry {
         if(Objects.equals(endTime,1L))
             return false;
 
-        // If the entry is not queued,
-        // returns "true" immediatelly.
-        // This assumed the entry was indeed
-        // queued before, and may have been
-        // deleted as a consequence of the
-        // wake-up callback.
+        // If the entry is not queued, returns "true" immediatelly.
+        // This assumed the entry was indeed queued before, and may
+        // have been deleted as a consequence of the wake-up callback.
         if(!entry.isQueued())
             return true;
 

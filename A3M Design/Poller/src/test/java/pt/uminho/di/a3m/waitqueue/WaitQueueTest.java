@@ -4,13 +4,12 @@ import org.junit.jupiter.api.Test;
 import pt.uminho.di.a3m.list.ListNode;
 import pt.uminho.di.a3m.waitqueue.*;
 
-import java.util.AbstractMap;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.Predicate;
 
 class WaitQueueTest {
@@ -300,7 +299,6 @@ class WaitQueueTest {
             // Set to wake-up one exclusive thread, however,
             // it does not matter as there are no exclusive entries
             waitQueue.wakeUp(0, 1, 0, 0);
-            // TODO - check if there is a deadlock, the test seemed to be stuck in some cases when sleep was not employed.
             Thread.sleep(1);
         }
 
