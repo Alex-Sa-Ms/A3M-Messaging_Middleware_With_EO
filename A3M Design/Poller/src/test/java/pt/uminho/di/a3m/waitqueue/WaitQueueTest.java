@@ -5,6 +5,7 @@ import pt.uminho.di.a3m.list.ListNode;
 import pt.uminho.di.a3m.waitqueue.*;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -521,23 +522,29 @@ class WaitQueueTest {
         assert waitQueue.size() == nrThreads;
     }
 
-
-    Map.Entry<WaitQueueEntry, Integer> findFirstExclusiveEntry(WaitQueue queue){
-        WaitQueueEntry fstExcl = null;
-        int idxFstExcl = 0;
-
-        ListNode.Iterator<WaitQueueEntry> it = ListNode.iterator(queue.getHead());
-        while (it.hasNext()){
-            WaitQueueEntry entry = it.next();
-            if((entry.getWaitFlags() & WaitQueueFlags.EXCLUSIVE) != 0
-                    && fstExcl == null){
-                fstExcl = entry;
-                break;
+    /**
+     * Finds the n-th exclusive entry
+     * @param queue Queue where the exclusive entry is to be found
+     * @param n index among exclusive entries
+     * @return entry containing the entry and its index if found
+      */
+    Map.Entry<WaitQueueEntry, Integer> findNExclusiveEntry(WaitQueue queue, int n){
+        WaitQueueEntry excl = null;
+        int idxExcl = 0;
+        if(n >= 0) {
+            ListNode.Iterator<WaitQueueEntry> it = ListNode.iterator(queue.getHead());
+            while (it.hasNext()) {
+                WaitQueueEntry entry = it.next();
+                if ((entry.getWaitFlags() & WaitQueueFlags.EXCLUSIVE) != 0
+                        && n-- == 0) {
+                    excl = entry;
+                    break;
+                }
+                idxExcl++;
             }
-            idxFstExcl++;
         }
 
-        return new AbstractMap.SimpleEntry<>(fstExcl,idxFstExcl);
+        return new AbstractMap.SimpleEntry<>(excl,idxExcl);
     }
 
     /**
@@ -549,23 +556,16 @@ class WaitQueueTest {
         WaitQueue waitQueue = new WaitQueue();
 
         int nrThreads = 10;
-        AtomicInteger alive = new AtomicInteger(0), // to check when all threads become alive
-                woken = new AtomicInteger(0); // to check when all thread have been woken up
+        AtomicInteger woken = new AtomicInteger(0); // to check when all thread have been woken up
 
         // last woken exclusive entry
         AtomicReference<WaitQueueEntry> lastWokenExcl = new AtomicReference<>(null);
-
-        // will act as a queue to check the order in which
-        // the exclusive entries where woken up
-        List<WaitQueueEntry> exclEntries = new ArrayList<>();
 
         for(int i = 0; i < nrThreads; i++) {
             // create wait queue entry and task for each thread
             WaitQueueEntry entry = waitQueue.initEntry();
             int finalI = i;
             Runnable task = () -> {
-                // inform that the current thread is alive
-                alive.incrementAndGet();
                 // Adds an EXCLUSIVE entry when "i" is odd
                 // and a NON-EXCLUSIVE entry when "i" is even
                 if(finalI % 2 == 0)
@@ -588,7 +588,7 @@ class WaitQueueTest {
 
         // save the index and the reference of the
         // first exclusive entry in the list
-        var pair = findFirstExclusiveEntry(waitQueue);
+        var pair = findNExclusiveEntry(waitQueue, 0);
         WaitQueueEntry fstExcl = pair.getKey();
         int idxFstExcl = pair.getValue();
 
@@ -623,7 +623,7 @@ class WaitQueueTest {
         assert fstExcl == lastWokenExcl.get();
 
         // assert the woken exclusive entry has not changed position
-        pair = findFirstExclusiveEntry(waitQueue);
+        pair = findNExclusiveEntry(waitQueue, 0);
         assert fstExcl == pair.getKey()
                 && idxFstExcl == pair.getValue();
 
@@ -659,5 +659,96 @@ class WaitQueueTest {
         // assert the second exclusive entry was moved to the tail, i.e.,
         // is now the last entry
         assert ListNode.isLast(sndExcl.getNode(), waitQueue.getHead());
+    }
+
+    /**
+     * Fair wake up makes exclusive entries move to the tail after being woken up
+     * to allow other exclusive entries to be woken up. However, the entries should
+     * not be moved if the entry was deleted by the wake function. To test this,
+     * the exclusive entries will be registered with the function "autoDeleteWakeFunction"
+     */
+    @Test
+    void fairWakeUpWithAutoDeleteWakeFunction() throws InterruptedException {
+        WaitQueue waitQueue = new WaitQueue();
+
+        int nrThreads = 10;
+        AtomicInteger woken = new AtomicInteger(0); // to check when all thread have been woken up
+
+        // will act as a queue to check the order in which
+        // the exclusive entries where woken up
+        Map<WaitQueueEntry,Boolean> exclEntries = new ConcurrentHashMap<>();
+
+        for(int i = 0; i < nrThreads; i++) {
+            // create wait queue entry and task for each thread
+            WaitQueueEntry entry = waitQueue.initEntry();
+            int finalI = i;
+            Runnable task = () -> {
+                // Adds an EXCLUSIVE entry when "i" is odd
+                // and a NON-EXCLUSIVE entry when "i" is even
+                if(finalI % 2 == 0)
+                    entry.add(WaitQueueEntry::defaultWakeFunction, new ParkState());
+                else
+                    entry.addExclusive(WaitQueueEntry::autoDeleteWakeFunction, new ParkState());
+                // If the thread was successfully woken up,
+                // informs that using the "woken" atomic variable
+                if(WaitQueueEntry.defaultWaitFunction(entry)) {
+                    woken.incrementAndGet();
+                    if((entry.getWaitFlags() & WaitQueueFlags.EXCLUSIVE) != 0)
+                        exclEntries.put(entry,true);
+                }
+            };
+            new Thread(task).start();
+        }
+
+        // sleep to give time for the entries to be added to the queue
+        sleepWhile(o -> waitQueue.size() < nrThreads);
+
+        // save the reference of the first two exclusive entries
+        WaitQueueEntry fstExcl = findNExclusiveEntry(waitQueue, 0).getKey(),
+                       sndExcl = findNExclusiveEntry(waitQueue, 1).getKey();
+        assert fstExcl != null && sndExcl != null;
+
+        // Fair wake up is set to wake up two exclusive entries
+        waitQueue.fairWakeUp(0, 2, 0, 0);
+
+        // sleep to give time for the entries to be added to the queue
+        sleepWhile(o -> woken.get() < nrThreads / 2 + 1);
+
+        // sleep a bit more to ensure no more threads are being woken up
+        Thread.sleep(5);
+
+        // assert the first two exclusive entries were
+        // the ones that where woken up
+        assert exclEntries.containsKey(fstExcl);
+        assert exclEntries.containsKey(sndExcl);
+
+        // assert the number of woken threads corresponds
+        // to half of the entries (non-exclusive entries)
+        // plus two (exclusive entries)
+        assert woken.get() == nrThreads / 2 + 2;
+
+        // assert the woken exclusive entries have been deleted
+        assert fstExcl.isDeleted();
+        assert sndExcl.isDeleted();
+
+        // wait queue size should be short in two entries
+        assert waitQueue.size() == nrThreads - 2;
+
+        // Fair wake up all remaining exclusive entries
+        waitQueue.fairWakeUp(0, 0, 0, 0);
+
+        // sleep to give time for threads to wake up
+        // Only the remain exclusive entries need to
+        // wake up for woken to reach a value equal to "nrThreads"
+        sleepWhile(o -> woken.get() < nrThreads);
+
+        // sleep a bit more to ensure no more threads are being woken up
+        Thread.sleep(5);
+
+        // assert wait queue size is half
+        assert waitQueue.size() == nrThreads / 2;
+        // assert only non-exclusive entries remain, i.e.,
+        // a first exclusive entry could not be found in the queue
+        assert findNExclusiveEntry(waitQueue, 0).getKey() == null;
     }
 }
