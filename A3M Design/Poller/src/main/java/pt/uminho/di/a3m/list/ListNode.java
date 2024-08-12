@@ -110,13 +110,13 @@ public class ListNode<T> {
     }
 
     // moves to head of list "head"
-    public static <T> void moveToHead(ListNode<T> node, ListNode<T> head){
+    public static <T> void moveToFirst(ListNode<T> node, ListNode<T> head){
         remove(node);
         addFirst(node, head);
     }
 
     // moves to tail of list "head"
-    public static <T> void moveToTail(ListNode<T> node, ListNode<T> head){
+    public static <T> void moveToLast(ListNode<T> node, ListNode<T> head){
         remove(node);
         addLast(node, head);
     }
@@ -302,7 +302,7 @@ public class ListNode<T> {
             if(current != head){
                 ListNode<T> toMv = current;
                 setCurrentAfterModOp();
-                ListNode.moveToHead(toMv, head);
+                ListNode.moveToFirst(toMv, head);
             }
         }
 
@@ -314,7 +314,7 @@ public class ListNode<T> {
             if(current != head){
                 ListNode<T> toMv = current;
                 setCurrentAfterModOp();
-                ListNode.moveToTail(toMv, head);
+                ListNode.moveToLast(toMv, head);
             }
         }
     }

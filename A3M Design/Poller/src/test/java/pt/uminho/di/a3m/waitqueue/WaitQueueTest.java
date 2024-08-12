@@ -2,15 +2,12 @@ package pt.uminho.di.a3m.waitqueue;
 
 import org.junit.jupiter.api.Test;
 import pt.uminho.di.a3m.list.ListNode;
-import pt.uminho.di.a3m.waitqueue.*;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.LockSupport;
 import java.util.function.Predicate;
 
 class WaitQueueTest {
@@ -280,7 +277,7 @@ class WaitQueueTest {
                 entry.add(WaitQueueEntry::autoDeleteWakeFunction, new ParkState());
                 // If the thread was successfully woken up,
                 // informs that using the "woken" atomic variable
-                if(WaitQueueEntry.defaultWaitFunction(entry))
+                if(WaitQueueEntry.defaultWaitFunctionTimeout(entry))
                     woken.incrementAndGet();
             };
             new Thread(task).start();
@@ -329,7 +326,7 @@ class WaitQueueTest {
                 entry.addExclusive(WaitQueueEntry::autoDeleteWakeFunction, new ParkState());
                 // If the thread was successfully woken up,
                 // informs that using the "woken" atomic variable
-                if(WaitQueueEntry.defaultWaitFunction(entry))
+                if(WaitQueueEntry.defaultWaitFunctionTimeout(entry))
                     woken.incrementAndGet();
             };
             new Thread(task).start();
@@ -382,7 +379,7 @@ class WaitQueueTest {
                     entry.addExclusive(WaitQueueEntry::autoDeleteWakeFunction, new ParkState());
                 // If the thread was successfully woken up,
                 // informs that using the "woken" atomic variable
-                if(WaitQueueEntry.defaultWaitFunction(entry))
+                if(WaitQueueEntry.defaultWaitFunctionTimeout(entry))
                     woken.incrementAndGet();
             };
             new Thread(task).start();
@@ -428,7 +425,7 @@ class WaitQueueTest {
                     entry.addExclusive(WaitQueueEntry::autoDeleteWakeFunction, new ParkState());
                 // If the thread was successfully woken up,
                 // informs that using the "woken" atomic variable
-                if(WaitQueueEntry.defaultWaitFunction(entry))
+                if(WaitQueueEntry.defaultWaitFunctionTimeout(entry))
                     woken.incrementAndGet();
             };
             new Thread(task).start();
@@ -501,7 +498,7 @@ class WaitQueueTest {
                     entry.addExclusive(WaitQueueEntry::defaultWakeFunction, new ParkState());
                 // If the thread was successfully woken up,
                 // informs that using the "woken" atomic variable
-                if(WaitQueueEntry.defaultWaitFunction(entry))
+                if(WaitQueueEntry.defaultWaitFunctionTimeout(entry))
                     woken.incrementAndGet();
             };
             new Thread(task).start();
@@ -574,7 +571,7 @@ class WaitQueueTest {
                     entry.addExclusive(WaitQueueEntry::defaultWakeFunction, new ParkState());
                 // If the thread was successfully woken up,
                 // informs that using the "woken" atomic variable
-                if(WaitQueueEntry.defaultWaitFunction(entry)) {
+                if(WaitQueueEntry.defaultWaitFunctionTimeout(entry)) {
                     woken.incrementAndGet();
                     if((entry.getWaitFlags() & WaitQueueFlags.EXCLUSIVE) != 0)
                         lastWokenExcl.set(entry);
@@ -691,7 +688,7 @@ class WaitQueueTest {
                     entry.addExclusive(WaitQueueEntry::autoDeleteWakeFunction, new ParkState());
                 // If the thread was successfully woken up,
                 // informs that using the "woken" atomic variable
-                if(WaitQueueEntry.defaultWaitFunction(entry)) {
+                if(WaitQueueEntry.defaultWaitFunctionTimeout(entry)) {
                     woken.incrementAndGet();
                     if((entry.getWaitFlags() & WaitQueueFlags.EXCLUSIVE) != 0)
                         exclEntries.put(entry,true);

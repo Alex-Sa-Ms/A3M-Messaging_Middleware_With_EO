@@ -130,7 +130,7 @@ public class WaitQueue{
                     // with the iterator as the iterator is positioned
                     // in the node next to the current one
                     if(curr.isQueued())
-                        ListNode.moveToTail(curr.getNode(), head);
+                        ListNode.moveToLast(curr.getNode(), head);
                     // stops waking up if the number of exclusive entries have been woken up
                     // or if the recorded last entry before modifications is reached.
                     if(--nrExclusive == 0 || curr == last)

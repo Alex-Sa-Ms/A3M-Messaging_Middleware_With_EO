@@ -1,12 +1,16 @@
 package pt.uminho.di.a3m.poller;
 
 import pt.uminho.di.a3m.list.ListNode;
+import pt.uminho.di.a3m.waitqueue.ParkState;
 import pt.uminho.di.a3m.waitqueue.WaitQueue;
+import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;
 import pt.uminho.di.a3m.waitqueue.WaitQueueFunc;
 
 import java.util.*;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+
+import static pt.uminho.di.a3m.auxiliary.Timeout.calculateEndTime;
 
 /* TODO -
           1. make Poller and test
@@ -20,7 +24,7 @@ public class Poller {
     private final Lock lock = new ReentrantLock();
 
     // list of pollables that are "supposedly" ready
-    private final ListNode<PollerItem> readyList = ListNode.init();
+    private ListNode<PollerItem> readyList = ListNode.init();
 
     // wait queue for the poller's "users" (threads that use the poller)
     private final WaitQueue waitQ = new WaitQueue();
@@ -32,26 +36,18 @@ public class Poller {
 
     private Poller() {}
 
-    // ****** Auxiliary methods ****** //
+    // ****** Poller instance auxiliary methods ****** //
 
     /**
      * Must hold poller's lock.
      * @return true if the wait queue has waiters.
      */
-    boolean _hasWaiters(){
+    boolean hasWaiters(){
         return !waitQ.isEmpty();
     }
 
-    /**
-     * @return true if the wait queue has waiters.
-     */
-    boolean hasWaiters(){
-        try{
-            lock.lock();
-            return _hasWaiters();
-        }finally {
-            lock.unlock();
-        }
+    private void removePollerItem(PollerItem pItem){
+        interestMap.remove(pItem.getPollable().getId());
     }
 
     private static final WaitQueueFunc waitQueueFunc = (entry, mode, flags, key) -> {
@@ -104,7 +100,7 @@ public class Poller {
 
                     // wake up all non-exclusive entries and
                     // at least one exclusive entry
-                    poller.waitQ.fairWakeUp(0, 1, 0, 0);
+                    poller.waitQ.wakeUp(0, 1, 0, 0);
                 }
             }
 
@@ -116,7 +112,6 @@ public class Poller {
             // then it means the pollable is being closed
             // and the wait queue entry must be removed.
             if((key & PollFlags.POLLFREE) == 0){
-                // TODO - Should I delete and re-initialize?
                 pItem.getWait().delete();
                 pItem.setWait(null);
             }
@@ -149,7 +144,103 @@ public class Poller {
         return pt.getKey() & ret;
     }
 
-    // ***** Public methods ***** //
+    /**
+     * Remove poller item from wait queue
+     * @param pItem poller item
+     */
+    private void unregisterPollerItem(PollerItem pItem){
+        WaitQueueEntry wait = pItem.getWait();
+        if(wait != null)
+            wait.delete();
+        pItem.setWait(null);
+    }
+
+    /**
+     * Must be called with lock held.
+     * Deletes poller item from poller.
+     * or when "force" is true.
+     * @param pItem poller item
+     */
+    private void deletePollerItem(PollerItem pItem){
+        // removes item from the pollable's wait queue
+        unregisterPollerItem(pItem);
+
+        // removes entry from the interest map
+        removePollerItem(pItem);
+
+        // removes item from the ready list if present
+        if(pItem.isReady())
+            ListNode.delete(pItem.getReadyLink());
+    }
+
+    /**
+     * @return list of pairs of pollable id and mask of available events for that pollable.
+     * Empty list is returned if there isn't a pollable with available events.
+     * @throws InterruptedException If thread was interrupted before entering this method.
+     */
+    private List<PollEvent<Object>> getReadyEvents() throws InterruptedException {
+        // check if thread has been interrupted before
+        // attempting to fetch ready events.
+        if(Thread.currentThread().isInterrupted())
+            throw new InterruptedException();
+
+        List<PollEvent<Object>> rEvents = new ArrayList<>();
+        PollTable pt = new PollTable(~0,null,null);
+
+        try{
+            PollerItem pItem;
+            int aEvents;
+            lock.lock();
+
+            // Saves current ready list in a temporary variable
+            // and initiates a new ready list. This is done
+            // for performance reasons, as to not keep track
+            // of pollables re-added to the list at the tail,
+            // which hinder the traversal of the list using an iterator.
+            ListNode<PollerItem> tmpList = readyList;
+            readyList = ListNode.init();
+            ListNode.Iterator<PollerItem> it = ListNode.iterator(tmpList);
+
+            while(it.hasNext()){
+                pItem = it.next();
+
+                // removes pollable from "ready" list
+                it.removeAndInit();
+
+                // gets currently available events
+                pt.setKey(pItem.getEvents());
+                aEvents = itemPoll(pItem.getPollable(), pt);
+
+                // if there aren't events available,
+                // skip the rest of the iteration.
+                if(aEvents == 0)
+                    continue;
+
+                // Register ready events of this pollable on the list
+                rEvents.add(new PollEvent<>(pItem.getPollable().getId(), aEvents));
+
+                // If the POLLONESHOT flag was used, disarm events.
+                if((pItem.getEvents() & PollFlags.POLLONESHOT) != 0) {
+                    pItem.setEvents(pItem.getEvents() & PollFlags.POLLER_PRIVATE_BITS);
+                } else if ((pItem.getEvents() & PollFlags.POLLFREE) != 0) {
+                    removePollerItem(pItem);
+                } else if ((pItem.getEvents() & PollFlags.POLLET) == 0) {
+                    // if pollable was registered with level-trigger,
+                    // then the pollable should be added back to the
+                    // ready list so that other waiters can also be
+                    // aware of the availability. Added as last,
+                    // so that the order of the ready list is preserved.
+                    ListNode.moveToLast(pItem.getReadyLink(),readyList);
+                }
+            }
+        }finally {
+            lock.unlock();
+        }
+
+        return rEvents;
+    }
+
+    // ***** Poller instance public methods ***** //
 
     public static Poller create(){
         return new Poller();
@@ -187,15 +278,11 @@ public class Poller {
                 throw new IllegalStateException("Pollable is already registered.");
 
             // creates poller item and uses it to register the pollable
-            PollerItem pollerItem = PollerItem.init(this, p, events);
-            interestMap.put(p.getId(), pollerItem);
+            PollerItem pItem = PollerItem.init(this, p, events);
+            interestMap.put(p.getId(), pItem);
 
-            PollTable pt = new PollTable(events, pollerItem, pQueuingFunc);
+            PollTable pt = new PollTable(events, pItem, pQueuingFunc);
 
-            // TODO - maybe think about having multiple locks with different granularities.
-            //          1. main lock when changes of the registered pollables are required
-            //          2. another lock when only the items are involved?
-            //          - Acquired in the order above
             // Add poller item to the pollable's wait queue and
             // get currently available events.
             int aEvents = itemPoll(p, pt);
@@ -205,7 +292,7 @@ public class Poller {
             // flag will be returned.
             if((aEvents & PollFlags.POLLFREE) != 0){
                 // removes the pollable from the interest map
-                interestMap.remove(p.getId());
+                removePollerItem(pItem);
                 // throws exception informing that the pollable
                 // is closed.
                 throw new PollableClosedException();
@@ -214,44 +301,138 @@ public class Poller {
             // if there are available events and the item is
             // not yet marked as ready, then add it to the ready list
             // and wake up waiters
-            if(aEvents != 0 && !pollerItem.isReady()){
-                ListNode.addLast(readyList, pollerItem.getReadyLink());
+            if(aEvents != 0 && !pItem.isReady()){
+                ListNode.addLast(readyList, pItem.getReadyLink());
                 if(hasWaiters())
-                    waitQ.fairWakeUp(0,1,0,0);
+                    waitQ.wakeUp(0,1,0,0);
             }
         }finally {
             lock.unlock();
         }
     }
 
-
-
-    public void delete(Pollable p){
-        if(p == null)
-            throw new IllegalArgumentException("Pollable is null.");
-
-
-
-        // TODO - delete()
-        throw new java.lang.UnsupportedOperationException("Not implemented yet.");
-    }
-
+    /**
+     * Modifies events mask of a registered pollable.
+     * @param p pollable that should have its
+     * @param events new events mask
+     */
     public void modify(Pollable p, int events){
         if(p == null)
             throw new IllegalArgumentException("Pollable is null.");
 
+        // validates combination of flags
+        if ((events & PollFlags.POLLEXCLUSIVE) != 0)
+            throw new IllegalStateException("Event mask modifications with POLLEXCLUSIVE " +
+                    "are not allowed: 'events' includes POLLEXCLUSIVE.");
 
+        // adds error and hang up flags
+        events |= PollFlags.POLLERR | PollFlags.POLLHUP;
 
-        // TODO - modify()
-        throw new java.lang.UnsupportedOperationException("Not implemented yet.");
+        try {
+            lock.lock();
+
+            PollerItem pItem = interestMap.get(p.getId());
+            if(pItem == null)
+                throw new NoSuchElementException("Pollable is not registered.");
+
+            if((pItem.getEvents() & PollFlags.POLLEXCLUSIVE) != 0)
+                throw new IllegalStateException("Event mask modifications with POLLEXCLUSIVE " +
+                        "are not allowed: pollable was registered with POLLEXCLUSIVE.");
+
+            // update events
+            pItem.setEvents(events);
+
+            PollTable pt = new PollTable(events, null, null);
+
+            int aEvents = itemPoll(p, pt);
+            if(aEvents != 0 && !pItem.isReady()) {
+                ListNode.addLast(readyList, pItem.getReadyLink());
+                if (hasWaiters())
+                    waitQ.wakeUp(0, 1, 0, 0);
+            }
+        }finally {
+            lock.unlock();
+        }
     }
 
-    public void await(Long timeout){
-        // TODO - wait()
-        throw new java.lang.UnsupportedOperationException("Not implemented yet.");
+    // TODO - delete() missing javadoc
+    public void delete(Pollable p){
+        if(p == null)
+            throw new IllegalArgumentException("Pollable is null.");
+
+        try {
+            lock.lock();
+
+            // checks if pollable is registered
+            PollerItem pItem = interestMap.get(p.getId());
+            if(pItem == null)
+                throw new NoSuchElementException("Pollable is not registered.");
+
+            // deletes pollable's item
+            deletePollerItem(pItem);
+        }finally {
+            lock.unlock();
+        }
     }
 
-    public void await(){
+    // TODO - await() missing javadoc
+    public List<PollEvent<Object>> await(Long timeout) throws InterruptedException {
+        List<PollEvent<Object>> rEvents;
+        Long endTimeout = calculateEndTime(timeout);
+        boolean timedOut = endTimeout == 0;
+
+        // Racy call. If a non-blocking operation was requested,
+        // this avoids waiting for the lock to be acquired and
+        // allows the call to return immediatelly. Otherwise,
+        // there shouldn't be a problem since after lock is acquired,
+        // this will be re-tested.
+        boolean ready = ListNode.isEmpty(readyList);
+
+        while(true){
+            if(ready){
+                rEvents = getReadyEvents();
+                if(!rEvents.isEmpty())
+                    return rEvents;
+            }
+
+            if (timedOut)
+                return null;
+
+            if(Thread.currentThread().isInterrupted())
+                throw new InterruptedException();
+
+            WaitQueueEntry wait = waitQ.initEntry();
+
+            try {
+                lock.lock();
+                // Final availability check under lock.
+                // If there aren't events available,
+                // then queues itself.
+                ready = ListNode.isEmpty(readyList);
+                if(!ready)
+                    wait.addExclusive(WaitQueueEntry::autoDeleteWakeFunction,
+                                       new ParkState());
+            }finally {
+                lock.unlock();
+            }
+
+            // waits until it times out or is woken up
+            if(!ready)
+                timedOut = !WaitQueueEntry.defaultWaitFunction(wait, null, endTimeout);
+
+            // deletes entry if waiting operation timed out
+            if(timedOut)
+                wait.delete();
+
+            // sets ready to true, to try and check if there
+            // are events ready, even if the waiting operation timed out
+            ready = true;
+        }
+    }
+
+
+
+    public void await() throws InterruptedException {
         await(null);
     }
 
@@ -259,6 +440,8 @@ public class Poller {
         // TODO - close()
         throw new java.lang.UnsupportedOperationException("Not implemented yet.");
     }
+
+    // ***** Poll call methods ***** //
 
     public static List<PollEvent<Object>> poll(List<PollEvent<Pollable>> interestList){
         // TODO - poll()

@@ -1,7 +1,7 @@
 package pt.uminho.di.a3m.poller;
 
 public class PollTable {
-    private final int key;
+    private int key;
     private final Object priv;
     private final PollQueueingFunc func;
 
@@ -21,5 +21,9 @@ public class PollTable {
 
     public PollQueueingFunc getFunc() {
         return func;
+    }
+
+    public void setKey(int key) {
+        this.key = key;
     }
 }

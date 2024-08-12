@@ -5,6 +5,8 @@ import pt.uminho.di.a3m.list.ListNode;
 import java.util.Objects;
 import java.util.concurrent.locks.LockSupport;
 
+import static pt.uminho.di.a3m.auxiliary.Timeout.calculateEndTime;
+
 /**
  * This class works in conjunction with the WaitQueue class.
  * Since instances of both classes can be accessed by multiple
@@ -317,28 +319,6 @@ public class WaitQueueEntry {
     // ***** Default Wait function ***** //
 
     /**
-     * Calculates end time based on the given timeout.
-     * @param timeout timeout in milliseconds
-     * @return end time if timeout is not null and positive.
-     * null if timeout is null. And -1L if timeout is zero or negative.
-     */
-    private static Long calculateEndTime(Long timeout){
-        Long endTime = timeout;
-        if(timeout != null) {
-            if (timeout > 0){
-                try {
-                    endTime = Math.addExact(System.currentTimeMillis(), timeout);
-                }catch (ArithmeticException ae){
-                    endTime = Long.MAX_VALUE;
-                }
-            }else {
-                endTime = -1L;
-            }
-        }
-        return endTime;
-    }
-
-    /**
      * Auxiliary function of the default wait functions.
      * This function parks the current thread until the end
      * time or until it is given the permission to unpark.
@@ -384,17 +364,15 @@ public class WaitQueueEntry {
      * Default wait function compatible with any wake function
      * that uses park state. If the provided entry is queued,
      * this function makes the current thread wait until woken up
-     * or until the expiration of the timeout (if not null and positive).
+     * or until the end timeout is reached (if not null and positive).
      * Otherwise, with a not queued entry, the method returns 'true'
      * immediately.
      * @param entry entry to be added to the queue. If not queued, the
      *              method will return 'true' immediately.
      * @param ps Park state used to wait. If 'null' the park state is
      *           assumed to be the private object.
-     * @param timeout maximum time (in milliseconds) allowed to wait before
-     *                being woken up, otherwise the operation should time out.
-     *                A timeout value of zero or less will result in no action, i.e.
-     *                the entry will not be queued.
+     * @param endTimeout timestamp, calculated using System.currentTimeMillis(),
+     *                  at which the operation should time out and return 'false'.
      * @return "false" if the thread was not woken up. "true" if the thread was
      *         woken up or if the entry was not queued.
      * @throws IllegalCallerException Thrown if the current thread is not the owner
@@ -403,9 +381,9 @@ public class WaitQueueEntry {
      *                            and the wait entry does not have a park state as
      *                            its private object.
      */
-    public static boolean defaultWaitFunction(WaitQueueEntry entry, ParkState ps, Long timeout){
-        Long endTime = calculateEndTime(timeout);
-        if(Objects.equals(endTime,1L))
+    public static boolean defaultWaitFunction(WaitQueueEntry entry, ParkState ps, Long endTimeout) {
+        // returns immediatelly if the end timeout has been reached
+        if(endTimeout != null && endTimeout <= System.currentTimeMillis())
             return false;
 
         // If the entry is not queued, returns "true" immediatelly.
@@ -424,14 +402,43 @@ public class WaitQueueEntry {
         if(ps.thread != Thread.currentThread())
             throw new IllegalCallerException("The current thread is not the owner of the wait queue entry.");
 
-        return wait(endTime, ps);
+        return wait(endTimeout, ps);
     }
 
-    public static boolean defaultWaitFunction(WaitQueueEntry entry, Long timeout){
-        return defaultWaitFunction(entry, null, timeout);
+    /**
+     * Default wait function (using timeout value) compatible with any
+     * wake function that uses park state. If the provided entry is queued,
+     * this function makes the current thread wait until woken up
+     * or until the expiration of the timeout (if not null and positive).
+     * Otherwise, with a not queued entry, the method returns 'true'
+     * immediately.
+     * @param entry entry to be added to the queue. If not queued, the
+     *              method will return 'true' immediately.
+     * @param ps Park state used to wait. If 'null' the park state is
+     *           assumed to be the private object.
+     * @param timeout maximum time (in milliseconds) allowed to wait before
+     *                being woken up, otherwise the operation should time out.
+     *                A timeout value of zero or less will result in no action, i.e.
+     *                the method will return "false" immediately.
+     * @return "false" if the thread was not woken up. "true" if the thread was
+     *         woken up or if the entry was not queued.
+     * @throws IllegalCallerException Thrown if the current thread is not the owner
+     *                                of the park state associated with the entry.
+     * @throws ClassCastException Thrown if a park state is not provided (i.e. is null)
+     *                            and the wait entry does not have a park state as
+     *                            its private object.
+     */
+    public static boolean defaultWaitFunctionTimeout(WaitQueueEntry entry, ParkState ps, Long timeout){
+        Long endTime = calculateEndTime(timeout);
+
+        return defaultWaitFunction(entry, ps, endTime);
     }
 
-    public static boolean defaultWaitFunction(WaitQueueEntry entry){
-        return defaultWaitFunction(entry, null, null);
+    public static boolean defaultWaitFunctionTimeout(WaitQueueEntry entry, Long timeout){
+        return defaultWaitFunctionTimeout(entry, null, timeout);
+    }
+
+    public static boolean defaultWaitFunctionTimeout(WaitQueueEntry entry){
+        return defaultWaitFunctionTimeout(entry, null, null);
     }
 }

@@ -55,13 +55,13 @@ class ListNodeTest {
         public void moveToFirst(ListNode<T> node) {
             confirmList.remove(node);
             confirmList.addFirst(node);
-            ListNode.moveToHead(node, head);
+            ListNode.moveToFirst(node, head);
         }
 
         public void moveToLast(ListNode<T> node) {
             confirmList.remove(node);
             confirmList.addLast(node);
-            ListNode.moveToTail(node, head);
+            ListNode.moveToLast(node, head);
         }
 
         public void confirmEquality() {

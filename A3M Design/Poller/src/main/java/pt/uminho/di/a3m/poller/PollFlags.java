@@ -29,11 +29,17 @@ public class PollFlags {
      * without this flag and at least one waiter using it will be notified. 
      * <p> This flag only matters when used in conjunction with POLLET,
      * therefore it most not be used with level-triggered events.
-     * @implNote Since this flag determines how the poller instance
-     * is added to the wait queue of a pollable, this flag can only
-     * be set when adding a pollable to the poller. Such flag can not
-     * be updated through the modify() method of the poller.
-     * */
+     * @implNote An event mask that contains this flag and is used to add
+     * a pollable to a poller cannot be changed using the modify() method.
+     * The first reason is that it determines how the poller instance is added
+     * to the wait queue of a pollable, i.e., if the entry is added as exclusive or not.
+     * The second reason is that an exclusive entry which the wake-up function returns
+     * success, meaning it as accepted the task of handling the event(s), and then decides
+     * to change its events of interest, may result in an event that should have been handled
+     * to be dismissed. By dismissing the event(s), an exclusive waiter that would handle it/them
+     * will not be woken up until a new wake-up call, therefore leading to inefficiency.
+     * In the worst case, because the event was not handled, a deadlock may occur.
+     */
     public static final int POLLEXCLUSIVE = 0x01 << 29;
 
     /**
