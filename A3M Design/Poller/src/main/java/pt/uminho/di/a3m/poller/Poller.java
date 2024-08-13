@@ -24,12 +24,6 @@ import static pt.uminho.di.a3m.auxiliary.Timeout.calculateEndTime;
                 - Basically, attempt to create a spin lock.
     */
 
-// TODO - nesting pode vir a ser necessário para permitir criar uma instância com todos os links
-//  do socket subscritos, ou, a simples existência de um poller com todos os links registados
-//  pode ser suficiente.
-
-// TODO - write that pollables may not be discarded "completely" (for example, releasing the
-//  id for use by another pollable) until the wait queue is completely empty.
 public class Poller {
     private final Lock lock = new ReentrantLock();
 
@@ -49,6 +43,16 @@ public class Poller {
     private AtomicBoolean closed = new AtomicBoolean(false);
 
     private Poller() {}
+
+    // ****** Static Final Return Values ****** //
+    /** Pollable closed */
+    public final static int PCLOSED = -1;
+
+    /** Pollable is already registered */
+    public final static int PEXIST = -2;
+
+    /** Pollable is not registered */
+    public final static int PNOEXIST = -2;
 
     // ****** Poller instance auxiliary methods ****** //
 
@@ -100,7 +104,7 @@ public class Poller {
                 // if the item is not in the ready list,
                 // adds it at the tail.
                 if(!pItem.isReady())
-                    ListNode.addLast(poller.readyList, pItem.getReadyLink());
+                    ListNode.addLast(pItem.getReadyLink(), poller.readyList);
 
                 if(poller.hasWaiters()) {
                     // Checks if an exclusive wake up can be successful
@@ -130,10 +134,6 @@ public class Poller {
                 }
             }
 
-            // TODO - how does this influence the waiters?
-            //          Only one is told about this?
-            //          No one is told?
-            //          Remove automatically the poller item?
             // If the key contains a POLLFREE flag,
             // then it means the pollable is being closed
             // and the wait queue entry must be removed.
@@ -154,6 +154,10 @@ public class Poller {
     };
 
     private static final PollQueueingFunc pQueuingFunc = (p, wait, pt) -> {
+        // If the pollable is closed to queuing.
+        if(wait == null)
+            return;
+
         PollerItem pItem = (PollerItem) pt.getPriv();
 
         if((pt.getKey() & PollFlags.POLLEXCLUSIVE) != 0)
@@ -176,9 +180,10 @@ public class Poller {
      */
     private void unregisterPollerItem(PollerItem pItem){
         WaitQueueEntry wait = pItem.getWait();
-        if(wait != null)
+        if(wait != null) {
             wait.delete();
-        pItem.setWait(null);
+            pItem.setWait(null);
+        }
     }
 
     /**
@@ -257,23 +262,17 @@ public class Poller {
                 // Register ready events of this pollable on the list
                 rEvents.add(new PollEvent<>(pItem.getPollable().getId(), aEvents));
 
-                // TODO - POLLHUP is passed when the pollable is closed, therefore,
-                //  when a thread receives this event, it should,
-                //  remove the pollable. delete() may be done so that
-                //  it does not throw an exception and instead provides
-                //  a value that informs that the pollable is not registered
-                //  instead of forcing to handle an exception.
-                //  With that said, I thought POLLFREE should have been removed.
-                //  However, although it may not to be required to delete the entry,
-                //  it is recommended as new pollables with the same id could be created
-                //  and therefore result in trouble. POLLFREE is at least required to remove the
-                //  wait queue entry.
                 // If the POLLONESHOT flag was used, disarm events.
                 if((pItem.getEvents() & PollFlags.POLLONESHOT) != 0) {
                     pItem.setEvents(pItem.getEvents() & PollFlags.POLLER_PRIVATE_BITS);
-                } else if ((pItem.getEvents() & PollFlags.POLLFREE) != 0) {
+                } /*
+                // I'm letting the user handle the removal of the pollable
+                // when he deems it appropriate. Also, because POLLFREE
+                // should be an internal flag not provided by poll().
+                else if ((pItem.getEvents() & PollFlags.POLLFREE) != 0) {
                     removePollerItem(pItem);
-                } else if ((pItem.getEvents() & PollFlags.POLLET) == 0) {
+                    // TODO - make a multi-threaded test with level-trigger for this situation, so that multiple threads wake up due to this situation.
+                } */ else if ((pItem.getEvents() & PollFlags.POLLET) == 0) {
                     // if pollable was registered with level-trigger,
                     // then the pollable should be added back to the
                     // ready list so that other waiters can also be
@@ -305,13 +304,16 @@ public class Poller {
      * in the provided events mask.
      * @param p pollable with events of interest
      * @param events events of interest
+     * @return  <p>> 0 if success.
+     *          <p>> PCLOSED if pollable was closed to polling, i.e.,
+     * it does not allow new event waiters to be registered.
      * @throws IllegalArgumentException If the flags do not follow
      * a valid combination. POLLEXCLUSIVE must not be paired with
      * either ~POLLET (level-triggered) and POLLONESHOT.
      * @throws IllegalStateException If pollable is already registered.
-     * @throws PollableClosedException If the pollable is closed.
+     * @throws PollerClosedException If poller is closed.
      */
-    public void add(Pollable p, int events) throws PollableClosedException {
+    public int add(Pollable p, int events) throws PollerClosedException {
         if(p == null)
             throw new IllegalArgumentException("Pollable is null.");
 
@@ -342,17 +344,27 @@ public class Poller {
             // get currently available events.
             int aEvents = itemPoll(p, pt);
 
+            // If pollable did not allow queueing,
+            // throw exception to inform that the
+            // pollable is closed to polling.
+            if(pItem.getWait() == null)
+                return PCLOSED;
+
+            /*
+            POLLFREE flag should not be passed by poll(), therefore,
+            when the user receives the POLLHUP
+
             // Checks if the pollable is pollable, i.e.,
             // is not closed. If it is closed the POLLFREE
             // flag will be returned.
             if((aEvents & PollFlags.POLLFREE) != 0){
                 // removes the pollable from the interest map
                 removePollerItem(pItem);
-                // TODO - if POLLFREE is removed, then this should be removed as well
                 // throws exception informing that the pollable
                 // is closed.
                 throw new PollableClosedException();
             }
+            */
 
             // if there are available events and the item is
             // not yet marked as ready, then add it to the ready list
@@ -365,14 +377,22 @@ public class Poller {
         }finally {
             lock.unlock();
         }
+
+        return 0;
     }
 
     /**
      * Modifies events mask of a registered pollable.
      * @param p target of the modification
      * @param events new events mask
+     * @return <p> > 0 if success
+     *         <p> > PNOEXIST if pollable is not registered.
+     * @throws IllegalArgumentException if pollable is null.
+     * @throws IllegalStateException if POLLEXCLUSIVE is involved in the modification,
+     * i.e., if the flag is set in the new event mask or in the current event mask.
+     * @throws PollerClosedException if poller is closed.
      */
-    public void modify(Pollable p, int events) throws PollerClosedException{
+    public int modify(Pollable p, int events) throws PollerClosedException{
         if(p == null)
             throw new IllegalArgumentException("Pollable is null.");
 
@@ -391,7 +411,7 @@ public class Poller {
 
             PollerItem pItem = interestMap.get(p.getId());
             if(pItem == null)
-                throw new NoSuchElementException("Pollable is not registered.");
+                return PNOEXIST;
 
             if((pItem.getEvents() & PollFlags.POLLEXCLUSIVE) != 0)
                 throw new IllegalStateException("Event mask modifications with POLLEXCLUSIVE " +
@@ -411,10 +431,19 @@ public class Poller {
         }finally {
             lock.unlock();
         }
+        
+        return 0;
     }
 
-    // TODO - delete() missing javadoc
-    public void delete(Pollable p) throws PollerClosedException{
+    /**
+     * Deletes pollable from interest list
+     * @param p pollable to be deleted from the interest list
+     * @return <p> > Number of remaining pollables being monitored. </p>
+     *         <p> > PNOEXIST if pollable is not registered. </p>
+     * @throws IllegalArgumentException if pollable is null        
+     * @throws PollerClosedException if poller is closed
+     */
+    public int delete(Pollable p) throws PollerClosedException{
         if(p == null)
             throw new IllegalArgumentException("Pollable is null.");
 
@@ -426,16 +455,28 @@ public class Poller {
             // checks if pollable is registered
             PollerItem pItem = interestMap.get(p.getId());
             if(pItem == null)
-                throw new NoSuchElementException("Pollable is not registered.");
+                return PNOEXIST;
 
             // deletes pollable's item
             deletePollerItem(pItem);
+
+            return interestMap.size();
         }finally {
             lock.unlock();
         }
     }
 
-    // TODO - await() missing javadoc
+    /**
+     * @param maxEvents maximum number of events that should be returned
+     * @param timeout maximum time allocated to wait for events.
+     *                null to wait until there are events to return.
+     *                0 or negative values for non-blocking operation.
+     * @return <p> > list of pairs of pollable id and mask of available events for that pollable.
+     *         <p> > null if timed out
+     * @throws InterruptedException if thread was interrupted during the invocation of this method.
+     * @throws IllegalArgumentException if the maximum number of events is not a positive value.
+     * @throws PollerClosedException if poller is closed
+     */
     public List<PollEvent<Object>> await(int maxEvents, Long timeout) throws InterruptedException, PollerClosedException {
         if(maxEvents <= 0)
             throw new IllegalArgumentException("Maximum number of events must be a positive value.");
@@ -504,6 +545,10 @@ public class Poller {
         return await(Integer.MAX_VALUE, null);
     }
 
+    /**
+     * Closes the poller. Wakes up all waiting threads.
+     * @throws PollerClosedException if poller is closed
+     */
     public void close() throws PollerClosedException{
         try{
             lock.lock();
@@ -522,6 +567,30 @@ public class Poller {
         try {
             lock.lock();
             return closed.get();
+        }finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * @return true if the poller does not have any pollable registered.
+     */
+    public boolean isEmpty(){
+        try {
+            lock.lock();
+            return interestMap.isEmpty();
+        }finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * @return number of pollables being monitored
+     */
+    public int size(){
+        try {
+            lock.lock();
+            return interestMap.size();
         }finally {
             lock.unlock();
         }

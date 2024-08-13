@@ -321,7 +321,10 @@ public class WaitQueueEntry {
     /**
      * Auxiliary function of the default wait functions.
      * This function parks the current thread until the end
-     * time or until it is given the permission to unpark.
+     * time or until it is given the permission to unpark or until
+     * it is interrupted. Since the thread may have been interrupted,
+     * regardless of a successful unpark, the interrupt flag of the
+     * thread should be checked.
      * @param endTime timestamp at which the method should return
      *                if the permit to unpark is not given. If
      *                the thread should wait indefinitely then
@@ -332,7 +335,7 @@ public class WaitQueueEntry {
      *           unparks, but also to determine if the thread was given
      *           the permission to unpark.
      * @return true if the thread received the permission to unpark. 
-     *         false othewise (timed out).
+     *         false othewise (timed out or was interrupted).
      */
     private static boolean wait(Long endTime, ParkState ps){
         // set the intent to park
@@ -342,15 +345,22 @@ public class WaitQueueEntry {
         // parks until the flag is set to
         // false by the wake function
         if (endTime == null) {
-            while(ps.parked.get())
+            while(ps.parked.get()){ 
+                // If thread was interrupted return immediatelly.
+                // Although the interrupt flag may have been set,
+                // the thread may have been unparked concurrently,
+                // so the return value must reflect that possibility
+                if(Thread.currentThread().isInterrupted())
+                    return !ps.parked.getAndSet(false);
                 LockSupport.park();
+            }
         }
         // Else, parks until the timeout expires
         // or the park flag is set to false
         else {
             long timeout;
             while ((timeout = (endTime - System.currentTimeMillis())) > 0 &&
-                    ps.parked.get()) {
+                    ps.parked.get() && !Thread.currentThread().isInterrupted()) {
                 LockSupport.park(timeout);
             }
             // sets the park state to inform that the thread is no longer parked
@@ -364,8 +374,10 @@ public class WaitQueueEntry {
      * Default wait function compatible with any wake function
      * that uses park state. If the provided entry is queued,
      * this function makes the current thread wait until woken up
-     * or until the end timeout is reached (if not null and positive).
-     * Otherwise, with a not queued entry, the method returns 'true'
+     * or until the end timeout is reached (if not null and positive) 
+     * or until it is interrupted. Since the thread may have been interrupted,
+     * regardless of a successful unpark, the interrupt flag of the
+     * thread should be checked. Otherwise, with a not queued entry, the method returns 'true'
      * immediately.
      * @param entry entry to be added to the queue. If not queued, the
      *              method will return 'true' immediately.
@@ -409,9 +421,11 @@ public class WaitQueueEntry {
      * Default wait function (using timeout value) compatible with any
      * wake function that uses park state. If the provided entry is queued,
      * this function makes the current thread wait until woken up
-     * or until the expiration of the timeout (if not null and positive).
-     * Otherwise, with a not queued entry, the method returns 'true'
-     * immediately.
+     * or until the expiration of the timeout (if not null and positive) or 
+     * until it is interrupted. Since the thread may have been interrupted,
+     * regardless of a successful unpark, the interrupt flag of the
+     * thread should be checked. Otherwise, with a not queued entry, the
+     * method returns 'true' immediately.
      * @param entry entry to be added to the queue. If not queued, the
      *              method will return 'true' immediately.
      * @param ps Park state used to wait. If 'null' the park state is

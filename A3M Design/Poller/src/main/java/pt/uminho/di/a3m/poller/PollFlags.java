@@ -19,6 +19,14 @@ public class PollFlags {
      * <p> Primarily used to inform pollers
      * that they need to delete the wait queue entry
      * since the pollable is being "freed", i.e. closed.
+     * This flag is for internal use, so it should not
+     * be passed in a poll() callback., instead it should
+     * be passed through the wake-up callback. The user
+     * may detect this situation by receiving POLLHUP
+     * and by not being able to execute the operations it
+     * could. For instance, the POLLIN flag could be passed
+     * so that the reading method could fail and indicate
+     * the closure of the pollable.
      */
     public static final int POLLFREE = 0x10;
 
