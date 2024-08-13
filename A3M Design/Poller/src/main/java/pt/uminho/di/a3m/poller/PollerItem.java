@@ -9,15 +9,13 @@ class PollerItem {
     private WaitQueueEntry wait; // wait queue entry queued in p's queue
     private final Poller poller; // poller that owns this instance
     private int events; // events bit mask
-    private boolean dying; // TODO - Is this variable a requirement?
 
-    private PollerItem(ListNode<PollerItem> readyLink, Pollable p, WaitQueueEntry wait, Poller poller, int events, boolean dying) {
+    private PollerItem(ListNode<PollerItem> readyLink, Pollable p, WaitQueueEntry wait, Poller poller, int events) {
         this.readyLink = readyLink;
         this.p = p;
         this.wait = wait;
         this.poller = poller;
         this.events = events;
-        this.dying = dying;
     }
 
     static PollerItem init(Poller poller, Pollable pollable, int events){
@@ -26,8 +24,7 @@ class PollerItem {
                 pollable,
                 null,
                 poller,
-                events,
-                false
+                events
         );
     }
 
@@ -55,9 +52,6 @@ class PollerItem {
         return events;
     }
 
-    boolean isDying() {
-        return dying;
-    }
 
     /**
      * @return true if the item is in the ready list
@@ -76,9 +70,5 @@ class PollerItem {
 
     public void setEvents(int events) {
         this.events = events;
-    }
-
-    public void setDying(boolean dying) {
-        this.dying = dying;
     }
 }

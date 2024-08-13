@@ -105,7 +105,7 @@ public class WaitQueue{
         }finally {
             lock.unlock();
         }
-        return 0;
+        return nrExclusive;
     }
 
     public int fairWakeUp(int mode, int nrExclusive, int wakeFlags, int key) {
@@ -141,7 +141,7 @@ public class WaitQueue{
         }finally {
             lock.unlock();
         }
-        return 0;
+        return nrExclusive;
     }
 
     public boolean isEmpty() {

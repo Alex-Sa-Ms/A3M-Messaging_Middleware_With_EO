@@ -171,12 +171,29 @@ public class ListNode<T> {
         return i.get();
     }
 
-    public static <T> int index(ListNode<T> node, ListNode<T> head){
+    /**
+     * @param node node to be found in the list
+     * @param head head of the list
+     * @return index of the node in the list or -1 if it doesn't belong to the list.
+     * @param <T> t
+     */
+    public static <T> int indexOf(ListNode<T> node, ListNode<T> head){
         int i = 0;
-        for(ListNode<T> it = head.next; it != head && it != node; it = it.next, i++);
+        ListNode<T> it = head.next;
+        for(; it != head && it != node; it = it.next, i++);
+        if(it == head)
+            return -1;
         return i;
     }
 
+    /**
+     * Gets object at given index.
+     * @param head head of the list
+     * @param index position on the list
+     * @return object at the given index
+     * @param <T> t
+     * @throws IndexOutOfBoundsException If the index is not inside the list.
+     */
     public static <T> T get(ListNode<T> head, int index){
         if(index < 0 || ListNode.isEmpty(head))
             throw new IndexOutOfBoundsException();
@@ -185,6 +202,15 @@ public class ListNode<T> {
         if(index != 0)
             throw new IndexOutOfBoundsException();
         return it.getObject();
+    }
+
+    public static <T> void concat(ListNode<T> head1, ListNode<T> head2){
+        if(!isEmpty(head2)) {
+            head1.prev.next = head2.next;
+            head2.next.prev = head1.prev;
+            head1.prev = head2.prev;
+            head2.prev.next = head1;
+        }
     }
 
     public static class Iterator<T> {

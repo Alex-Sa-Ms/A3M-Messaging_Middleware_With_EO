@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.ListIterator;
+import java.util.concurrent.atomic.AtomicInteger;
 
 class ListNodeTest {
 
@@ -812,5 +813,185 @@ class ListNodeTest {
         assert list.indexOf("1") == 0;
         assert list.indexOf("2") == 1;
         assert list.indexOf("3") == 2;
+    }
+
+    @Test
+    public void size(){
+        ListNode<String> head = ListNode.init();
+        ListNode<String> node1 = ListNode.create("1");
+        ListNode<String> node2 = ListNode.create("2");
+        ListNode<String> node3 = ListNode.create("3");
+
+        assert ListNode.size(head) == 0;
+
+        ListNode.addFirst(node3, head);
+        assert ListNode.size(head) == 1;
+
+        ListNode.addFirst(node2, head);
+        assert ListNode.size(head) == 2;
+
+        ListNode.addFirst(node1, head);
+        assert ListNode.size(head) == 3;
+
+        ListNode.delete(node1);
+        assert ListNode.size(head) == 2;
+
+        ListNode.delete(node2);
+        assert ListNode.size(head) == 1;
+
+        ListNode.delete(node3);
+        assert ListNode.size(head) == 0;
+    }
+
+    @Test
+    public void indexOf(){
+        ListNode<String> head = ListNode.init();
+        ListNode<String> node1 = ListNode.create("1");
+        ListNode<String> node2 = ListNode.create("2");
+        ListNode<String> node3 = ListNode.create("3");
+
+        // assert that the nodes do not exist in the list
+        assert ListNode.indexOf(node1, head) == -1;
+        assert ListNode.indexOf(node2, head) == -1;
+        assert ListNode.indexOf(node3, head) == -1;
+
+        ListNode.addFirst(node3, head);
+        assert ListNode.indexOf(node3, head) == 0;
+
+        ListNode.addFirst(node2, head);
+        assert ListNode.indexOf(node2, head) == 0;
+        assert ListNode.indexOf(node3, head) == 1;
+
+        ListNode.addFirst(node1, head);
+        assert ListNode.indexOf(node1, head) == 0;
+        assert ListNode.indexOf(node2, head) == 1;
+        assert ListNode.indexOf(node3, head) == 2;
+
+        ListNode.delete(node1);
+        assert ListNode.indexOf(node1, head) == -1;
+        assert ListNode.indexOf(node2, head) == 0;
+        assert ListNode.indexOf(node3, head) == 1;
+
+        ListNode.delete(node2);
+        assert ListNode.indexOf(node2, head) == -1;
+        assert ListNode.indexOf(node3, head) == 0;
+
+        ListNode.delete(node3);
+        assert ListNode.indexOf(node3, head) == -1;
+    }
+
+    private <T> void getAndCatchOutOfBoundsException(ListNode<T> head, int i){
+        try {
+            ListNode.get(head, i);
+            // shouldn't get here
+            assert false;
+        } catch (IndexOutOfBoundsException exception) {
+            assert true;
+        }
+    }
+
+    @Test
+    public void get(){
+        ListNode<List<String>> head = ListNode.init();
+        ListNode<List<String>> node1 = ListNode.create(List.of("1"));
+        ListNode<List<String>> node2 = ListNode.create(List.of("2"));
+        ListNode<List<String>> node3 = ListNode.create(List.of("3"));
+
+        // assert that the nodes do not exist in the list
+        for(int i = -1; i <= 1; i++)
+            getAndCatchOutOfBoundsException(head, i);
+
+        ListNode.addFirst(node3, head);
+        assert ListNode.get(head, 0) == node3.getObject();
+
+        ListNode.addFirst(node2, head);
+        assert ListNode.get(head, 0) == node2.getObject();
+        assert ListNode.get(head, 1) == node3.getObject();
+
+        ListNode.addFirst(node1, head);
+        assert ListNode.get(head, 0) == node1.getObject();
+        assert ListNode.get(head, 1) == node2.getObject();
+        assert ListNode.get(head, 2) == node3.getObject();
+
+        ListNode.delete(node1);
+        assert ListNode.get(head, 0) == node2.getObject();
+        assert ListNode.get(head, 1) == node3.getObject();
+
+        ListNode.delete(node2);
+        assert ListNode.get(head, 0) == node3.getObject();
+
+        ListNode.delete(node3);
+        getAndCatchOutOfBoundsException(head, 0);
+    }
+
+    @Test
+    public void concat(){
+        ListNode<Integer> head1 = ListNode.init();
+        ListNode<Integer> head2 = ListNode.init();
+        ListNode<Integer> head3 = ListNode.init();
+
+        // assert lists remain empty
+        ListNode.concat(head1, head2);
+        assert ListNode.isEmpty(head1);
+
+        // add 1, 2 and 3 to list 1
+        ListNode<Integer> node1 = ListNode.create(1);
+        ListNode<Integer> node2 = ListNode.create(2);
+        ListNode<Integer> node3 = ListNode.create(3);
+        ListNode.addFirst(node3, head2);
+        ListNode.addFirst(node2, head2);
+        ListNode.addFirst(node1, head2);
+
+        // joins the nodes in list 2 to
+        // the nodes of list 1.
+        ListNode.concat(head1, head2);
+
+        // assert the elements were properly added
+        AtomicInteger i = new AtomicInteger(1);
+        ListNode.forEach(head1, integer -> {
+            assert integer == i.getAndIncrement();
+        });
+
+        // add 4, 5 and 6 to list 2
+        ListNode<Integer> node4 = ListNode.create(4);
+        ListNode<Integer> node5 = ListNode.create(5);
+        ListNode<Integer> node6 = ListNode.create(6);
+        ListNode.addFirst(node6, head3);
+        ListNode.addFirst(node5, head3);
+        ListNode.addFirst(node4, head3);
+
+        // joins the nodes in list 3 to
+        // the nodes of list 1.
+        ListNode.concat(head1, head3);
+
+        // assert the elements were properly added
+        ListNode.concat(head1, head3);
+        i.set(1);
+        ListNode.forEach(head1, integer -> {
+            assert integer == i.getAndIncrement();
+        });
+    }
+
+    @Test
+    void moveToAnotherList() {
+        // create 2 lists
+        ListNode<Integer> head1 = ListNode.init();
+        ListNode<Integer> head2 = ListNode.init();
+
+        // add 3 integer nodes to list 1
+        ListNode<Integer> node1 = ListNode.create(1);
+        ListNode<Integer> node2 = ListNode.create(2);
+        ListNode<Integer> node3 = ListNode.create(3);
+        ListNode.addFirst(node3, head1);
+        ListNode.addFirst(node2, head1);
+        ListNode.addFirst(node1, head1);
+
+        // move nodes from list 1 to list 2
+        ListNode.moveToLast(node3, head2);
+        ListNode.moveToLast(node2, head2);
+        ListNode.moveToLast(node1, head2);
+
+        assert ListNode.size(head1) == 0;
+        assert ListNode.size(head2) == 3;
     }
 }
