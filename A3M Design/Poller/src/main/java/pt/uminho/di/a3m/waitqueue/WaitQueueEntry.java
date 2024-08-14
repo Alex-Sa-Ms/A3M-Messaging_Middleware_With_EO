@@ -2,7 +2,6 @@ package pt.uminho.di.a3m.waitqueue;
 
 import pt.uminho.di.a3m.list.ListNode;
 
-import java.util.Objects;
 import java.util.concurrent.locks.LockSupport;
 
 import static pt.uminho.di.a3m.auxiliary.Timeout.calculateEndTime;
@@ -319,7 +318,7 @@ public class WaitQueueEntry {
     // ***** Default Wait function ***** //
 
     /**
-     * Auxiliary function of the default wait functions.
+     * Employed by default wait functions to wait using the park state.
      * This function parks the current thread until the end
      * time or until it is given the permission to unpark or until
      * it is interrupted. Since the thread may have been interrupted,
@@ -336,8 +335,16 @@ public class WaitQueueEntry {
      *           the permission to unpark.
      * @return true if the thread received the permission to unpark. 
      *         false othewise (timed out or was interrupted).
+     * @throws IllegalCallerException Thrown if the current thread is not the owner
+     *                                of the park state associated with the entry.
      */
-    private static boolean wait(Long endTime, ParkState ps){
+    public static boolean parkStateWaitFunction(Long endTime, ParkState ps){
+        // If current thread is not the owner
+        // of the park state, then it should
+        // not be waiting using this entry
+        if(ps.thread != Thread.currentThread())
+            throw new IllegalCallerException("The current thread is not the owner of the wait queue entry.");
+
         // set the intent to park
         ps.parked.set(true);
         
@@ -379,7 +386,7 @@ public class WaitQueueEntry {
      * regardless of a successful unpark, the interrupt flag of the
      * thread should be checked. Otherwise, with a not queued entry, the method returns 'true'
      * immediately.
-     * @param entry entry to be added to the queue. If not queued, the
+     * @param entry entry added to queue. If not queued, the
      *              method will return 'true' immediately.
      * @param ps Park state used to wait. If 'null' the park state is
      *           assumed to be the private object.
@@ -408,13 +415,7 @@ public class WaitQueueEntry {
         if (ps == null)
             ps = (ParkState) entry.getPriv();
 
-        // If current thread is not the owner
-        // of the park state, then it should
-        // not be waiting using this entry
-        if(ps.thread != Thread.currentThread())
-            throw new IllegalCallerException("The current thread is not the owner of the wait queue entry.");
-
-        return wait(endTimeout, ps);
+        return parkStateWaitFunction(endTimeout, ps);
     }
 
     /**
@@ -426,7 +427,7 @@ public class WaitQueueEntry {
      * regardless of a successful unpark, the interrupt flag of the
      * thread should be checked. Otherwise, with a not queued entry, the
      * method returns 'true' immediately.
-     * @param entry entry to be added to the queue. If not queued, the
+     * @param entry entry added to queue. If not queued, the
      *              method will return 'true' immediately.
      * @param ps Park state used to wait. If 'null' the park state is
      *           assumed to be the private object.
@@ -444,7 +445,6 @@ public class WaitQueueEntry {
      */
     public static boolean defaultWaitFunctionTimeout(WaitQueueEntry entry, ParkState ps, Long timeout){
         Long endTime = calculateEndTime(timeout);
-
         return defaultWaitFunction(entry, ps, endTime);
     }
 

@@ -1,7 +1,6 @@
 package pt.uminho.di.a3m.poller;
 
 import pt.uminho.di.a3m.list.ListNode;
-import pt.uminho.di.a3m.poller.exceptions.PollableClosedException;
 import pt.uminho.di.a3m.poller.exceptions.PollerClosedException;
 import pt.uminho.di.a3m.waitqueue.ParkState;
 import pt.uminho.di.a3m.waitqueue.WaitQueue;
@@ -598,10 +597,197 @@ public class Poller {
 
     // ***** Poll call methods ***** //
 
-    // TODO - make individual poll method?
+    /**
+     * Polls a pollable using the given poll table. POLLERR and POLLHUP are
+     * automatically added as events of interest.
+     * @param p pollable to be polled
+     * @param pt poll table which may contain queueing function
+     * @return events matched between the poll table key and the pollable's available events.
+     */
+    private static int _pollPollable(Pollable p, PollTable pt){
+        if(p == null)
+            throw new IllegalArgumentException("Pollable is null.");
 
-    public static List<PollEvent<Object>> poll(List<PollEvent<Pollable>> interestList){
-        // TODO - poll()
-        throw new java.lang.UnsupportedOperationException("Not implemented yet.");
+        // validates combination of flags
+        int events = pt.getKey();
+        if ((events & PollFlags.POLLEXCLUSIVE) != 0
+                && (events & ~PollFlags.POLLER_EXCLUSIVE_OK_BITS) != 0)
+            throw new IllegalArgumentException("Illegal combination of flags with POLLEXCLUSIVE.");
+
+        // adds interest in error and hang up (close) events
+        events |= PollFlags.POLLERR | PollFlags.POLLHUP;
+        pt.setKey(events);
+        
+        // polls events and queues thread to receive events
+        return pt.getKey() & p.poll(pt);
+    }
+
+    /**
+     * Register loop for instant poll calls. The loop
+     * adds the caller thread to the poll hooks of
+     * the pollables in the interest list. The pollables
+     * that follow the first pollable with available events,
+     * will not have a poll hook added.
+     * @param interestList list of pollables of interest along with the corresponding event mask
+     * @param maxEvents maximum number of events that should be returned
+     * @param ps park state used to create the poll hooks
+     * @param rEvents list used by the method to register the available events
+     * @return table (list) of wait queue entries (poll hooks). Cannot be null, but
+     * may be empty if pollables are closed to polling or if the first pollable had
+     * available events.
+     */
+    private static List<WaitQueueEntry> _pollRegisterLoop(List<PollEvent<Pollable>> interestList, int maxEvents, ParkState ps, List<PollEvent<Object>> rEvents) {
+        List<WaitQueueEntry> waitTable = new ArrayList<>();
+        PollTable pt = new PollTable(~0, null, (p, wait, qpt) -> {
+            if (wait != null) {
+                if((qpt.getKey() & PollFlags.POLLEXCLUSIVE) != 0)
+                    wait.addExclusive(WaitQueueEntry::autoDeleteWakeFunction, ps);
+                else
+                    wait.add(WaitQueueEntry::autoDeleteWakeFunction, ps);
+                waitTable.add(wait);
+            }
+        });
+
+        int aEvents;
+
+        // register in pollable's wait queue until
+        // a pollable with events to return immediatelly,
+        // or until the interest list ends
+        int i = 0;
+        for (;i < interestList.size(); i++) {
+            PollEvent<Pollable> pe = interestList.get(i);
+            pt.setKey(pe.events);
+            aEvents = _pollPollable(pe.data, pt);
+            if (aEvents != 0) {
+                rEvents.add(new PollEvent<>(pe.data.getId(), aEvents));
+                // remove queueing function and break when
+                // the first available is found. Then,
+                // continue polling with a loop that 
+                // does not use a poll queueing function
+                pt.setFunc(null);
+                break;
+            }
+        }
+        
+        // sets position to the next pollable 
+        i++;
+        // attempts to fetch more events from the
+        // remaining pollables
+        if(rEvents.size() < maxEvents)
+            _pollFetchEventsLoop(interestList, i, pt, maxEvents, rEvents);
+
+        return waitTable;
+    }
+
+
+    /**
+     * Available events fetching loop for instant poll calls. 
+     * The loop starts polling at the given position 'i' and
+     * adds the available events to the 'rEvents'.
+     * @param interestList list of pollables of interest along with the corresponding event mask
+     * @param i index of the interest list that defines the starting poll position
+     * @param pt poll table that should be used for polling
+     * @param maxEvents maximum number of events that the 'rEvents' can have
+     *                  to return.
+     * @param rEvents list used by the method to register the available events
+     */
+    private static void _pollFetchEventsLoop(List<PollEvent<Pollable>> interestList, int i, PollTable pt, int maxEvents, List<PollEvent<Object>> rEvents) {
+        int aEvents;
+        // register in pollable's wait queue until
+        // a pollable with events to return immediatelly,
+        // or until the interest list ends
+        for (;i < interestList.size(); i++) {
+            PollEvent<Pollable> pe = interestList.get(i);
+            pt.setKey(pe.events);
+            aEvents = _pollPollable(pe.data, pt);
+            if (aEvents != 0) {
+                rEvents.add(new PollEvent<>(pe.data.getId(), aEvents));
+                // stops if maxEvents is reached
+                if(rEvents.size() >= maxEvents)
+                    break;
+            }
+        }
+    }
+
+    /**
+     * Used for instant (occasional) polling. When a poller instance
+     * is not justified, this method may be used to wait for events of
+     * a list of pollables. Exclusive edge-trigger polling is allowed.
+     * @param interestList list of pollables of interest along with the corresponding event mask
+     * @param maxEvents maximum number of events that the 'rEvents' can have
+     *                  to return.
+     * @param timeout maximum time allocated to wait for events.
+     *                null to wait until there are events to return.
+     *                0 or negative values for non-blocking operation
+     * @return list of poll events that match the id of a pollable
+     *         with the corresponding available events. Empty list is
+     *         returned when the operation times out.
+     * @throws InterruptedException if the caller thread was interrupted.
+     * @throws IllegalArgumentException if interest list is empty or
+     *                                  if the maxEvents parameter is not positive.
+     */
+    public static List<PollEvent<Object>> poll(List<PollEvent<Pollable>> interestList, int maxEvents, Long timeout) throws InterruptedException {
+        // calculate end time
+        Long endTimeout = calculateEndTime(timeout);
+        boolean timedOut = endTimeout == 0;
+        
+        // Check parameters
+        if(interestList == null || interestList.isEmpty())
+            throw new IllegalArgumentException("Empty interest list provided.");
+        if(maxEvents <= 0)
+            throw new IllegalArgumentException("maxEvents must be a positive value.");
+        
+        // initialize required variables
+        List<PollEvent<Object>> rEvents = new ArrayList<>();
+        ParkState ps = new ParkState();
+        
+        // register in pollable's wait queues
+        List<WaitQueueEntry> waitTable = _pollRegisterLoop(interestList, maxEvents, ps, rEvents);
+
+        // Waits for events in a loop, if at least one pollable
+        // allowed adding a poll hook (pollables may be closed to polling)
+        // and if no event was retrieved during the register loop
+        if(!waitTable.isEmpty() && rEvents.isEmpty()) {
+            PollTable pt = new PollTable(~0, null, null);
+            while (true) {
+                // checks if thread was interrupted
+                if(Thread.currentThread().isInterrupted())
+                    throw new InterruptedException();
+                // breaks from the waiting loop if timed out
+                if(timedOut)
+                    break;
+                // waits for timeout, interrupt signal or wake-up call
+                timedOut = WaitQueueEntry.parkStateWaitFunction(endTimeout, ps);
+                // iterates over all pollables to fetch available events 
+                _pollFetchEventsLoop(interestList, 0, pt, maxEvents, rEvents);
+                // exits the loop if there are events available to be retrieved
+                if(!rEvents.isEmpty())
+                    break;
+            }
+        }
+
+        // delete wait queue entries (poll hooks)
+        for(WaitQueueEntry wait : waitTable)
+            wait.delete();
+
+        return rEvents;
+    }
+
+    /**
+     * Used for instant (occasional) polling. When a poller instance
+     * is not justified, this method may be used to wait for events of
+     * a list of pollables. Exclusive edge-trigger polling is allowed.
+     * @param p pollables of interest
+     * @param events events of interest
+     * @param timeout maximum time allocated to wait for events.
+     *                null to wait until there are events to return.
+     *                0 or negative values for non-blocking operation
+     * @return event mask with the available events, or 0 if the operation
+     *         timed out.
+     * @throws InterruptedException if the caller thread was interrupted.
+     */
+    public static int poll(Pollable p, int events, Long timeout) throws InterruptedException {
+        List<PollEvent<Object>> el = poll(List.of(new PollEvent<>(p, events)),1,timeout);
+        return !el.isEmpty() ? el.getFirst().events : 0;
     }
 }
