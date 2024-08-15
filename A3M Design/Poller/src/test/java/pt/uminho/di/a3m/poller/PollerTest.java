@@ -447,6 +447,7 @@ class PollerTest {
         Thread t = new Thread(() -> {
             try {
                 rEvents.set(Poller.poll(s1, PollFlags.POLLOUT, null));
+                System.out.println("Woke up");
             } catch (InterruptedException ignored) {
             }
         });
@@ -463,7 +464,6 @@ class PollerTest {
         int i = 0;
         while (t.isAlive()) {
             Thread.sleep(50);
-
             //Thread.onSpinWait();
         }
     }

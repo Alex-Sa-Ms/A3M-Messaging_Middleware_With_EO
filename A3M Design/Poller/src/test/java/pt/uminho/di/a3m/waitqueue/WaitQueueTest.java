@@ -37,7 +37,7 @@ class WaitQueueTest {
                 entry3 = queue.initEntry();
 
         WaitQueueFunc func = WaitQueueEntry::defaultWakeFunction;
-        ParkState ps = new ParkState(Thread.currentThread());
+        ParkState ps = new ParkState();
         entry1.add(func, ps);
         assert ListNode.isFirst(entry1.getNode(),queue.getHead());
         assert ListNode.size(queue.getHead()) == 1;
@@ -81,7 +81,7 @@ class WaitQueueTest {
         assert ListNode.isEmpty(queue.getHead());
 
         WaitQueueFunc func = WaitQueueEntry::defaultWakeFunction;
-        ParkState ps = new ParkState(Thread.currentThread());
+        ParkState ps = new ParkState();
         entry1.addExclusive(func, ps);
         assert ListNode.isLast(entry1.getNode(),queue.getHead());
         assert ListNode.size(queue.getHead()) == 1;
@@ -119,7 +119,7 @@ class WaitQueueTest {
     @Test
     void deleteEntry() {
         WaitQueueFunc func = WaitQueueEntry::defaultWakeFunction;
-        ParkState ps = new ParkState(Thread.currentThread());
+        ParkState ps = new ParkState();
 
         WaitQueue queue = new WaitQueue();
         int nrEntries = 10;
@@ -152,8 +152,8 @@ class WaitQueueTest {
         assert !entry1.isQueued();
         assert !entry2.isQueued();
 
-        entry1.add(WaitQueueEntry::defaultWakeFunction, new ParkState(Thread.currentThread()));
-        entry2.addExclusive(WaitQueueEntry::defaultWakeFunction, new ParkState(Thread.currentThread()));
+        entry1.add(WaitQueueEntry::defaultWakeFunction, new ParkState());
+        entry2.addExclusive(WaitQueueEntry::defaultWakeFunction, new ParkState());
         assert entry1.isQueued();
         assert entry2.isQueued();
 
@@ -171,8 +171,8 @@ class WaitQueueTest {
         assert !entry1.isDeleted();
         assert !entry2.isDeleted();
 
-        entry1.add(WaitQueueEntry::defaultWakeFunction, new ParkState(Thread.currentThread()));
-        entry2.addExclusive(WaitQueueEntry::defaultWakeFunction, new ParkState(Thread.currentThread()));
+        entry1.add(WaitQueueEntry::defaultWakeFunction, new ParkState());
+        entry2.addExclusive(WaitQueueEntry::defaultWakeFunction, new ParkState());
         assert !entry1.isDeleted();
         assert !entry2.isDeleted();
 
@@ -189,10 +189,10 @@ class WaitQueueTest {
                 entry2 = queue.initEntry();
         assert queue.isEmpty();
 
-        entry1.add(WaitQueueEntry::defaultWakeFunction, new ParkState(Thread.currentThread()));
+        entry1.add(WaitQueueEntry::defaultWakeFunction, new ParkState());
         assert !queue.isEmpty();
 
-        entry2.addExclusive(WaitQueueEntry::defaultWakeFunction, new ParkState(Thread.currentThread()));
+        entry2.addExclusive(WaitQueueEntry::defaultWakeFunction, new ParkState());
         assert !queue.isEmpty();
 
         entry1.delete();
@@ -209,10 +209,10 @@ class WaitQueueTest {
                 entry2 = queue.initEntry();
         assert queue.size() == 0;
 
-        entry1.add(WaitQueueEntry::defaultWakeFunction, new ParkState(Thread.currentThread()));
+        entry1.add(WaitQueueEntry::defaultWakeFunction, new ParkState());
         assert queue.size() == 1;
 
-        entry2.addExclusive(WaitQueueEntry::defaultWakeFunction, new ParkState(Thread.currentThread()));
+        entry2.addExclusive(WaitQueueEntry::defaultWakeFunction, new ParkState());
         assert queue.size() == 2;
 
         entry1.delete();

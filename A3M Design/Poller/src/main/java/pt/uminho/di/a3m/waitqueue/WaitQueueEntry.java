@@ -2,6 +2,7 @@ package pt.uminho.di.a3m.waitqueue;
 
 import pt.uminho.di.a3m.list.ListNode;
 
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.LockSupport;
 
 import static pt.uminho.di.a3m.auxiliary.Timeout.calculateEndTime;
@@ -344,12 +345,33 @@ public class WaitQueueEntry {
      * @param ps Park State object used to set when the thread parks and
      *           unparks, but also to determine if the thread was given
      *           the permission to unpark.
+     * @param usePermit If "true", the current park state along with
+     *                  a possible LockSupport unpark permit are used to
+     *                  determine if the thread should park or not.
+     *                  Otherwise, if "false", the park state is set to "true"
+     *                  and entering the parking loop is inevitable.
+     *                  <p> As the name of the parameter dictates,
+     *                  the method should use an (unpark) permit if it exists.
+     *                  Having that said, before entering the parking
+     *                  loop, if "usePermit" is set to "true", the
+     *                  method will initially invoke the parking method which
+     *                  will essentially test for an unpark permit (and
+     *                  consume it if existent). This is done before reaching
+     *                  the parking loop, since the existence of an unpark permit
+     *                  along with a park state that matches it (i.e. a park state equal
+     *                  to "false"), results in skipping the parking loop.
+     *                  If an unpark permit does not exist or the park state is set to "true",
+     *                  then entering the parking loop follows and waiting for a wake-up call
+     *                  that calls LockSupport.unpark() and sets the park state to 'false' is
+     *                  required.
      * @return true if the thread received the permission to unpark. 
      *         false othewise (timed out or was interrupted).
      * @throws IllegalCallerException Thrown if the current thread is not the owner
      *                                of the park state associated with the entry.
+     * @apiNote Exposed since there is a possibility of wanting to associate the same park state
+     *  with multiple wait queue entries.
      */
-    public static boolean parkStateWaitFunction(Long endTime, ParkState ps){
+    public static boolean parkStateWaitFunction(Long endTime, ParkState ps, boolean usePermit){
         // If current thread is not the owner
         // of the park state, then it should
         // not be waiting using this entry
@@ -357,12 +379,15 @@ public class WaitQueueEntry {
             throw new IllegalCallerException("The current thread is not the owner of the wait queue entry.");
 
         // set the intent to park
-        ps.parked.set(true);
-        
+        if(!usePermit)
+            ps.parked.set(true);
+
         // if a timeout was not provided,
         // parks until the flag is set to
         // false by the wake function
         if (endTime == null) {
+            // checks if an unpark permit exists and consumes it
+            if(usePermit) LockSupport.park();
             while(ps.parked.get()){ 
                 // If thread was interrupted return immediatelly.
                 // Although the interrupt flag may have been set,
@@ -377,6 +402,11 @@ public class WaitQueueEntry {
         // or the park flag is set to false
         else {
             long timeout;
+            // checks if an unpark permit exists and consumes it
+            if(usePermit) {
+                timeout = endTime - System.currentTimeMillis();
+                LockSupport.parkUntil(timeout);
+            }
             while ((timeout = (endTime - System.currentTimeMillis())) > 0 &&
                     ps.parked.get() && !Thread.currentThread().isInterrupted()) {
                 LockSupport.parkUntil(endTime);
@@ -403,6 +433,11 @@ public class WaitQueueEntry {
      *           assumed to be the private object.
      * @param endTimeout timestamp, calculated using System.currentTimeMillis(),
      *                  at which the operation should time out and return 'false'.
+     * @param usePermit If "true", the current park state along with
+     *                  a possible LockSupport unpark permit are used to
+     *                  determine if the thread should park or not.
+     *                  Otherwise, if "false", the park state is set to "true"
+     *                  and entering the parking loop is inevitable.
      * @return "false" if the thread was not woken up. "true" if the thread was
      *         woken up or if the entry was not queued.
      * @throws IllegalCallerException Thrown if the current thread is not the owner
@@ -410,8 +445,10 @@ public class WaitQueueEntry {
      * @throws ClassCastException Thrown if a park state is not provided (i.e. is null)
      *                            and the wait entry does not have a park state as
      *                            its private object.
+     * @see WaitQueueEntry#parkStateWaitFunction(Long, ParkState, boolean)
+     * @see WaitQueueEntry#parkStateWakeUp(ParkState)
      */
-    public static boolean defaultWaitFunction(WaitQueueEntry entry, ParkState ps, Long endTimeout) {
+    public static boolean defaultWaitFunction(WaitQueueEntry entry, ParkState ps, Long endTimeout, boolean usePermit) {
         // returns immediatelly if the end timeout has been reached
         if(endTimeout != null && endTimeout <= System.currentTimeMillis())
             return false;
@@ -426,7 +463,7 @@ public class WaitQueueEntry {
         if (ps == null)
             ps = (ParkState) entry.getPriv();
 
-        return parkStateWaitFunction(endTimeout, ps);
+        return parkStateWaitFunction(endTimeout, ps, usePermit);
     }
 
     /**
@@ -446,6 +483,11 @@ public class WaitQueueEntry {
      *                being woken up, otherwise the operation should time out.
      *                A timeout value of zero or less will result in no action, i.e.
      *                the method will return "false" immediately.
+     * @param usePermit If "true", the current park state along with
+     *                  a possible LockSupport unpark permit are used to
+     *                  determine if the thread should park or not.
+     *                  Otherwise, if "false", the park state is set to "true"
+     *                  and entering the parking loop is inevitable.
      * @return "false" if the thread was not woken up. "true" if the thread was
      *         woken up or if the entry was not queued.
      * @throws IllegalCallerException Thrown if the current thread is not the owner
@@ -453,17 +495,30 @@ public class WaitQueueEntry {
      * @throws ClassCastException Thrown if a park state is not provided (i.e. is null)
      *                            and the wait entry does not have a park state as
      *                            its private object.
+     * @see WaitQueueEntry#defaultWaitFunctionTimeout(WaitQueueEntry, ParkState, Long, boolean)
+     * @see WaitQueueEntry#parkStateWakeUp(ParkState)
      */
-    public static boolean defaultWaitFunctionTimeout(WaitQueueEntry entry, ParkState ps, Long timeout){
+    public static boolean defaultWaitFunctionTimeout(WaitQueueEntry entry, ParkState ps, Long timeout, boolean usePermit){
         Long endTime = calculateEndTime(timeout);
-        return defaultWaitFunction(entry, ps, endTime);
+        return defaultWaitFunction(entry, ps, endTime, usePermit);
     }
 
+    /**
+     * Park state is assumed to be the private object of the entry and the use
+     * of a permit is assumed to not be wanted.
+     * @see WaitQueueEntry#defaultWaitFunctionTimeout(WaitQueueEntry, ParkState, Long, boolean)
+     */
     public static boolean defaultWaitFunctionTimeout(WaitQueueEntry entry, Long timeout){
-        return defaultWaitFunctionTimeout(entry, null, timeout);
+        return defaultWaitFunctionTimeout(entry, null, timeout, false);
     }
 
+    /**
+     * Park state is assumed to be the private object of the entry, the operation blocks
+     * until a wake-up call or an interrupt signal, and the use
+     * of a permit is assumed to not be wanted.
+     * @see WaitQueueEntry#defaultWaitFunctionTimeout(WaitQueueEntry, ParkState, Long, boolean)
+     */
     public static boolean defaultWaitFunctionTimeout(WaitQueueEntry entry){
-        return defaultWaitFunctionTimeout(entry, null, null);
+        return defaultWaitFunctionTimeout(entry, null, null, false);
     }
 }

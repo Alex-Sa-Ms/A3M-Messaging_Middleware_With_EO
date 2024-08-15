@@ -469,6 +469,7 @@ public class Poller {
         List<PollEvent<Object>> rEvents;
         Long endTimeout = calculateEndTime(timeout);
         boolean timedOut = Objects.equals(endTimeout,0L);
+        ParkState ps = new ParkState(true);
 
         // Racy call. If a non-blocking operation was requested,
         // this avoids waiting for the lock to be acquired and
@@ -486,8 +487,6 @@ public class Poller {
                 }
             }
 
-            // if timed out or poller closed,
-            // return null
             if (timedOut)
                 return null;
 
@@ -503,16 +502,21 @@ public class Poller {
                 // If there aren't events available,
                 // then queues itself.
                 ready = !ListNode.isEmpty(readyList);
-                if(!ready)
-                    wait.addExclusive(WaitQueueEntry::autoDeleteWakeFunction,
-                                       new ParkState());
+                if(!ready) {
+                    // preemptively set parked to true in order to enable
+                    // the accumulation of an unparked permit. This is required
+                    // because a synchronization mechanism is not used during
+                    // the time between adding this entry and wait function that follows
+                    ps.parked.set(true);
+                    wait.addExclusive(WaitQueueEntry::autoDeleteWakeFunction, ps);
+                }
             }finally {
                 lock.unlock();
             }
 
             // waits until it times out or is woken up
             if(!ready)
-                timedOut = !WaitQueueEntry.defaultWaitFunction(wait, null, endTimeout);
+                timedOut = !WaitQueueEntry.defaultWaitFunction(wait, null, endTimeout, true);
 
             // deletes entry if waiting operation timed out
             if(timedOut)
@@ -592,25 +596,36 @@ public class Poller {
 
     // ***** Poll call methods ***** //
 
+    private static class PollCall{
+        final ParkState ps = new ParkState();
+        final AtomicBoolean completedCall = new AtomicBoolean(false);
+        public PollCall() {}
+    }
+
+    private static class PollCallEntry{
+        final PollCall pCall;
+        final int events;
+
+        public PollCallEntry(PollCall pCall, int events) {
+            this.pCall = pCall;
+            this.events = events;
+        }
+    }
+
     /** Immediate poll wait queue function. */
     private static final WaitQueueFunc _ipollWakeQueueFunc = (entry, mode, flags, key) -> {
-        // TODO - max events should not be supported by individual poll if exclusive
-        //  polling is supported. But it may be supported, if exclusive polling is not allowed.
-        PollEvent<ParkState> pe = (PollEvent<ParkState>) entry.getPriv();
-        int events = pe.events;
-        int ret = isSuccessfulExclusiveWake(events, key);
-        System.out.println("is succ exclusive wake: " + ret);
-        System.out.flush();
-
+        PollCallEntry pce = (PollCallEntry) entry.getPriv();
+        PollCall pCall = pce.pCall;
+        // return 0 if key does not contain events of interest
+        if(key != 0 && (pce.events & key) == 0)
+            return 0;
+        // wake-up call is unsuccessful if
+        // immediate poll call is complete
+        if(pCall.completedCall.get())
+            return 0;
         // wake up the thread
-        entry.parkStateWakeUp(pe.data);
-
-        // sets success wake-up if events do not
-        // contain the POLLEXCLUSIVE flag
-        if ((events & PollFlags.POLLEXCLUSIVE) == 0)
-            ret = 1;
-
-        return ret;
+        entry.parkStateWakeUp(pCall.ps);
+        return 1;
     };
 
     /**
@@ -646,21 +661,27 @@ public class Poller {
      * will not have a poll hook added.
      * @param interestList list of pollables of interest along with the corresponding event mask
      * @param maxEvents maximum number of events that should be returned
-     * @param ps park state used to create the poll hooks
+     * @param pCall park state used to create the poll hooks and atomic boolean that
+     *              contains the state of completion of the task
      * @param rEvents list used by the method to register the available events
      * @return table (list) of wait queue entries (poll hooks). Cannot be null, but
      * may be empty if pollables are closed to polling or if the first pollable had
      * available events.
      */
-    private static List<WaitQueueEntry> _pollRegisterLoop(List<PollEvent<Pollable>> interestList, int maxEvents, ParkState ps, List<PollEvent<Object>> rEvents) {
+    private static List<WaitQueueEntry> _pollRegisterLoop(List<PollEvent<Pollable>> interestList, int maxEvents, PollCall pCall, List<PollEvent<Object>> rEvents) {
         List<WaitQueueEntry> waitTable = new ArrayList<>();
         PollTable pt = new PollTable(~0, null, (p, wait, qpt) -> {
             if (wait != null) {
-                PollEvent<ParkState> pe = new PollEvent<>(ps, qpt.getKey());
-                if((qpt.getKey() & PollFlags.POLLEXCLUSIVE) != 0)
-                    wait.addExclusive(_ipollWakeQueueFunc, pe);
-                else
-                    wait.add(_ipollWakeQueueFunc, pe);
+                PollCallEntry pce = new PollCallEntry(pCall, qpt.getKey());
+                // Add non-exclusive entry. Exclusive entries are not allowed,
+                // as they can easily lead to problems. The problems
+                // are related to informing a pollable of a successful exclusive
+                // wake-up call when in the end the return list of the immediate poll
+                // will not contain the pollable in question, be it due to the
+                // number of max events being reached before reaching the pollable
+                // or because the wake-up call happened while the waiter had just
+                // polled the pollable and gotten none or different available events.
+                wait.add(_ipollWakeQueueFunc, pce);
                 waitTable.add(wait);
             }
         });
@@ -676,6 +697,12 @@ public class Poller {
             pt.setKey(pe.events);
             aEvents = _pollPollable(pe.data, pt);
             if (aEvents != 0) {
+                // if max events equals to 1,
+                // then the max events are reached here,
+                // which means the poll call is over here
+                if(maxEvents == 1)
+                    pCall.completedCall.set(true);
+                // register event
                 rEvents.add(new PollEvent<>(pe.data.getId(), aEvents));
                 // remove queueing function and break when
                 // the first available is found. Then,
@@ -685,14 +712,13 @@ public class Poller {
                 break;
             }
         }
-        
-        // sets position to the next pollable 
-        i++;
         // attempts to fetch more events from the
-        // remaining pollables
-        if(rEvents.size() < maxEvents)
-            _pollFetchEventsLoop(interestList, i, pt, maxEvents, rEvents);
-
+        // remaining pollables if max events has
+        // not been reached
+        if(rEvents.size() < maxEvents) {
+            i++; // sets position to the next pollable
+            _pollFetchEventsLoop(interestList, i, pt, pCall, maxEvents, rEvents);
+        }
         return waitTable;
     }
 
@@ -704,11 +730,12 @@ public class Poller {
      * @param interestList list of pollables of interest along with the corresponding event mask
      * @param i index of the interest list that defines the starting poll position
      * @param pt poll table that should be used for polling
+     * @param pCall poll call state
      * @param maxEvents maximum number of events that the 'rEvents' can have
      *                  to return.
      * @param rEvents list used by the method to register the available events
      */
-    private static void _pollFetchEventsLoop(List<PollEvent<Pollable>> interestList, int i, PollTable pt, int maxEvents, List<PollEvent<Object>> rEvents) {
+    private static void _pollFetchEventsLoop(List<PollEvent<Pollable>> interestList, int i, PollTable pt, PollCall pCall, int maxEvents, List<PollEvent<Object>> rEvents) {
         int aEvents;
         // register in pollable's wait queue until
         // a pollable with events to return immediatelly,
@@ -720,8 +747,10 @@ public class Poller {
             if (aEvents != 0) {
                 rEvents.add(new PollEvent<>(pe.data.getId(), aEvents));
                 // stops if maxEvents is reached
-                if(rEvents.size() >= maxEvents)
+                if(rEvents.size() >= maxEvents) {
+                    pCall.completedCall.set(true);
                     break;
+                }
             }
         }
     }
@@ -756,18 +785,19 @@ public class Poller {
         
         // initialize required variables
         List<PollEvent<Object>> rEvents = new ArrayList<>();
-        ParkState ps = new ParkState();
-        // since the wait and wake functions do have a locking
+        PollCall pCall = new PollCall();
+        ParkState ps = pCall.ps;
+        // since the wait and wake functions do not have a locking
         // mechanism to properly synchronize, the parked state
         // is set to true preemptively so that if a pollable
         // of interest attempts to wake up this waiter while it
-        // is not parked yet, it will still unpark it, which will
+        // is not parked yet, it will still invoke unpark(), which will
         // result in the current thread receiving a permit that allows
         // it to skip the parking.
         ps.parked.set(true);
         
         // register in pollable's wait queues
-        List<WaitQueueEntry> waitTable = _pollRegisterLoop(interestList, maxEvents, ps, rEvents);
+        List<WaitQueueEntry> waitTable = _pollRegisterLoop(interestList, maxEvents, pCall, rEvents);
 
         // Waits for events in a loop, if at least one pollable
         // allowed adding a poll hook (pollables may be closed to polling)
@@ -782,13 +812,13 @@ public class Poller {
                 if(timedOut)
                     break;
                 // waits for timeout, interrupt signal or wake-up call
-                timedOut = WaitQueueEntry.parkStateWaitFunction(endTimeout, ps);
+                timedOut = WaitQueueEntry.parkStateWaitFunction(endTimeout, ps, true);
                 // set parks state to true to make sure it if
                 // in the next iteration, waiting is only done
                 // if a permit for unparking has not been given yet
                 ps.parked.set(true);
                 // iterates over all pollables to fetch available events 
-                _pollFetchEventsLoop(interestList, 0, pt, maxEvents, rEvents);
+                _pollFetchEventsLoop(interestList, 0, pt, pCall, maxEvents, rEvents);
                 // exits the loop if there are events available to be retrieved
                 if(!rEvents.isEmpty())
                     break;
