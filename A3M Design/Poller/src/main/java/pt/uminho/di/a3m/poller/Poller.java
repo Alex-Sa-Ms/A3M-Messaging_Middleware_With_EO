@@ -14,15 +14,6 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import static pt.uminho.di.a3m.auxiliary.Timeout.calculateEndTime;
 
-/* TODO -
-          1. make Poller and test
-          2. make mock Link
-          3. make mock Socket
-          4. test
-          5. Try using spin lock on wait queue modifications and do performance comparison
-                - Spin lock already implemented
-    */
-
 public class Poller {
     private final Lock lock = new ReentrantLock();
 
@@ -89,9 +80,13 @@ public class Poller {
      * if the exclusive wake up is successful. The wake-up call is
      * successful if there is a match of any event, be it
      * POLLIN, POLLOUT, POLLERR or POLLHUP
-     * @param events
-     * @param key
-     * @return
+     * @param events events of interest
+     * @param key wake key
+     * @return <p>- 0 if the following conditions are met:
+     * (1) POLLEXCLUSIVE flag is set in events, (2) POLLFREE is not
+     * in the key, and (3) there isn't a match of events between
+     * 'events' and 'key'.
+     * <p>- 1 otherwise.
      */
     private static int isSuccessfulExclusiveWake(int events, int key){
         int ret = 0;
@@ -277,14 +272,7 @@ public class Poller {
                 // If the POLLONESHOT flag was used, disarm events.
                 if((pItem.getEvents() & PollFlags.POLLONESHOT) != 0) {
                     pItem.setEvents(pItem.getEvents() & PollFlags.POLLER_PRIVATE_BITS);
-                } /*
-                // I'm letting the user handle the removal of the pollable
-                // when he deems it appropriate. Also, because POLLFREE
-                // should be an internal flag not provided by poll().
-                else if ((pItem.getEvents() & PollFlags.POLLFREE) != 0) {
-                    removePollerItem(pItem);
-                    // TODO - make a multi-threaded test with level-trigger for this situation, so that multiple threads wake up due to this situation.
-                } */ else if ((pItem.getEvents() & PollFlags.POLLET) == 0) {
+                } else if ((pItem.getEvents() & PollFlags.POLLET) == 0) {
                     // if pollable was registered with level-trigger,
                     // then the pollable should be added back to the
                     // ready list so that other waiters can also be
@@ -362,22 +350,6 @@ public class Poller {
             // pollable is closed to polling.
             if(pItem.getWait() == null)
                 return PCLOSED;
-
-            /*
-            POLLFREE flag should not be passed by poll(), therefore,
-            when the user receives the POLLHUP
-
-            // Checks if the pollable is pollable, i.e.,
-            // is not closed. If it is closed the POLLFREE
-            // flag will be returned.
-            if((aEvents & PollFlags.POLLFREE) != 0){
-                // removes the pollable from the interest map
-                removePollerItem(pItem);
-                // throws exception informing that the pollable
-                // is closed.
-                throw new PollableClosedException();
-            }
-            */
 
             // if there are available events and the item is
             // not yet marked as ready, then add it to the ready list
@@ -623,27 +595,8 @@ public class Poller {
     /** Immediate poll wait queue function. */
     private static final WaitQueueFunc _ipollWakeQueueFunc = (entry, mode, flags, key) -> {
         PollEvent<ParkState> pe = (PollEvent<ParkState>) entry.getPriv();
-        int ret = 0, events = pe.events;
-        // Checks if an exclusive wake up can be successful
-        // due to this wake-up callback. The wake-up call is
-        // successful if there is a match of any event, be it
-        // POLLIN, POLLOUT, POLLERR or POLLHUP
-        if ((events & PollFlags.POLLEXCLUSIVE) != 0 &&
-                (key & PollFlags.POLLFREE) == 0) {
-            switch (key & PollFlags.POLLINOUT_BITS) {
-                case PollFlags.POLLIN:
-                    if ((events & PollFlags.POLLIN) != 0)
-                        ret = 1;
-                    break;
-                case PollFlags.POLLOUT:
-                    if ((events & PollFlags.POLLOUT) != 0)
-                        ret = 1;
-                    break;
-                case 0:
-                    ret = 1;
-                    break;
-            }
-        }
+        int events = pe.events;
+        int ret = isSuccessfulExclusiveWake(events, key);
 
         // wake up the thread
         entry.parkStateWakeUp(pe.data);
