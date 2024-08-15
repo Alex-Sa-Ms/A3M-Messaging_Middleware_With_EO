@@ -265,10 +265,21 @@ public class WaitQueueEntry {
 
     // returns 0 if wake up was not performed.
     // returns positive number if wake up was performed.
-    private int wakeUp(){
+
+    /**
+     * Another wake functions may store the park state
+     * inside a more elaborate private object, so this
+     * method enables the wake function to provide the
+     * park state instance instead of the method assuming
+     * that the park state will be the private object.
+     * @param ps park state instance associated with the entry
+     * @return 1 if the thread was unparked.
+     *         0 if the thread was not parked, therefore,
+     *         couldn't be unparked.
+     */
+    public int parkStateWakeUp(ParkState ps){
         synchronized (this){
             // adds woken flag
-            ParkState ps = (ParkState) priv;
             if(ps.parked.compareAndSet(true, false)) {
                 LockSupport.unpark(ps.thread);
                 return 1;
@@ -291,7 +302,7 @@ public class WaitQueueEntry {
      * @return non-zero if a wake-up was performed. zero if the wake-up was not performed. 
      */
     public static int defaultWakeFunction(WaitQueueEntry entry, int mode, int wakeFlags, int key){
-        return entry.wakeUp();
+        return entry.parkStateWakeUp((ParkState) entry.getPriv());
     }
 
     /**
@@ -368,7 +379,7 @@ public class WaitQueueEntry {
             long timeout;
             while ((timeout = (endTime - System.currentTimeMillis())) > 0 &&
                     ps.parked.get() && !Thread.currentThread().isInterrupted()) {
-                LockSupport.park(timeout);
+                LockSupport.parkUntil(endTime);
             }
             // sets the park state to inform that the thread is no longer parked
             return timeout > 0 || !ps.parked.getAndSet(false);

@@ -19,8 +19,8 @@ import static pt.uminho.di.a3m.auxiliary.Timeout.calculateEndTime;
           2. make mock Link
           3. make mock Socket
           4. test
-          5. Try busy looping on wait queue modifications (using onSpinWait()) and do performance comparison
-                - Basically, attempt to create a spin lock.
+          5. Try using spin lock on wait queue modifications and do performance comparison
+                - Spin lock already implemented
     */
 
 public class Poller {
@@ -63,6 +63,10 @@ public class Poller {
         return !waitQ.isEmpty();
     }
 
+    int getNrWaiters(){
+        return waitQ.size();
+    }
+
     private void removePollerItem(PollerItem pItem){
         interestMap.remove(pItem.getPollable().getId());
     }
@@ -77,6 +81,37 @@ public class Poller {
         // has been closed
         if(closed.get())
             throw new PollerClosedException();
+    }
+
+    /**
+     * If the events of interest contain the POLLEXCLUSIVE flag,
+     * and the wake key does not contain POLLFREE, then checks
+     * if the exclusive wake up is successful. The wake-up call is
+     * successful if there is a match of any event, be it
+     * POLLIN, POLLOUT, POLLERR or POLLHUP
+     * @param events
+     * @param key
+     * @return
+     */
+    private static int isSuccessfulExclusiveWake(int events, int key){
+        int ret = 0;
+        if ((events & PollFlags.POLLEXCLUSIVE) != 0 &&
+                (key & PollFlags.POLLFREE) == 0) {
+            switch (key & PollFlags.POLLINOUT_BITS) {
+                case PollFlags.POLLIN:
+                    if ((events & PollFlags.POLLIN) != 0)
+                        ret = 1;
+                    break;
+                case PollFlags.POLLOUT:
+                    if ((events & PollFlags.POLLOUT) != 0)
+                        ret = 1;
+                    break;
+                case 0:
+                    ret = 1;
+                    break;
+            }
+        }
+        return ret;
     }
 
     private static final WaitQueueFunc waitQueueFunc = (entry, mode, flags, key) -> {
@@ -106,29 +141,8 @@ public class Poller {
                     ListNode.addLast(pItem.getReadyLink(), poller.readyList);
 
                 if(poller.hasWaiters()) {
-                    // Checks if an exclusive wake up can be successful
-                    // due to this wake-up callback. The wake-up call is
-                    // successful if there is a match of any event, be it
-                    // POLLIN, POLLOUT, POLLERR or POLLHUP
-                    if ((pItem.getEvents() & PollFlags.POLLEXCLUSIVE) != 0 &&
-                            (key & PollFlags.POLLFREE) == 0) {
-                        switch (key & PollFlags.POLLINOUT_BITS) {
-                            case PollFlags.POLLIN:
-                                if ((pItem.getEvents() & PollFlags.POLLIN) != 0)
-                                    ewake = 1;
-                                break;
-                            case PollFlags.POLLOUT:
-                                if ((pItem.getEvents() & PollFlags.POLLOUT) != 0)
-                                    ewake = 1;
-                                break;
-                            case 0:
-                                ewake = 1;
-                                break;
-                        }
-                    }
-
-                    // wake up all non-exclusive entries and
-                    // at least one exclusive entry
+                    ewake = isSuccessfulExclusiveWake(pItem.getEvents(), key);
+                    // wake up a waiter
                     poller.waitQ.wakeUp(0, 1, 0, 0);
                 }
             }
@@ -245,7 +259,6 @@ public class Poller {
                     break;
 
                 pItem = it.next();
-
                 // removes pollable from "ready" list
                 it.removeAndInit();
 
@@ -304,12 +317,13 @@ public class Poller {
      * @param p pollable with events of interest
      * @param events events of interest
      * @return  <p>> 0 if success.
+     *          <p>> PEXIST if the pollable is already registered.
      *          <p>> PCLOSED if pollable was closed to polling, i.e.,
      * it does not allow new event waiters to be registered.
-     * @throws IllegalArgumentException If the flags do not follow
-     * a valid combination. POLLEXCLUSIVE must not be paired with
-     * either ~POLLET (level-triggered) and POLLONESHOT.
-     * @throws IllegalStateException If pollable is already registered.
+     * @throws IllegalArgumentException If pollable is null or if
+     * the flags do not follow a valid combination.
+     * POLLEXCLUSIVE must not be paired with either
+     * ~POLLET (level-triggered) and POLLONESHOT.
      * @throws PollerClosedException If poller is closed.
      */
     public int add(Pollable p, int events) throws PollerClosedException {
@@ -331,7 +345,7 @@ public class Poller {
 
             // checks if the pollable as already been registered
             if (interestMap.containsKey(p.getId()))
-                throw new IllegalStateException("Pollable is already registered.");
+                return PEXIST;
 
             // creates poller item and uses it to register the pollable
             PollerItem pItem = PollerItem.init(this, p, events);
@@ -482,20 +496,22 @@ public class Poller {
 
         List<PollEvent<Object>> rEvents;
         Long endTimeout = calculateEndTime(timeout);
-        boolean timedOut = endTimeout == 0;
+        boolean timedOut = Objects.equals(endTimeout,0L);
 
         // Racy call. If a non-blocking operation was requested,
         // this avoids waiting for the lock to be acquired and
         // allows the call to return immediatelly. Otherwise,
         // there shouldn't be a problem since after lock is acquired,
         // this will be re-tested.
-        boolean ready = ListNode.isEmpty(readyList);
-
+        boolean ready = !ListNode.isEmpty(readyList);
         while(true){
             if(ready){
                 rEvents = getReadyEvents(maxEvents);
-                if(!rEvents.isEmpty())
+                if(!rEvents.isEmpty()) {
+                    if(hasWaiters())
+                        waitQ.wakeUp(0,1,0,0);
                     return rEvents;
+                }
             }
 
             // if timed out or poller closed,
@@ -514,7 +530,7 @@ public class Poller {
                 // Final availability check under lock.
                 // If there aren't events available,
                 // then queues itself.
-                ready = ListNode.isEmpty(readyList);
+                ready = !ListNode.isEmpty(readyList);
                 if(!ready)
                     wait.addExclusive(WaitQueueEntry::autoDeleteWakeFunction,
                                        new ParkState());
@@ -552,7 +568,14 @@ public class Poller {
         try{
             lock.lock();
             checkClosed();
-            interestMap.values().forEach(this::deletePollerItem);
+            closed.set(true);
+            Iterator<PollerItem> it = interestMap.values().iterator();
+            PollerItem pItem;
+            while(it.hasNext()){
+                pItem = it.next();
+                it.remove();
+                deletePollerItem(pItem);
+            }
             waitQ.wakeUp(0,0,0,0);
         }finally {
             lock.unlock();
@@ -597,6 +620,42 @@ public class Poller {
 
     // ***** Poll call methods ***** //
 
+    /** Immediate poll wait queue function. */
+    private static final WaitQueueFunc _ipollWakeQueueFunc = (entry, mode, flags, key) -> {
+        PollEvent<ParkState> pe = (PollEvent<ParkState>) entry.getPriv();
+        int ret = 0, events = pe.events;
+        // Checks if an exclusive wake up can be successful
+        // due to this wake-up callback. The wake-up call is
+        // successful if there is a match of any event, be it
+        // POLLIN, POLLOUT, POLLERR or POLLHUP
+        if ((events & PollFlags.POLLEXCLUSIVE) != 0 &&
+                (key & PollFlags.POLLFREE) == 0) {
+            switch (key & PollFlags.POLLINOUT_BITS) {
+                case PollFlags.POLLIN:
+                    if ((events & PollFlags.POLLIN) != 0)
+                        ret = 1;
+                    break;
+                case PollFlags.POLLOUT:
+                    if ((events & PollFlags.POLLOUT) != 0)
+                        ret = 1;
+                    break;
+                case 0:
+                    ret = 1;
+                    break;
+            }
+        }
+
+        // wake up the thread
+        entry.parkStateWakeUp(pe.data);
+
+        // sets success wake-up if events do not
+        // contain the POLLEXCLUSIVE flag
+        if ((events & PollFlags.POLLEXCLUSIVE) == 0)
+            ret = 1;
+
+        return ret;
+    };
+
     /**
      * Polls a pollable using the given poll table. POLLERR and POLLHUP are
      * automatically added as events of interest.
@@ -640,10 +699,11 @@ public class Poller {
         List<WaitQueueEntry> waitTable = new ArrayList<>();
         PollTable pt = new PollTable(~0, null, (p, wait, qpt) -> {
             if (wait != null) {
+                PollEvent<ParkState> pe = new PollEvent<>(ps, qpt.getKey());
                 if((qpt.getKey() & PollFlags.POLLEXCLUSIVE) != 0)
-                    wait.addExclusive(WaitQueueEntry::autoDeleteWakeFunction, ps);
+                    wait.addExclusive(_ipollWakeQueueFunc, pe);
                 else
-                    wait.add(WaitQueueEntry::autoDeleteWakeFunction, ps);
+                    wait.add(_ipollWakeQueueFunc, pe);
                 waitTable.add(wait);
             }
         });
@@ -729,7 +789,7 @@ public class Poller {
     public static List<PollEvent<Object>> poll(List<PollEvent<Pollable>> interestList, int maxEvents, Long timeout) throws InterruptedException {
         // calculate end time
         Long endTimeout = calculateEndTime(timeout);
-        boolean timedOut = endTimeout == 0;
+        boolean timedOut = Objects.equals(endTimeout,0L);
         
         // Check parameters
         if(interestList == null || interestList.isEmpty())

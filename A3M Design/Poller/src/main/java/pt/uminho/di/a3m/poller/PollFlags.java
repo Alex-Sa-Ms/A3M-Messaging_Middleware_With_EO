@@ -36,7 +36,7 @@ public class PollFlags {
      * Between all the waiters of the same pollable, all waiters
      * without this flag and at least one waiter using it will be notified. 
      * <p> This flag only matters when used in conjunction with POLLET,
-     * therefore it most not be used with level-triggered events.
+     * therefore it must not be used with level-triggered events.
      * @implNote An event mask that contains this flag and is used to add
      * a pollable to a poller cannot be changed using the modify() method.
      * The first reason is that it determines how the poller instance is added

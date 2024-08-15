@@ -10,8 +10,8 @@ class PollerItem {
     private final Poller poller; // poller that owns this instance
     private int events; // events bit mask
 
-    private PollerItem(ListNode<PollerItem> readyLink, Pollable p, WaitQueueEntry wait, Poller poller, int events) {
-        this.readyLink = readyLink;
+    private PollerItem(Pollable p, WaitQueueEntry wait, Poller poller, int events) {
+        this.readyLink = ListNode.create(this);
         this.p = p;
         this.wait = wait;
         this.poller = poller;
@@ -20,7 +20,6 @@ class PollerItem {
 
     static PollerItem init(Poller poller, Pollable pollable, int events){
         return new PollerItem(
-                ListNode.init(),
                 pollable,
                 null,
                 poller,
