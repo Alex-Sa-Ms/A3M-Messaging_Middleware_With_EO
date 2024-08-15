@@ -106,7 +106,7 @@ public class MockSocket implements Pollable {
             sendCredits += credits;
             // notify waiters
             if(credits > 0)
-                _notifyWaiters(credits, PollFlags.POLLIN);
+                _notifyWaiters(credits, PollFlags.POLLOUT);
         }finally {
             lock.unlock();
         }
@@ -226,7 +226,7 @@ public class MockSocket implements Pollable {
             // and POLLFREE to make the wake-up callbacks
             // remove the entry regardless of whether the waiter
             // is waiting or not
-            _notifyWaiters(0, PollFlags.POLLHUP | PollFlags.POLLFREE);
+            waitQ.wakeUp(0,0,0,PollFlags.POLLHUP | PollFlags.POLLFREE);
         }finally {
             lock.unlock();
         }

@@ -145,7 +145,7 @@ public class Poller {
             // If the key contains a POLLFREE flag,
             // then it means the pollable is being closed
             // and the wait queue entry must be removed.
-            if((key & PollFlags.POLLFREE) == 0){
+            if((key & PollFlags.POLLFREE) != 0){
                 pItem.getWait().delete();
                 pItem.setWait(null);
             }
@@ -594,9 +594,13 @@ public class Poller {
 
     /** Immediate poll wait queue function. */
     private static final WaitQueueFunc _ipollWakeQueueFunc = (entry, mode, flags, key) -> {
+        // TODO - max events should not be supported by individual poll if exclusive
+        //  polling is supported. But it may be supported, if exclusive polling is not allowed.
         PollEvent<ParkState> pe = (PollEvent<ParkState>) entry.getPriv();
         int events = pe.events;
         int ret = isSuccessfulExclusiveWake(events, key);
+        System.out.println("is succ exclusive wake: " + ret);
+        System.out.flush();
 
         // wake up the thread
         entry.parkStateWakeUp(pe.data);
@@ -753,6 +757,14 @@ public class Poller {
         // initialize required variables
         List<PollEvent<Object>> rEvents = new ArrayList<>();
         ParkState ps = new ParkState();
+        // since the wait and wake functions do have a locking
+        // mechanism to properly synchronize, the parked state
+        // is set to true preemptively so that if a pollable
+        // of interest attempts to wake up this waiter while it
+        // is not parked yet, it will still unpark it, which will
+        // result in the current thread receiving a permit that allows
+        // it to skip the parking.
+        ps.parked.set(true);
         
         // register in pollable's wait queues
         List<WaitQueueEntry> waitTable = _pollRegisterLoop(interestList, maxEvents, ps, rEvents);
@@ -771,12 +783,19 @@ public class Poller {
                     break;
                 // waits for timeout, interrupt signal or wake-up call
                 timedOut = WaitQueueEntry.parkStateWaitFunction(endTimeout, ps);
+                // set parks state to true to make sure it if
+                // in the next iteration, waiting is only done
+                // if a permit for unparking has not been given yet
+                ps.parked.set(true);
                 // iterates over all pollables to fetch available events 
                 _pollFetchEventsLoop(interestList, 0, pt, maxEvents, rEvents);
                 // exits the loop if there are events available to be retrieved
                 if(!rEvents.isEmpty())
                     break;
             }
+            // sets parked to false, so that no more wake-up calls
+            // are done to a completed poll
+            ps.parked.set(false);
         }
 
         // delete wait queue entries (poll hooks)

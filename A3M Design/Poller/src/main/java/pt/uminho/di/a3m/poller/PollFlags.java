@@ -104,4 +104,31 @@ public class PollFlags {
      */
     public static final int POLLER_EXCLUSIVE_OK_BITS =
             POLLINOUT_BITS | POLLERR | POLLHUP | POLLET | POLLEXCLUSIVE;
+
+    // ***** For debug ***** //
+
+    /**
+     * @param events event mask
+     * @return string representation of the combination of flags
+     */
+    public static String getFlags(int events){
+        String eventsStr = "0";
+        if((events & POLLIN) != 0)
+            eventsStr += "|POLLIN";
+        if((events & POLLOUT) != 0)
+            eventsStr += "|POLLOUT";
+        if((events & POLLERR) != 0)
+            eventsStr += "|POLLERR";
+        if((events & POLLHUP) != 0)
+            eventsStr += "|POLLHUP";
+        if((events & POLLFREE) != 0)
+            eventsStr += "|POLLFREE";
+        if((events & POLLEXCLUSIVE) != 0)
+            eventsStr += "|POLLEXCLUSIVE";
+        if((events & POLLONESHOT) != 0)
+            eventsStr += "|POLLONESHOT";
+        if((events & POLLET) != 0)
+            eventsStr += "|POLLET";
+        return eventsStr;
+    }
 }

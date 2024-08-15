@@ -3,6 +3,7 @@ package pt.uminho.di.a3m.poller;
 import org.junit.jupiter.api.Test;
 import pt.uminho.di.a3m.poller.exceptions.PollerClosedException;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -28,7 +29,7 @@ class PollerTest {
         try {
             poller.add(null, 0);
             assert false; // should not get here
-        }catch (IllegalArgumentException ignored){}
+        } catch (IllegalArgumentException ignored) {}
 
         // Create a valid pollable
         MockSocket s1 = new MockSocket("1");
@@ -59,7 +60,7 @@ class PollerTest {
         try {
             poller.add(s3, PollFlags.POLLET | PollFlags.POLLEXCLUSIVE | PollFlags.POLLONESHOT);
             assert false; // should not get here
-        }catch (IllegalArgumentException ignored){}
+        } catch (IllegalArgumentException ignored) {}
 
         // Confirm POLLEXCLUSIVE can be added without POLLONESHOT
         poller.add(s3, PollFlags.POLLET | PollFlags.POLLEXCLUSIVE);
@@ -99,7 +100,7 @@ class PollerTest {
         try {
             poller.modify(s1, PollFlags.POLLET | PollFlags.POLLEXCLUSIVE);
             assert false; // IllegalStateException should be thrown
-        }catch (IllegalStateException ignored){}
+        } catch (IllegalStateException ignored) {}
 
         // Check that modifying the event mask to remove
         // POLLEXCLUSIVE is not possible.
@@ -108,7 +109,7 @@ class PollerTest {
         try {
             poller.modify(s2, 0);
             assert false; // IllegalStateException should be thrown
-        }catch (IllegalStateException ignored){}
+        } catch (IllegalStateException ignored) {}
     }
 
     @Test
@@ -120,7 +121,7 @@ class PollerTest {
         try {
             poller.delete(null);
             assert false; // should not get here
-        }catch (IllegalArgumentException ignored){}
+        } catch (IllegalArgumentException ignored) {}
 
         // Delete a non registered pollable
         // should return Poller.PNOEXIST
@@ -202,7 +203,7 @@ class PollerTest {
         // create 2 threads and make them wait for events
         AtomicBoolean[] timedOut = new AtomicBoolean[2];
 
-        for(int i = 0; i < 2; i++) {
+        for (int i = 0; i < 2; i++) {
             timedOut[i] = new AtomicBoolean(false);
             int finalI = i;
             Runnable task = () -> {
@@ -265,7 +266,7 @@ class PollerTest {
         AtomicBoolean[] timedOut = new AtomicBoolean[2];
         Thread[] threads = new Thread[2];
 
-        for(int i = 0; i < 2; i++) {
+        for (int i = 0; i < 2; i++) {
             timedOut[i] = new AtomicBoolean(false);
             int finalI = i;
             Runnable task = () -> {
@@ -322,7 +323,7 @@ class PollerTest {
         AtomicBoolean[] timedOut = new AtomicBoolean[2];
         Thread[] threads = new Thread[2];
 
-        for(int i = 0; i < 2; i++) {
+        for (int i = 0; i < 2; i++) {
             timedOut[i] = new AtomicBoolean(false);
             int finalI = i;
             Runnable task = () -> {
@@ -377,8 +378,8 @@ class PollerTest {
         // filled with some sockest
         poller = Poller.create();
         MockSocket s1 = new MockSocket("1", 0),
-                   s2 = new MockSocket("2", 0),
-                   s3 = new MockSocket("3", 0);
+                s2 = new MockSocket("2", 0),
+                s3 = new MockSocket("3", 0);
         poller.add(s1, 0);
         poller.add(s2, 0);
         poller.add(s3, 0);
@@ -394,15 +395,15 @@ class PollerTest {
             new Thread(() -> {
                 try {
                     finalPoller.await();
-                }catch (InterruptedException ignored){
-                }catch (PollerClosedException pce){
+                } catch (InterruptedException ignored) {
+                } catch (PollerClosedException pce) {
                     assert true;
                 }
             }).start();
         }
 
         // wait for the threads to add themselves as waiters
-        while(poller.getNrWaiters() < nrWaiters)
+        while (poller.getNrWaiters() < nrWaiters)
             Thread.onSpinWait();
 
         // close poller, check correct unregistration
@@ -418,7 +419,7 @@ class PollerTest {
         // wait for the poller to not have any more waiters,
         // meaning that all were woken-up due to the closure
         // of the poller.
-        while(poller.hasWaiters())
+        while (poller.hasWaiters())
             Thread.onSpinWait();
     }
 
@@ -434,7 +435,7 @@ class PollerTest {
 
         // give one credit so that the next
         // individual immediate poll can return
-        // successfully
+        // the POLLOUT event
         s1.updateCredits(1);
         assert (Poller.poll(s1, PollFlags.POLLOUT, 0L) & PollFlags.POLLOUT) != 0;
 
@@ -444,20 +445,105 @@ class PollerTest {
         // creates thread that must block
         AtomicInteger rEvents = new AtomicInteger();
         Thread t = new Thread(() -> {
-            try { rEvents.set(Poller.poll(s1, PollFlags.POLLOUT, null)); }
-            catch (InterruptedException ignored) {}
+            try {
+                rEvents.set(Poller.poll(s1, PollFlags.POLLOUT, null));
+            } catch (InterruptedException ignored) {
+            }
         });
         t.start();
 
         // wait until thread 't' becomes a waiter
-        while(s1.getWaitQ().isEmpty())
+        while (s1.getWaitQ().isEmpty())
             Thread.onSpinWait();
 
         // provide credit so thath thread 't' may return
         s1.updateCredits(1);
 
         // waits for thread 't' to die
-        while(t.isAlive())
+        int i = 0;
+        while (t.isAlive()) {
+            Thread.sleep(50);
+
+            //Thread.onSpinWait();
+        }
+    }
+
+    // test where a pollable is closed, meaning
+    // it will want to be set free by the waiters
+    @Test
+    void freePollable() throws InterruptedException {
+        // create poller and register socket 1
+        // in edge-triggered mode, meaning
+        // only one waiter is notified and
+        // all events are cleared
+        Poller poller = Poller.create();
+        MockSocket s1 = new MockSocket("1", 0);
+        poller.add(s1, PollFlags.POLLET);
+        assert poller.size() == 1;
+        assert s1.getWaitQ().size() == 1;
+
+        // add some waiters
+        int nrWaiters = 3;
+        AtomicInteger[] rcvEvents = new AtomicInteger[nrWaiters];
+        AtomicInteger woken = new AtomicInteger(0);
+        for (int i = 0; i < nrWaiters; i++) {
+            Poller finalPoller = poller;
+            int finalI = i;
+            new Thread(() -> {
+                try {
+                    // initialize rcvEvents
+                    rcvEvents[finalI] = new AtomicInteger(0);
+                    // wait for events
+                    var rEvents = finalPoller.await();
+                    // increase woken
+                    woken.incrementAndGet();
+                    // set rcvd events
+                    rcvEvents[finalI] = new AtomicInteger(rEvents.getFirst().events);
+                } catch (InterruptedException ignored) {
+                } catch (PollerClosedException pce) {
+                    assert true;
+                }
+            }).start();
+        }
+
+        // wait for the threads to add themselves as waiters
+        while (poller.getNrWaiters() < nrWaiters)
             Thread.onSpinWait();
+
+        // close socket 1, so that it can inform the
+        // poller that it must set it free
+        s1.close();
+        assert s1.isClosed();
+
+        // wait for the socket's wait queue to be empty,
+        // i.e., waits for the poller to remove itself
+        // from the socket's wait queue, and for a poller waiter
+        // to wake up
+        while (!s1.getWaitQ().isEmpty() && woken.get() < 1)
+            Thread.onSpinWait();
+
+        // assert poller is not empty since
+        // the poller's responsibility when receiving
+        // POLLFREE is to remove itself from the pollable's
+        // wait queue. The removal of the pollable's from
+        // the poller must be done "manually" when the poller's
+        // users receive POLLHUP as the only event from the pollable.
+        assert !poller.isEmpty();
+
+        // sleep a bit to make sure no more threads wake up
+        Thread.sleep(5);
+
+        // assert only 1 thread was woken up
+        List<AtomicInteger> rEvents =
+                Arrays.stream(rcvEvents).filter(i -> i.get() != 0).toList();
+        if(rEvents.size() != 1){
+            System.out.println(rEvents);
+        }
+        assert rEvents.size() == 1;
+        // assert POLLHUP was received and that POLLFREE wasn't
+        // (POLLFREE shouldn't be passed by a poll() method)
+        int events = rEvents.getFirst().get();
+        assert (events & PollFlags.POLLHUP) != 0 &&
+                (events & PollFlags.POLLFREE) == 0;
     }
 }
