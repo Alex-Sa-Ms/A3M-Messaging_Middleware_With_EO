@@ -51,8 +51,7 @@ public class PollFlags {
     public static final int POLLEXCLUSIVE = 0x01 << 29;
 
     /**
-     * <p>One shot bit. Only meaningful when registering interest
-     * on poller instances.
+     * <p>One shot bit.
      * <p>Compatible with both edge-trigger and
      * level-trigger approaches. This flag is used to disarm
      * the interest in being informed of events for the
@@ -72,7 +71,7 @@ public class PollFlags {
      * <p>To further elaborate on how this flag actually works
      * for the poller instances, what this flag does is inform
      * only one of waiters (on the poller instance) about the 
-     * the availability of events of interest for the pollable
+     * availability of events of interest for the pollable
      * registered with this flag, upon which the availability of
      * the pollable is removed so that the remaining waiters do
      * not perceive the pollable as available. However, if after
@@ -82,7 +81,6 @@ public class PollFlags {
      * one should register the pollable with an additional flag, the POLLONESHOT,
      * which will remove the interest in receiving events for the pollable
      * until they are rearmed through the modify() method of the poller instance.
-     * </p>
      */
     public static final int POLLET = 0x01 << 31;
 

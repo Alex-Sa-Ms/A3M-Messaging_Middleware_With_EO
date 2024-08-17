@@ -48,18 +48,72 @@ To effectively use `LockSupport`, I create a `ParkState` class, which is also pr
 ![[Polling Class Diagram - Wait Queue Side.png]]
 
 ## Shared Architectural Polling Concepts
+The architecture of the polling mechanism relies on several core concepts that are shared between the `poll()` and `epoll()` adaptations. In this section, we will explore these key concepts, which form the backbone of the polling system's architecture.
+### Poll Flags
+Poll flags are essential components within the polling mechanism, serving multiple purposes: event-related flags signal specific conditions on _pollable_ objects, while mode-related flags determine the behavior of the polling operation. Understanding the role and functionality of these flags is crucial for effectively managing and interpreting the events during the polling process.
+
+The **event-related flags** are used by pollers - caller of `poll()` - to manifest the events of interest and by *pollable* objects to indicate their current status, such as readiness for reading, writing, or encountering an error. The available event flags are:
+- `POLLIN`:
+	Associated with read operations.
+
+- `POLLOUT`:
+	Associated with write operations.
+
+- `POLLERR`:
+	Associated with error or exception conditions. An example could be to report when the read end of the *pollable* object has been closed.
+	
+	*Note:* The polling mechanism always reports this event regardless whether it was specified as an event of interest or not.
+
+- `POLLHUP`:
+	Associated with hang up. Used to signal that a peer closed the connection or that the socket was closed. Depending on the *pollable*'s semantics, this event does not necessarily mean that operations like reading are impossible. There may still be data available to read after the *pollable* is closed.
+	
+	_Note:_ Like `POLLERR`, this event is always reported regardless of interest.
+
+- `POLLFREE`:
+	Special event flag used by *pollable* objects to notify their waiters of the will to be released. When a *pollable* is closed, the `POLLFREE` and `POLLHUP` flags are reported to all waiters, through their respective `WaitQueueFunc`, signaling them to delete their *wait queue entry* as no more events will be reported.
+	
+	*Note:* This flag is exclusively used in the scenario described above and has no effect when provided in an events of interest mask since it should not be returned by a `poll()` method.
+
+The **mode-related flags**, which are only used with `Poller` instances, define the polling behavior:
+- `POLLET`:
+	Registers events in edge-triggered mode, meaning the `Poller` instance only notifies when the perceived state of events changes from "no events" to "events available".  This contrasts with level-triggered mode, where the `Poller` continually reports the _pollable_ as available as long as operations remain possible. 
+	
+	To fully grasp this concept, it is essential to understand that the triggering mode is based on the `Poller` instance's perception of the *pollables* which is updated based on notifications. While the `Poller` instance might perceive a *pollable* as unavailable, the *pollable* itself could still be available for operations.
+	
+	_Note:_ In edge-triggered mode, notified waiters should use non-blocking methods to handle available operations until those operations indicate they would block. This is essential to ensure a *pollable* does not remain idle because a waiter neglected its duties and a new waiter could not be notified because an event notification was not issued to change the *poller*'s perceived state of the *pollable* from "no events" to "events available".
+
+- `POLLONESHOT`:
+	Disarms interest in a _pollable_ after it is notified of an event. All event-related bits are cleared from the events of interest mask, which effectively halts any further notifications from the `Poller` instance regarding the _pollable_. To resume the receiving those notifications, the events of interest must be rearmed through the `modify()` method. 
+	
+	This flag is compatible with both edge-trigger and level-trigger modes.
+	
+	This flag is useful for gaining precise control over event notifications, especially in conjunction with `POLLET`. In edge-triggered mode, when a waiter is notified, events of the same pollable are all "cleared" from the `Poller` instance, but this doesn't prevent the *pollable* from triggering new notifications. This means that another waiter might be woken up by the `Poller` instance to handle the same events already being address by the first waiter. By using `POLLONESHOT`, we can ensure that only one of the *poller*'s waiters is notified to handle the events of a *pollable*.
+
+- `POLLEXCLUSIVE`:
+	Prevents the thundering herd problem by registering the `Poller` instance as an _exclusive_ waiter of the *pollable* of interest. This flag is relevant only when used with edge-triggered events (`POLLET`) and is incompatible with `POLLONESHOT`. It ensures that only one waiter is notified of an event, reducing the risk of resource contention.  
+	
+	_Note:_ Any attempt of modifying a registered event mask when the `POLLEXCLUSIVE` flag is involved will result in an exception. The key reasons behind the disapproval of these type of modifications are:
+	1. If an exclusive waiter has already been successfully notified about some events and then decides to change its events of interest, it could cause other events that should be handled to be missed. This could lead to a situation where another exclusive waiter is not woken up to handle those events because the first waiter "accepted" and then dismissed the events due to a change in interest, potentially leading to inefficiency or, in the worst case, a deadlock.	
+	2. A similar scenario, to the one mentioned in the first reason, can happen when attempting to convert an entry from exclusive to non-exclusive.
+### Poll Table
+
+### Poll Queuing Function
+
+### Pollable
+The polling mechanism operates on objects of interest, which I called _pollables_. For an object to be eligible for polling, it must implement the `Pollable` interface. This interface defines two essential methods:
+1. **`Object getId()`**:
+	This method retrieves the unique identifier of the _pollable_. Each _pollable_ is expected to have a unique identifier that distinguishes it among other local _pollables_. This local uniqueness is crucial for avoiding conflicts when registering interest in a _pollable_ within a `Poller` instance. `Poller` instances register each _pollable_ in a `HashMap`, using the identifier as the key. Since the `HashMap` relies on the `hashCode()` of the key for operations like insertions and look-ups, ensuring unique identifiers is crucial to minimize and avoid collisions.
+2. **`int poll(PollTable pt)`**:
+	This method is central to the polling mechanism, responsible for retrieving the currently available events for a _pollable_. These events are returned as a bit-mask, representing a combination of poll flags, such as `POLLIN`, `POLLOUT`, `POLLERR`, and `POLLHUP`.
+	Each _pollable_ is also assumed to manage a single wait queue, with the `poll()` method being responsible for queuing waiters in that queue. Queuing the caller is only possible if a `PollQueuingFunc` and its associated private object are provided in the `PollTable` passed as a parameter. However, the presence of a queuing function does not guarantee that queuing will occur. The _pollable_ may not allow queuing under certain conditions, such as if it has been closed. In such cases, the _pollable_ must invoke the caller's queuing function with an *uninitialized wait queue entry* to inform the caller that queuing is not possible. 
 
 
 ![[Polling Class Diagram - Poller Side.png]]
-- Duas vertentes: poller instance (epoll())e no-poller instance (poll()).
-- Ambas simplificacoes e adaptacoes das system calls
-- poller instance nao suporta nesting
-
-The designed polling mechanism is simplification and adaptation of the epoll() and poll() system calls.
-
 ## Adaptation of poll()
 
 ## Adaptation of epoll()
+- poller instance nao suporta nesting
+
 # Design Walk-through
 - Diagrama está no ficheiro de concepção **(Polling Model -> Polling Class Diagram)**
 - Falar no percurso até encontrar este mecanismo.
