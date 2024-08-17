@@ -1,19 +1,21 @@
 # Introduction & Goal
-In a messaging middleware, having a polling mechanism is not just a desirable feature, it's a necessity. Polling serves the critical function of determining which events are available for a given object, allowing to efficiently handle incoming data, send data, or other I/O operations.  However, the peak of usefulness is achieved when the polling mechanism has the ability to monitor events of multiple objects simultaneously in a centralized manner.
+In a messaging middleware, having a polling mechanism is not just a desirable feature, it's a necessity. Polling serves the critical function of determining which events are available for a given object, allowing to efficiently handle incoming data, send data, or other I/O operations. However, the peak of greatness is achieved when the polling mechanism has the ability to monitor events of multiple objects simultaneously.
 
-A mechanism that enables efficient handling of multiple objects is crucial to achieve high performance and scalability. It enables a single thread to handle a large number of concurrent events as opposed to having a dedicated thread for each object of interest, thus avoiding unnecessary resource consumption and latency, in addition to ensuring a higher scalability under heavy loads.
+A mechanism that enables efficient handling of multiple objects is crucial to achieve high performance and scalability. It enables a single thread to handle a large number of concurrent events as opposed to having a dedicated thread for each object of interest, thus avoiding unnecessary resource consumption and latency, in addition to ensuring higher scalability under heavy loads.
 
-The primary objective behind designing this polling mechanism was to provide users with an efficient way to monitor multiple sockets using a single thread. This would not only provide programming flexibility but also aid in boosting performance and scalability. However, by avoiding tight coupling with sockets, the mechanism can be extended to monitor other entities, such as links or objects related to custom socket implementations, making it versatile and adaptable to a wide range of use cases.
+The primary objective behind designing this polling mechanism was to provide users with an efficient way to monitor multiple sockets using a single thread. This would not only provide programming flexibility but also aid in boosting performance and scalability. However, by avoiding tight coupling with the middleware sockets, the mechanism can be extended to monitor other entities, such as links or objects related to custom socket implementations, making it versatile and adaptable to a wide range of use cases.
 
-In the following section, we will delve into the specifics of how this polling mechanism works and its architecture.
-
+In this section, we will delve into the specifics of how this polling mechanism works, its architecture and the process that led to its development.
 # Architecture
-The polling mechanism is a simplification and adaptation of the system calls: epoll() and poll(). (*include citation to the github and pages of the manual*) 
-## List Node
+The provided polling mechanism is a simplification and adaptation of two system calls: `poll()` and `epoll()`. (*include citation to the GitHub and pages of the manual*) For occasional polling or when the targets of the operation change frequently, the user may use `Poller.poll()`, which is analogous to the Linux kernel's `poll()`. If the polling targets remain relatively constant, opting for the mechanism inspired in `epoll()` is the most efficient option. In this case, a Poller instance is created through `Poller.create()`, the objects of interest are registered using `add()`, and the `await()` method is invoked to retrieve the available events. 
+
+## Foundational Components
+The following components are the cornerstone of the polling mechanism, providing the necessary structures and functionality to implement the functionalities of the `poll()` and `epoll()` adaptations. While these components are not the most important parts, they play a crucial role in providing an efficient and reliable polling mechanism.
+### List Node
 The `ListNode` class implements a circular doubly linked list, which is used in multiple occasions by the poller implementation, particularly in _wait queues_ to store entries and in _pollers_ to form the _ready list_. Before discussing these classes in detail, it’s important to highlight some key characteristics of the `ListNode` class.
 
 The circular nature of this list allows for *O(1)* insertions at both the head and tail. Additionally, because it’s a doubly linked list, nodes can also be deleted in constant time (O(1)) when holding the reference to the node that should be deleted. The combination of these properties make this data structure ideal for efficiency when faced with the requirements of wait queues and pollers, as explained below.
-## Wait Queue
+### Wait Queue
 In the diagram [[Polling Class Diagram - Wait Queue Side.png]] we observe the foundation of polling mechanism, which relies on *wait queues*. These queues manage _wait queue entries_, each corresponding to an entity interested in an event (or events) related to the queue's owner. This *waiting* system, adapted from the Linux kernel, was designed to prevent unauthorized objects from manipulating *wait queues*.
 
 This adaptation diverges from the kernel's approach by allowing new waiters to register themselves without requiring direct access to the *wait queue* (referred as *wait_queue_head* by the kernel). By providing an initialized *wait queue entry* linked to the *queue* of interest, rather than the queue itself, unauthorized manipulation of the queue is prevented. This design ensures that waiters can only manage their own *wait queue entry* and enables the queue owner to reject a new waiter simply by not providing an initialized entry.
@@ -34,20 +36,30 @@ The first notification method, adapted from the kernel, has the following signat
 [^2] To ensure true exclusivity, it is crucial to avoid using the queues (or their owners) in a way that both non-exclusive and exclusive entries coexist in the queues simultaneously. This is essential to prevent non-exclusive entries from draining the available events before the exclusive entries have an opportunity to process them.
 
 The second notification method, which I developed, corresponds to a fair version of the first method. The objective of this method is providing an equal opportunity in being notified to all exclusive entries. In the first notification method, exclusive entries are not relocated after being woken, which can lead to monopolization by the first few entries in the queue. For instance, if we assume the most common scenario, characterized by `nrExclusive` equal to 1, we can verify that the entries that follow the first exclusive entry do not get a chance of being notified unless the `WaitQueueFunc` of the exclusive entries removes the entry from the queue or the return value indicates an unsuccessful wake up.  For scenarios where the monopolization of events is not desired, this second notification method addresses this issue by moving successfully woken up entries to the tail of the queue when their `WaitQueueFunc` does not result in their removal (deletion), and thus ensuring that all exclusive entries have an equal opportunity to be notified.
-## Park State
+### Park State
+Although the `WaitQueueFunc` does not necessarily need to wake up a specific thread, in some scenarios, such functionality is required. The Linux Kernel employs a rather complex wake-up function that interacts with the state of threads, their corresponding tasks and scheduling. Due to the low-level nature of these operations, replicating this behavior in the high-level programming environment of Java is not feasible. Consequently, finding an alternative solution was necessary to wake specific threads. 
 
+The alternative solution I devised takes advantage of the `LockSupport` mechanism which is complemented by a `ParkState` instance. 
 
-***Talk about the park state and the list node (used by the kernel for O(1) insert and remove operations) to end this part.***
+The `LockSupport` mechanism is characterized by two operations: parking and unparking. A thread that needs to wait for an event may invoke `park()` and wait for another thread - which is typically the manager of the event - to `unpark()` it. While the mechanism is simple, the sole use of this mechanism is not enough for our purposes. It's important to note that unparking a thread that has not yet invoked `park()` results in the accumulation of a permit. Further invocations of `unpark()` will not generate additional permits, as the accumulation is capped at one permit. When a thread invokes `park()`, it checks for the existence of a permit. If a permit is present, it is consumed, allowing the thread to proceed without blocking. If a permit is not available, the thread waits until one is provided via `unpark()` or, if a deadline is provided, until the timestamp is reached.
+
+To effectively use `LockSupport`, I create a `ParkState` class, which is also present in the [[Polling Class Diagram - Wait Queue Side.png]] diagram. Each instance of `ParkState` includes two attributes: a reference to the thread to be woken up and an atomic boolean representing the thread's parking state. Before parking, a thread must set its parking state to "true" indicating its intention to park. This can be done immediately before parking, or when the parking of the thread is anticipated and the accumulation of a permit is desirable. With the parking state set to "true", when the wake-up condition is met, such as the availability of events in the polling mechanism, the responsible thread checks the parking state and grants permission to unpark when the state indicates that the thread is parked. If the thread is not perceived as parked, the wake-up attempt is unsuccessful, as the thread was not in a state to be woken up.
 
 ![[Polling Class Diagram - Wait Queue Side.png]]
+
+## Shared Architectural Polling Concepts
+
+
 ![[Polling Class Diagram - Poller Side.png]]
 - Duas vertentes: poller instance (epoll())e no-poller instance (poll()).
 - Ambas simplificacoes e adaptacoes das system calls
 - poller instance nao suporta nesting
-- falar de fair wake ups que nao existem no kernel
 
 The designed polling mechanism is simplification and adaptation of the epoll() and poll() system calls.
 
+## Adaptation of poll()
+
+## Adaptation of epoll()
 # Design Walk-through
 - Diagrama está no ficheiro de concepção **(Polling Model -> Polling Class Diagram)**
 - Falar no percurso até encontrar este mecanismo.
@@ -61,9 +73,14 @@ The designed polling mechanism is simplification and adaptation of the epoll() a
 		- Outro exemplo, é no poll imediato (sem instancia de poller) em que se define o estado de "estacionamento" como "parked" antes de se começar a tentar pescar eventos. Isto é necessário porque é possível que após passar por um pollable que não mostra qualquer evento como disponível, que este passe a ter eventos disponíveis. Se o estado não estiver receptível a wake-up calls, então se não for encontrado qualquer evento nos restantes pollables, a thread irá "esperar" desnecessariamente por uma nova notificação quando uma notificação tinha sido emitida anteriormente mas não foi aceitada porque o estado não estava receptível a tal, i.e., não estava como "parked".
 	- 
 - tentei pesquisar por implementações em Java que simulassem o epoll. Como é o caso do Selector que permite este tipo de funcionalidade. No entanto, este mecanismo assim como as system calls, utiliza por base descritores de ficheiros, e então acede ao kernel. As trocas entre user e kernel são custosas. Logo pareceu-me ineficiente optar por um "workaround" em que criava descritores de ficheiros associados a sockets virtuais (que existem apenas no espaço do utilizado) só para reaproveitar um mecanismo de polling. A utilização desse mecanismo, de certa forma, removeria a vantagem de multiplexar todas as mensagens sobre o mesmo socket UDP. Dito isto, optei por estudar a implementação de um mecanismo open-source que seguramente seria boa já que está disponível numa grande quantidade de dispositivos, nos dispositivos que têm por base linux. Este estudo permitiria-me entender como especialistas da área abordaram este problema, e desta forma seria-me possível fazer uma adaptação do mecanismo para Java para ser utilizado unicamente no nível de utilizador (sem recorrer ao kernel) e desta forma conseguir obter um desempenho superior por não serem necessárias trocas com o kernel mas também que não necessitaria de consumir recursos desnecessários com a criação de pipes (ou outro tipo de ficheiros) para permitir reaproveitar um mecanismo já desenvolvido.
+	- Aqui em baixo pode ter conteudo que ajuda a escrever o walk-through
 # Notas
 - Destacar o mecanismo das wait queues que será amplamente utilizado.
 - O poller será utilizado não só pelo utilizador para esperar por eventos nos sockets de interesse, mas também a nível interno para fornecer funcionalidades de esperar pela disponibilidade de um link qualquer. 
+
+
+
+
 # Arquitetura
 ## Operação de interesse
 Um poller não é utilizado para registar sockets de interesse, mas para registar a vontade de realizar um certo tipo de operação sobre um socket específico.
