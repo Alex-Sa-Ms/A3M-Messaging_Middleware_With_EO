@@ -7,7 +7,7 @@ The primary objective behind designing this polling mechanism was to provide use
 
 In this section, we will delve into the specifics of how this polling mechanism works, its architecture and the process that led to its development.
 # Architecture
-The provided polling mechanism is a simplification and adaptation of two system calls: `poll()` and `epoll()`. (*include citation to the GitHub and pages of the manual*) For occasional polling or when the targets of the operation change frequently, the user may use `Poller.poll()`, which is analogous to the Linux kernel's `poll()`. If the polling targets remain relatively constant, opting for the mechanism inspired in `epoll()` is the most efficient option. In this case, a Poller instance is created through `Poller.create()`, the objects of interest are registered using `add()`, and the `await()` method is invoked to retrieve the available events. 
+The provided polling mechanism is a simplification and adaptation of two system calls: `poll()` and `epoll()`. (*include citation to the GitHub and pages of the manual*) For occasional polling or when the targets of the operation change frequently, the user may use `Poller.poll()`, which is analogous to the Linux kernel's `poll()`. If the polling targets remain relatively constant, opting for the mechanism inspired in `epoll()` is the most efficient option. In this case, a Poller instance is created through `Poller.create()`, the objects of interest are registered using `add()`, and the `await()` method is invoked to wait and retrieve available events. 
 
 ## Foundational Components
 The following components are the cornerstone of the polling mechanism, providing the necessary structures and functionality to implement the functionalities of the `poll()` and `epoll()` adaptations. While these components are not the most important parts, they play a crucial role in providing an efficient and reliable polling mechanism.
@@ -95,9 +95,15 @@ The **mode-related flags**, which are only used with `Poller` instances, define 
 	_Note:_ Any attempt of modifying a registered event mask when the `POLLEXCLUSIVE` flag is involved will result in an exception. The key reasons behind the disapproval of these type of modifications are:
 	1. If an exclusive waiter has already been successfully notified about some events and then decides to change its events of interest, it could cause other events that should be handled to be missed. This could lead to a situation where another exclusive waiter is not woken up to handle those events because the first waiter "accepted" and then dismissed the events due to a change in interest, potentially leading to inefficiency or, in the worst case, a deadlock.	
 	2. A similar scenario, to the one mentioned in the first reason, can happen when attempting to convert an entry from exclusive to non-exclusive.
-### Poll Table
+### Poll Table & Poll Queuing Function 
 
-### Poll Queuing Function
+The `PollTable` is a key component in the polling mechanism, serving as the interface through which the caller of a *pollable*'s `poll()` method can register its interest in the events of the *pollable*. As the only object passed to the method, it plays a crucial role in allowing a caller to become a waiter if desired. 
+
+The `PollTable` comprises three attributes: an event mask, a *poll queuing function*, and a private object. While the event mask indicates the events the caller is interested in, it's typically not used directly by the *pollable*. Instead, the `poll()` method of the *pollable* usually returns a bitmask of all events currently available[³], regardless of the event mask in the `PollTable`.
+
+The poll queuing function is essential, as it handles the addition of the caller to the *pollable*'s *wait queue*. When the *pollable*'s `poll()` method determines that the conditions for adding a new waiter are met, it calls the poll queuing function with an initialized *wait queue entry*. This entry, along with the private object, helps the *poll queuing function* register the caller in the *pollable*'s *wait queue* and perform any caller-specific actions - such as adding the *pollable* to the ready list as done by the `Poller` instances - necessary for the waiter's registration. If the conditions are not met, the *pollable* may pass an uninitialized entry to indicate that queuing is not possible.
+
+If the `PollTable` lacks a *poll queuing function*, the pollable only returns the bitmask of available events. This function is critical because it not only queues the caller as a waiter but also handles any specific needs the caller may have during the queuing process. The private object provides context or state information that may be necessary for the queuing function to operate correctly.
 
 ### Pollable
 The polling mechanism operates on objects of interest, which I called _pollables_. For an object to be eligible for polling, it must implement the `Pollable` interface. This interface defines two essential methods:
@@ -111,8 +117,70 @@ The polling mechanism operates on objects of interest, which I called _pollables
 ![[Polling Class Diagram - Poller Side.png]]
 ## Adaptation of poll()
 
+### Algorithm Overview
+
+After covering the foundational components involved in the polling system, we can now explore how these pieces are combined in the main methods. Having this background in mind, understanding the algorithm underlying `Poller.poll()` method, which is a Java user-level adaptation of the Linux Kernel's `poll()` system call, is straightforward.
+
+The `Poller.poll()` method is designed to monitor a set of objects of interest and detect when they become ready to perform I/O operations. This method requires a structure containing the objects to be monitored along with the corresponding events of interest mask. Additionally, a parameter identifying the maximum number of *pollable* objects with available events to be returned is requested, while a timeout value is optional.
+
+1. **Initial Iteration and Queuing**:
+    - The `Poller.poll()` method begins by iterating over the list of objects of interest. During this initial iteration, it adds itself to the *wait queue* of each object while checking whether any events are immediately available.
+    - If an event is detected during this first iteration, the method ceases further queuing, by removing the *poll queuing function* from the poll table used for polling. Further queuing is unnecessary, as the method immediately prepares to return the detected event(s) to the user.
+    - If the maximum number of objects with available events is reached, the iteration is stopped, the *wait queue entries* are deleted, and the events are returned to the user. 
+    - If no events are found during this first iteration, the method will have registered itself as a waiter on each object by adding a *wait queue entry* to their respective *wait queues*. This ensures that it will be notified if any of the objects become ready during any following idle-wait periods.
+
+2. **Idle-Wait and Event Detection**:
+    - Once the thread is queued as a waiter for all objects, it enters an idle-wait state. In this state, the thread remains inactive until one of the following occurs:
+        - An object of interest becomes ready and signals the thread.
+        - The specified timeout period elapses.
+        - An interrupt signal is received.
+    - If the timeout is reached or an interrupt signal is detected, the method proceeds to clean up by removing the entries from all wait queues. It then returns, indicating either a timeout or interruption, as appropriate.
+
+3. **Re-Polling After Wake-Up**:
+    - If the thread is woken up by an event, the method performs another iteration over the objects of interest. This time, however, it does so with focusing solely on fetching available events, bypassing the queuing step - by not providing a *poll queuing function* - since it is already registered as a waiter.
+    - During this traversal, the method collects any events that have become available, stopping when the number of maximum objects with available events is achieved or when all the objects have been polled. If any events are found, it cleans up by removing the *wait queue entries*, and returns the events to the user.
+
+4. **Repeating the Process if Necessary**:
+    - If, after being woken up, no events are found during the re-polling iteration, the process repeats. The thread re-enters the idle-wait state, waiting once more for an event, a timeout, or an interrupt signal.
+    - This loop continues until either events are detected, leading to a return, or the operation is terminated by a timeout or signal.
+### Comparison with the Linux Kernel's *poll()* implementation
+
+When comparing the user-level `Poller.poll()` implementation with the Linux kernel's `poll()` system call, several key differences emerge, mostly due to the contrasting environments in which they operate.
+
+**1. Foundational Components and Complexity**
+
+Any significant differences between this implementation and the kernel's implementation regarding the foundational components has been highlighted in their respective sections. However, it is important to emphasize that the core algorithm underlying both implementations remains fundamentally simple, leaving limited room for deviation.
+
+**2. Complexity and Low-Level Operations**
+
+The kernel's `poll()` system call is inherently more complex due to its need to manage low-level details such as thread scheduling, thread states, reference counting, and efficient memory allocation. In contrast, this user-level implementation operates in a higher-level environment, which simplifies many of these concerns. For example, while the kernel meticulously makes efficient memory allocation - like allocating a page for multiple wait queue entries instead of suffering the overhead of allocating memory for each entry at a time - , the `Poller.poll()` implementation relies on a higher-level data structure, such as `List<WaitQueueEntry>`, without needing to manage memory with the same granularity.
+
+**3. Handling of Objects of Interest**
+
+Another significant difference lies in how objects of interest are handled. In the kernel's implementation, `poll()` works with file descriptors, which are then used to access the corresponding kernel structures, while the `Poller.poll()` implementation receives the instances of the objects to be polled directly, removing the need for accessing the mapping between the identifiers and the objects of interest, which simplifies the polling process.
+
+**4. Memory Management and Result Handling**
+
+In the Linux kernel, the responsibility of allocating memory for the structure that holds the results of the polling operation lies with the user. This requires additional checks within the kernel to ensure that the user has correctly allocated sufficient space, in addition to the need for copying the results back to user space. In contrast, the `Poller.poll()` is a user-level implementation, meaning it can handle the allocation of the required structure, abstracting away these concerns and simplifying the process for the user.
+
+**5. Wake-Up Procedure**
+
+The wake-up procedure employed by `Poller.poll()` is significantly simpler compared to the kernel's approach. The Linux kernel’s wake-up mechanism involves intricate interactions with thread states and scheduling, ensuring that the correct threads are woken up efficiently, while this user-level implementation's wake-up process is managed through the `ParkState` object, which, while effective, lacks the complexity and fine-grained control required at the kernel level.
+
+**6. Adaptation to User-Level Environment**
+
+The `Poller.poll()` implementation was specifically adapted for a user-level environment, in contrast to the kernel's lower-level implementation. When dealing with objects of interest that operate at the user level, having a polling mechanism aligned with that level is ideal. It helps to bypass the overhead and latency associated with system calls, leading to more efficient and responsive interactions.
+
 ## Adaptation of epoll()
-- poller instance nao suporta nesting
+
+
+- **Overview and Data Flow**: Describe the workings of `Poller.create()` and `Poller.await()`, emphasizing efficiency in handling stable polling targets.
+- **Fairness in Wake-ups**: Explain the architectural mechanism to ensure fairness among exclusive entries.
+- **Concurrency and Synchronization**: Discuss any specific considerations for concurrency and synchronization in this adaptation.
+- **Scalability and Limitations**: Explore the scalability benefits and any limitations compared to the `poll()` adaptation.
+
+
+- **poller instance nao suporta nesting**
 
 # Design Walk-through
 - Diagrama está no ficheiro de concepção **(Polling Model -> Polling Class Diagram)**
