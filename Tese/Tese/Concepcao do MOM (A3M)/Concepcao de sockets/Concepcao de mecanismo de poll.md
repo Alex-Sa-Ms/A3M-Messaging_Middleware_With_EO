@@ -1,5 +1,5 @@
 # Introduction & Goal
-In a messaging middleware, having a polling mechanism is not just a desirable feature, it's a necessity. Polling serves the critical function of determining which events are available for a given object, allowing to efficiently handle incoming data, send data, or other I/O operations. However, the peak of greatness is achieved when the polling mechanism has the ability to monitor events of multiple objects simultaneously.
+In a messaging middleware, having a polling mechanism is not just a desirable feature, it's a necessity. Polling serves the critical function of determining which events are available for a given object, allowing to efficiently read data, write data, or execute other I/O operations. However, the peak of greatness is achieved when the polling mechanism has the ability to monitor events of multiple objects simultaneously.
 
 A mechanism that enables efficient handling of multiple objects is crucial to achieve high performance and scalability. It enables a single thread to handle a large number of concurrent events as opposed to having a dedicated thread for each object of interest, thus avoiding unnecessary resource consumption and latency, in addition to ensuring higher scalability under heavy loads.
 
@@ -172,18 +172,94 @@ The wake-up procedure employed by `Poller.poll()` is significantly simpler compa
 The `Poller.poll()` implementation was specifically adapted for a user-level environment, in contrast to the kernel's lower-level implementation. When dealing with objects of interest that operate at the user level, having a polling mechanism aligned with that level is ideal. It helps to bypass the overhead and latency associated with system calls, leading to more efficient and responsive interactions.
 
 ## Adaptation of epoll()
+### Algorithm Overview
+
+Unlike `poll()`, the Linux Kernel's `epoll()` is implemented as a set of system calls, designed to handle high-performance event monitoring with minimal overhead. This performance is achieved through "active monitoring". In contrast to `poll()`, which requires iterating over the whole list of monitored objects each time a check for events is performed, `epoll()` uses an event-driven approach. Once an object is registered, the `epoll()` instance monitors it for events, allowing immediate responses to changes without requiring a scan over the entire list, which significantly reduces the overhead when dealing with a large number of monitored objects.
+
+The adaptation of `epoll()` to a user-level environment, referred to as `Poller`, follows a similar design, though it does not encompass all the features provided by the `epoll()` instances, like the ability to nest `epoll()` instances without creating loops or deep wake-up paths. The `Poller` implementation comprises six key methods: `create()`, `add()`, `modify()`, `delete()`, `wait()`, and `close()`.
+
+The following is an overview of how this adapted `epoll()` mechanism works:
+1. *`create()`*
+	Initializes a new instance of the event poller, setting up the internal structures necessary for monitoring the specified objects.
+
+2. `add()`  
+	Used to register a new object of interest along with the corresponding event mask that specifies which events should be monitored.
+	
+	The method follows these steps:
+	1. Validates the object of interest and ensures that the provided event mask is valid. Certain flag combinations, like exclusivity with "one-shot," are checked for compatibility.
+	2. Automatically includes the error (`POLLERR`) and hang-up (`POLLHUP`) flags in the event mask to ensure these events are always reported.
+	3. Adds the object of interest to the poller instance's "interest list" after successful validation.
+	4. Polls on the object, using a poll table initialized with a _poll queuing function_, serving not only the purpose of fetching available events, but also adding the poller instance as a waiter to be notified of future events.
+		- The poller instance is added as an exclusive or non-exclusive waiter based on the presence of the exclusivity flag on the event mask.
+		- The *wait queue function*, linked by the *poll queuing function* with the *poller*'s *wait queue entry*, is used by the monitored objects to add themselves to the "ready list" when the reported available events match the monitored events. It also triggers a wake-up call for the waiter of the poller instance.
+	5. If any events are available during this registration process, the object is added to the "ready list," and a waiter is notified.
+
+3. `modify()`
+	This method is used to modify the event mask of a monitored object of interest or to re-arm it when the "one-shot" flag is used. It immediately polls on the object to check for available events. If events are found, the poller instance notifies a waiter to retrieve them.
+	
+	As previously mentioned in the "Poll Flags" section, neither the new event mask nor the current mask can have the exclusivity flag set when invoking this method, as doing so results in an error.
+
+4. `delete()`
+	Deletes an object of interest from the poller instance's "interest list," effectively stopping its monitoring. When an object is registered with the exclusivity flag, careful removal is necessary to avoid dismissing events that could have notified another exclusive waiter.
+
+5.  `await()`
+	This method waits for any events from the monitored objects to become available. It returns up to a specified maximum number (`maxEvents`) of objects with available events. If no events are immediately available, the method enters a loop, performing idle-waiting until one of the following conditions is met:
+	- An interrupt signal is received.
+	- The specified timeout is reached.
+	- The thread is woken up, and events are available to be returned.
+
+6. `close()`
+	Invoking this method is similar to calling `delete()` on all objects in the "interest list." Additionally, it wakes up every waiter of the poller instance, allowing them to perceive the closure of the instance and return graciously.
+
+### Comparison with the Linux Kernel's *epoll()* implementation
+
+The user-level adaptation of the `epoll()` mechanism, implemented in the `Poller` class, draws inspiration from the Linux Kernel's `epoll()` system call but with several key differences due to the distinct environments in which they operate. Below is a comparison of the two implementations:
+
+1. **User-level vs Kernel-level**
+    - Similar to the `poll()` adaptation, the `Poller` class operates at the user-level, which reduces the complexity compared to the kernel-level `epoll()` implementation.
+    
+2. **Handling of Objects of Interest**
+    - In the kernel, `epoll()` works with file descriptors, which are then used to retrieve the corresponding structures for monitoring. The user-level `Poller` directly receives instances of the objects of interest, bypassing the need for file descriptor-based lookups.
+    - Additionally, the kernel’s `epoll()` must verify if a file descriptor supports polling, whereas in the user-level `Poller`, objects are forced to implement the `Pollable` interface, ensuring they are capable of being polled. This simplifies the verification process and eliminates the need for checking an object of interest. However, while objects implementing `Pollable` can always be polled, they may be closed, which demands a mechanism to indicate that *queuing* is no longer possible. In the `Poller`implementation, this information is conveyed when `Poller` instance's *poll queuing function* receives an uninitialized *wait queue entry* or when its *wait queue function* receives a combination of the `POLLFREE` and `POLLHUP` flags. 
+
+3. **Memory Management and Result Handling**
+    - The kernel implementation uses memory management techniques, such as caching frequently allocated objects, to enhance performance. In contrast, the user-level `Poller` is more straightforward, allocating and managing memory directly without relying on such caching mechanisms.
+    - Additionally, while the kernel’s `epoll()` requires the user to allocate memory for result to be returned, the `Poller` instance handles this internally, simplifying the interface for users.
+
+4. **Wake-Up Procedure**
+    - The wake-up procedure in the `Poller` class is more straightforward than in the kernel's `epoll()`. As explained in the "Adaptation of poll()" section, the kernel must account for low-level scheduling and thread management, while the user-level `Poller` uses a simpler approach that combines `LockSupport` and `ParkState`.
+
+5. **Adaptation to User-Level Environment**
+    - The `Poller` class is specifically adapted to operate in a user-level environment, avoiding the overhead associated with system calls. This adaptation leads to improved performance when dealing with user-level objects, as it eliminates the need for costly kernel interactions.
+
+6. **Creation and nesting of Poller Instances**
+    - Unlike the kernel’s `epoll()`, the `Poller` instance does not support nesting of pollers. In the kernel, managing nested `epoll()` instances involves creating and managing associated file instances, verifying whether file descriptors being registered are `epoll()` instances or not, and acting accordingly, and ensuring that the wake-up paths do not form loops or become excessively deep. These complexities are avoided in the user-level `Poller`.
+
+7. **Use of EPOLLWAKEUP and Wake-Up Sources**
+    - The `Poller` implementation does not support the `EPOLLWAKEUP` flag or wake-up sources. In the kernel, `EPOLLWAKEUP` is used to prevent the system from entering sleep states while events are being monitored. This is particularly relevant in power management scenarios where keeping the CPU awake is crucial to handle critical events. Since the user-level `Poller` operates within a single process and does not interact with the system's power management, this feature is not necessary.
+
+8. **File Descriptor Ownership**
+    - In the kernel’s `epoll()`, the ownership of file descriptors is strictly checked, ensuring that only the process that owns a file descriptor can use it for monitoring. This security measure is not applicable in the user-level `Poller`, where objects of interest are directly provided and managed within the process, negating the need for ownership checks.
+
+9. **File epoll hooks & Cleanup**
+    - The user-level adaptation of the `epoll()` mechanism, does not implement the file hooks (such as the `->f_ep` list) used by the Linux kernel to track `epoll` instances monitoring a file descriptor. Instead, it relies on a simpler approach for cleanup purposes when an object of interest is closed or its monitoring is no longer needed. Specifically, the cleanup is invoked by waking up all waiters on the wait queue associated with the file descriptor and passing the `POLLFREE` flag in the key. This method ensures that all relevant waiters are notified to handle the cleanup and remove their *wait queue entry*, while not requiring a list of `epoll` instances to be used.
+
+10. **Locking and Concurrency**
+	<h1 style="color:red">"Not Finished"</h1>
+    - The `Poller` class opts for a simplified concurrency model, utilizing a single reentrant lock mechanism to manage access to shared resources. In contrast, the kernel’s `epoll()` implementation may employ a combination of mutexes, read-write locks, and lockless operations to minimize contention and optimize performance. While this approach enhances scalability in the kernel, it introduces complexity that is not required in the user-level adaptation. However, as the `Poller` is developed further, incorporating more advanced concurrency controls may be necessary to improve performance in multi-threaded environments.
+    - The kernel implementation involves synchronization between *CPUs* using memory barriers to ensure that changes are visible to all *CPUs*. This level of synchronization is unnecessary in the user-level `Poller`, as it operates within a single process space. As a result, the implementation is simplified, avoiding the complexity of ensuring visibility of changes across multiple processors.
+	- with a single reentrant lock mechanism to manage concurrency and wake-up operations. The kernel implementation, on the other hand, may utilize a combination of mutexes, read-write locks, and lockless (atomic) operations to minimize contention and ensure efficient event reporting.
 
 
-- **Overview and Data Flow**: Describe the workings of `Poller.create()` and `Poller.await()`, emphasizing efficiency in handling stable polling targets.
-- **Fairness in Wake-ups**: Explain the architectural mechanism to ensure fairness among exclusive entries.
-- **Concurrency and Synchronization**: Discuss any specific considerations for concurrency and synchronization in this adaptation.
-- **Scalability and Limitations**: Explore the scalability benefits and any limitations compared to the `poll()` adaptation.
 
 
-- **poller instance nao suporta nesting**
+- all the reasons mentioned in the adaptation of poll(): 
+	- Complexity and Low-Level Operations
+		- synchronization between CPUs with use of memory barriers to ensure changes are visualized by all CPUs 
+- locking & concurrency
+	- Opted for using a single reentrant lock mechanism, instead of a combination of mutex, read-write-lock and lockless (atomic) operations. The combination of these locking mechanism and concurrent operations are not mandatory, but must be implemented in the future for performance purposes. Their main goal is to ensure the least contention possible when an object of interest wants to report events.
 
 # Design Walk-through
-- Diagrama está no ficheiro de concepção **(Polling Model -> Polling Class Diagram)**
 - Falar no percurso até encontrar este mecanismo.
 	- 1º tentei desenvolver um mecanismo destes com o intuito de servir apenas os links dos sockets, para se poder fazer `waitLink(sid : SocketIdentifier)` e `waitAnyLink() : Socket Identifier`. Na primeira tentativa pensei em criar queue's de pedidos para cada link, e em registar-me em todas as queues, no entanto, surgiram alguns problemas que me levaram a desistir dessa abordagem. O primeiro era não saber como acordar uma thread registada em múltiplos locais sem ser através da criação de uma condição (de lock) criada especialmente para a thread a manifestar interesse em algum link. A criação destas condições a cada pedido não me pareceu razoável, logo ponderei a possibilidade de na API se poder "registar" a thread, ficando uma condição associada e que mais tarde poderia ser eliminada quando o utilizador decidisse que a thread não seria mais utilizada para esse propósito. Para além desse problema, pensei que quando fosse demonstrado o interesse em todos os links (`waitAnyLink()`), registar a thread em todas as queues seria muito pouco eficiente, além de ser necessário posteriormente remover todos esses registos após receber a resposta. Dados esses problemas, e não me apercebendo da utilidade de esperar por uma combinação específica de links para o desenvolvimento de sockets, que por consequência indica uma baixa probabilidade de alguém usar tal funcionalidade, decidi optar por uma outra abordagem.
 	- Falar da abordagem que desenvolvi por inteiro, como uma queue global para pedidos que tivessem interesse em todos os links. Falar também que era um pouco rígido demais, consumia créditos para garantir reservas, etc.
