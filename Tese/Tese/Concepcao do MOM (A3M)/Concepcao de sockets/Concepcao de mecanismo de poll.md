@@ -267,6 +267,8 @@ The use of synchronization mechanisms like Locks and Conditions to wake threads 
 
 
 ---
+<div style="clear: both; page-break-after: always;">Page Break</div>
+
 **IDEIAS PARA ADICIONAR AO RATIONALE**
 
 - Falar no percurso até encontrar este mecanismo.
