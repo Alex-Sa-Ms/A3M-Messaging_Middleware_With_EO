@@ -79,7 +79,7 @@ public class WaitQueue{
         return new WaitQueueEntry(this, 0, null, null, null);
     }
 
-    public int wakeUp(int mode, int nrExclusive, int wakeFlags, int key) {
+    public int wakeUp(int mode, int nrExclusive, int wakeFlags, Object key) {
         try{
             lock.lock();
             ListNode.Iterator<WaitQueueEntry> it = ListNode.iterator(head);
@@ -110,7 +110,7 @@ public class WaitQueue{
         return nrExclusive;
     }
 
-    public int fairWakeUp(int mode, int nrExclusive, int wakeFlags, int key) {
+    public int fairWakeUp(int mode, int nrExclusive, int wakeFlags, Object key) {
         try{
             lock.lock();
             ListNode.Iterator<WaitQueueEntry> it = ListNode.iterator(head);
