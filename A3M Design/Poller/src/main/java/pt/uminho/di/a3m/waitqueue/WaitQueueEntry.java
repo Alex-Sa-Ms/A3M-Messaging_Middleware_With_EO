@@ -302,7 +302,7 @@ public class WaitQueueEntry {
      * @param key event(s) that resulted in the wake-up call
      * @return non-zero if a wake-up was performed. zero if the wake-up was not performed. 
      */
-    public static int defaultWakeFunction(WaitQueueEntry entry, int mode, int wakeFlags, int key){
+    public static int defaultWakeFunction(WaitQueueEntry entry, int mode, int wakeFlags, Object key){
         return entry.parkStateWakeUp((ParkState) entry.getPriv());
     }
 
@@ -320,7 +320,7 @@ public class WaitQueueEntry {
      * @param key event(s) that resulted in the wake-up call
      * @return non-zero if a wake-up was performed. zero if the wake-up was not performed. 
      */
-    public static int autoDeleteWakeFunction(WaitQueueEntry entry, int mode, int wakeFlags, int key){
+    public static int autoDeleteWakeFunction(WaitQueueEntry entry, int mode, int wakeFlags, Object key){
         int ret = defaultWakeFunction(entry, mode, wakeFlags, key);
         if(ret != 0)
             entry.delete();

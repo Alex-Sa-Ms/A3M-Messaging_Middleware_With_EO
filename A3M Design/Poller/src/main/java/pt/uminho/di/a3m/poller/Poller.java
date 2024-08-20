@@ -109,7 +109,7 @@ public class Poller {
         return ret;
     }
 
-    private static final WaitQueueFunc waitQueueFunc = (entry, mode, flags, key) -> {
+    private static final WaitQueueFunc waitQueueFunc = (entry, mode, flags, keyObject) -> {
         // Return value of the function. The return value is 1
         // if a waiter can be successfully woken up due to
         // this wake-up callback. Otherwise, it must be 0.
@@ -117,9 +117,17 @@ public class Poller {
         // either the pollable is being freed or the available events (key)
         // do not match the events of interest.
         int ewake = 0;
+        int key = (int) keyObject;
         PollerItem pItem = (PollerItem) entry.getPriv();
         Poller poller = pItem.getPoller();
 
+        // TODO - When with available time, follow a similar approach to the epoll()
+        //      system call regarding the multiple locking mechanisms and lockless operations
+        //      to minimize lock contention and consequently latency when notifying
+        //      the poller instance that an object of interest has available events.
+        //      This is crucial as we do not want the main thread of the middleware
+        //      to be slowed down with contention everywhere. For the lockless operations
+        //      use AtomicReference.
         try{
             poller.lock.lock();
 
@@ -613,10 +621,11 @@ public class Poller {
     }
 
     /** Immediate poll wait queue function. */
-    private static final WaitQueueFunc _ipollWakeQueueFunc = (entry, mode, flags, key) -> {
+    private static final WaitQueueFunc _ipollWakeQueueFunc = (entry, mode, flags, keyObject) -> {
         PollCallEntry pce = (PollCallEntry) entry.getPriv();
         PollCall pCall = pce.pCall;
         // return 0 if key does not contain events of interest
+        int key = (int) keyObject;
         if(key != 0 && (pce.events & key) == 0)
             return 0;
         // wake-up call is unsuccessful if
@@ -806,8 +815,11 @@ public class Poller {
             PollTable pt = new PollTable(~0, null, null);
             while (true) {
                 // checks if thread was interrupted
-                if(Thread.currentThread().isInterrupted())
+                if(Thread.currentThread().isInterrupted()) {
+                    // delete wait queue entries (poll hooks)
+                    waitTable.forEach(WaitQueueEntry::delete);
                     throw new InterruptedException();
+                }
                 // breaks from the waiting loop if timed out
                 if(timedOut)
                     break;
@@ -829,8 +841,7 @@ public class Poller {
         }
 
         // delete wait queue entries (poll hooks)
-        for(WaitQueueEntry wait : waitTable)
-            wait.delete();
+        waitTable.forEach(WaitQueueEntry::delete);
 
         return rEvents;
     }
