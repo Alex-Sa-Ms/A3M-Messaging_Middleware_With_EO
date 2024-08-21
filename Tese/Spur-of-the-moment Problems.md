@@ -13,3 +13,30 @@ Let's say socket A and socket B establish a link, with socket A providing 100 in
 	- If a received message would lead to the `loan` variable becoming less than 0, then the source of the message should be blacklisted and its associated link must be closed, as it is not respecting the flow control limit imposed.
 - Notes:
 	- This solution establishes a margin of acceptance, upon which, the reception of messages is not allowed. A non-malicious source will not use more credits than it should, however, it would be possible for malicious sources to explore this "vulnerability" and send more messages than it was supposed to until the `loan` variable reaches 0. However, after the `loan` variable reaches 0, the source would be forced to comply with the limit, otherwise, it would become blacklisted and have its link be terminated.
+
+# API for sending/receiving messages to/from link
+## Rationale
+
+## Sub-problems
+### How should the Link - Socket visibility be?
+- Socket and the message system (MS) need to see each other. The socket needs to see MS to send messages. MS needs to see socket to deliver incoming messages.
+
+# How can a PAIR socket not allow multiple connections?
+## Rationale
+- A PAIR socket is supposed to be an exclusive communication socket, i.e. it can only link to a single socket. 
+## Solution
+- `setOption()`/`getOption()` first call the `setCustomOption()`/`getCustomOption()`. If the option is not handled (for instance, blocking the change/retrieval of a parameter should be done by the custom method), then the `setDefaultOption()`/`getDefaultOption()` is called. These defaults methods are implemented by the internal socket implementation.
+- Allow setting a limit of simultaneously active links.
+- Changing this limit is blocked by the socket's `setCustomOption()`, preventing the establishment of more connections which could result in improper behavior.
+- Since the sockets are assumed to not be malicious and to not crash, forcing the closure of the connection after inactivity does not seem to be a requirement for now.
+# Exon Cookies can be useful for pinging purposes
+## Rationale
+- Exon Cookies can be useful for pinging purposes. Require only a 4-way exchange to check if a message is arriving at the destination.
+## Solution
+- Make Exon allow defining a cookie and returning them.
+	- Check if the decision about this was documented:
+		- Global queue? Individual queue?
+		- Single (merged) retrieving method? Prioritize one using ratios?
+		- Retrieving method for each?
+## Alternative solution **(Works for now)**
+- Send a ping control message, and expect a pong control message or another message, to reset timeout.
