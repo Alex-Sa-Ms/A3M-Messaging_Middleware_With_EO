@@ -40,3 +40,20 @@ Let's say socket A and socket B establish a link, with socket A providing 100 in
 		- Retrieving method for each?
 ## Alternative solution **(Works for now)**
 - Send a ping control message, and expect a pong control message or another message, to reset timeout.
+
+# Is RAW socket mode still wanted? 
+- Same functionality can be obtained with more work, by creating a new socket with the RAW semantics, maybe even through inheritance it can be done easily.
+- Does it ignore the socket protocol as a whole? Are all messages considered data messages and exposed as is?
+	- If so, this can be achieved easily by bypassing the custom feed method and adding all messages to the appropriate link's incoming queue. When such mode is active, we must employ another mechanism which checks every message to see if the flow control mechanism should be employed or not.
+# Can caching the hashCode() be helpful for efficiency?
+--***TODO***--
+# How to design links so that they can be exposed to client
+## Rationale
+Exposing a link can be helpful when the socket semantics has link related functionality such that using the polling mechanism over the links could be desirable.
+## Solution 1
+Easiest solution is to have a lock for each link
+## Solution 2
+Sockets that require such functionality can create wrapper objects that use the required locking mechanism to ensure consistency.
+# What to do when a link has incoming messages and close() is invoked?
+## Solution 1
+- Provide the link reference in an event to the `customHandleEvent()` which allows the queue to be drained if required by the socket semantics. 

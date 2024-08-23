@@ -2,15 +2,14 @@ package pt.uminho.di.a3m.core;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-
-import java.util.function.Supplier;
+import pt.uminho.di.a3m.core.messages.Msg;
 
 class SocketMananerImplTest {
     SocketManager socketManager;
-    Protocol reqProt = new Protocol(1, "REQ");
-    Protocol repProt = new Protocol(2, "REP");
-    Protocol routerProt = new Protocol(3, "ROUTER");
-    Protocol dealerProt = new Protocol(4, "DEALER");
+    Protocol reqProt = new Protocol(123456, "REQ");
+    Protocol repProt = new Protocol(1234567, "REP");
+    Protocol routerProt = new Protocol(12345678, "ROUTER");
+    Protocol dealerProt = new Protocol(123456789, "DEALER");
     SocketProducer reqProducer = sid -> new DummySocket(sid, reqProt);
     SocketProducer repProducer = sid -> new DummySocket(sid, repProt);
     SocketProducer routerProducer = sid -> new DummySocket(sid, routerProt);
