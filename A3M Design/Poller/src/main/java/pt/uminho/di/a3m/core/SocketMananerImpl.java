@@ -5,24 +5,25 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.function.Supplier;
 
 /**
  * Class that manages sockets.
  */
 class SocketMananerImpl implements SocketManager{
     // ReadWriteLock to optimize retrievals but also to protect from inconsistencies.
+    private final String nodeId;
     private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
     private final Map<String, Socket> sockets = new HashMap<>();
-    private final Map<Integer, Supplier<Socket>> suppliers = new ConcurrentHashMap<>();
+    private final Map<Integer, SocketProducer> producers = new ConcurrentHashMap<>();
     private final MessageDispatcher dispatcher;
 
-    public SocketMananerImpl(MessageDispatcher dispatcher) {
+    public SocketMananerImpl(String nodeId, MessageDispatcher dispatcher) {
+        this.nodeId = nodeId;
         this.dispatcher = dispatcher;
     }
 
-    private Supplier<Socket> _getSupplier(int protocolId){
-        return suppliers.get(protocolId);
+    private SocketProducer _getProducer(int protocolId){
+        return producers.get(protocolId);
     }
 
     private Socket _getSocket(String tagId){
@@ -39,7 +40,9 @@ class SocketMananerImpl implements SocketManager{
             rwLock.readLock().lock();
             if(socketClass != null) {
                 Socket socket = _getSocket(tagId);
-                if(socketClass.isInstance(socket))
+                if(socket == null)
+                    return null;
+                else if(socketClass.isInstance(socket))
                     return socketClass.cast(socket);
                 else throw new IllegalArgumentException("The provided class does not match the socket's class.");
             }
@@ -66,13 +69,13 @@ class SocketMananerImpl implements SocketManager{
         if(socket != null)
             throw new IllegalArgumentException("Tag identifier has already been used.");
 
-        // checks if there is a supplier associated with the protocol identifier
-        Supplier<Socket> supplier = _getSupplier(protocolId);
-        if(supplier == null)
+        // checks if there is a producer associated with the protocol identifier
+        SocketProducer producer = _getProducer(protocolId);
+        if(producer == null)
             throw new IllegalArgumentException("Not a valid protocol id.");
 
         // creates a socket
-        socket = supplier.get();
+        socket = producer.get(new SocketIdentifier(nodeId, tagId));
 
         // checks if socket matches the requested socket class
         if(!socketClass.isInstance(socket))
@@ -189,13 +192,13 @@ class SocketMananerImpl implements SocketManager{
     }
 
     @Override
-    public void registerSupplier(Supplier<Socket> supplier) {
-        if(supplier == null)
-            throw new IllegalArgumentException("Supplier is null.");
+    public void registerProducer(SocketProducer producer) {
+        if(producer == null)
+            throw new IllegalArgumentException("Producer is null.");
 
-        Socket s = supplier.get();
+        Socket s = producer.get(new SocketIdentifier(nodeId, "testTagId"));
         if(s == null)
-            throw new IllegalArgumentException("Supplier supplies null socket.");
+            throw new IllegalArgumentException("Producer supplies null socket.");
 
         // assert supplied sockets have CREATED as their state
         if(s.getState() != SocketState.CREATED)
@@ -204,20 +207,20 @@ class SocketMananerImpl implements SocketManager{
         // check if setting the core components is allowed
         s.setCoreComponents(null, null);
 
-        // get the protocol identifier and register the supplier
+        // get the protocol identifier and register the producer
         // if such protocol identifier does not exist
         int protocolId = s.getProtocol().id();
-        if(suppliers.putIfAbsent(protocolId, supplier) != null)
-            throw new IllegalStateException("A supplier for the given protocol identifier is already registered.");
+        if(producers.putIfAbsent(protocolId, producer) != null)
+            throw new IllegalStateException("A producer for the given protocol identifier is already registered.");
     }
 
     @Override
-    public boolean removeSupplier(int protocolId) {
-        return suppliers.remove(protocolId) != null;
+    public boolean removeProducer(int protocolId) {
+        return producers.remove(protocolId) != null;
     }
 
     @Override
-    public boolean existsSupplier(int protocolId) {
-        return suppliers.containsKey(protocolId);
+    public boolean existsProducer(int protocolId) {
+        return producers.containsKey(protocolId);
     }
 }
