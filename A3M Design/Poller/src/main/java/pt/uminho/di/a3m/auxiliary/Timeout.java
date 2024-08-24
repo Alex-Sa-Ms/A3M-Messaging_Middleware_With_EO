@@ -23,4 +23,32 @@ public class Timeout {
         }
         return endTime;
     }
+
+    /**
+     * Calculates timeout from the provided end time (deadline).
+     * @param endTime timestamp, obtained using System.currentTimeMillis(),
+     *                that marks the end of the timeout.
+     * @return null if 'endTime' is null, or the difference between
+     * the current time and the provided 'endTime'.
+     */
+    public static Long calculateTimeout(Long endTime){
+        if(endTime == null)
+            return null;
+        else
+            return endTime - System.currentTimeMillis();
+    }
+
+    /**
+     * Returns if the deadline has been reached.
+     * @param endTime deadline value
+     * @return "true" if the deadline has been reached.
+     * "false" if the provided "endTime" is null or
+     * if the deadline has not been reached yet.
+     */
+    public static boolean hasTimedOut(Long endTime){
+        if(endTime == null)
+            return false;
+        else
+            return endTime - System.currentTimeMillis() <= 0;
+    }
 }

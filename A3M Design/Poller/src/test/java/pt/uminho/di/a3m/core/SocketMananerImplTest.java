@@ -2,7 +2,7 @@ package pt.uminho.di.a3m.core;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import pt.uminho.di.a3m.core.messages.Msg;
+import pt.uminho.di.a3m.core.messaging.Msg;
 
 class SocketMananerImplTest {
     SocketManager socketManager;

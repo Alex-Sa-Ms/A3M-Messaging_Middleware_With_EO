@@ -1,7 +1,8 @@
 package pt.uminho.di.a3m.core;
 
 import pt.uminho.di.a3m.core.events.SocketEvent;
-import pt.uminho.di.a3m.core.messages.SocketMsg;
+import pt.uminho.di.a3m.core.messaging.Payload;
+import pt.uminho.di.a3m.core.messaging.SocketMsg;
 
 import java.util.LinkedList;
 import java.util.Queue;
@@ -32,6 +33,17 @@ public abstract class Socket{
         this.sid = sid;
     }
 
+    public static boolean isSocketDataMsg(SocketMsg msg){
+        // TODO - isSocketDataMsg
+        // return msg != null && msg.type() == Msg.DATA_TYPE;
+        return false;
+    }
+
+    public static boolean isSocketDataPayload(Payload payload) {
+        // TODO - isSocketDataPayload
+        return false;
+    }
+
     public final SocketState getState() {
         return state.get();
     }
@@ -42,6 +54,9 @@ public abstract class Socket{
 
     protected final Lock getLock(){
         return lock;
+    }
+    final MessageDispatcher getMessageDispatcher(){
+        return dispatcher;
     }
 
     final void setCoreComponents(MessageDispatcher dispatcher, SocketManager socketMananer) {
@@ -87,13 +102,48 @@ public abstract class Socket{
     //    // TO DO - feedCookie()
     //}
 
-    protected final boolean sendMsg(SocketIdentifier destId, byte[] payload, Long timeout /*, Cookie cookie*/){
-        // TODO - sendMsg
+    /**
+     * Checks if a payload is valid under the default socket semantics
+     * and then under the custom socket semantics and state.
+     * @param payload payload to be verified
+     * @return "true" if the payload is valid or "false" if the payload
+     * is valid but cannot be sent under the current state.
+     * @throws IllegalArgumentException If the payload is not valid under
+     * any state.
+     */
+    boolean isPayloadValid(Payload payload) {
+        // TODO - isPayloadValid()
+        //  1. Check if range type is acceptable.
+        //  2. If it is not, throw IllegalArgumentException
+        //  3. Else, pass it to isCustomPayloadValid() to conclude
+        //  the verification under the socket's semantics and current state.
         return false;
     }
 
-    protected final SocketMsg recvMsg(SocketIdentifier peerId, Long timeout){
-        // TODO - recvMsg
+    protected final boolean dispatchMsg(SocketIdentifier peerId, Payload payload, Long timeout /*, Cookie cookie*/){
+        // TODO - dispatchMsg
+        //  1. Must not receive a payload only. It must also contain the type. Merge type in the payload?
+        //  2. Check if type is valid (is data or belongs to the allocated interval for custom messages)
+        //      2.1. If data message, use link "acquire credit" method. If successful, then use dispatcher
+        //      to send message.
+        //      2.2  Else if custom message, check if link state allows exchange of messages. If it is not
+        //      closed, use dispatcher and send message. If closed, throw exception informing link is closed.
+        //      Can this even happen? When closed, the link should be removed, so it wouldn't be in a closed state,
+        //      in theory.
+        //      2.3  Else (invalid type) throw exception.
+        //  [[Check if there is any step that can be simplified by having the link use its socker reference]]
+        return false;
+    }
+
+    protected final SocketMsg pollMsg(SocketIdentifier peerId, Long timeout){
+        // TODO - pollMsg
+        //  1. receive message from link
+        //  2. if data message, invoke "deliver" to determine if a
+        //  sending a flow control message is required. If different than 0,
+        //  then send flow control message with the returned batch.
+        //  [[Check if there is any step that can be simplified by having the link use its socket reference,
+        //  if exposing the dispatcher with default visibility is helpful, do it. May help handle
+        //  flow control and link messages in the link logic]]
         return null;
     }
 
@@ -216,10 +266,21 @@ public abstract class Socket{
      * @return supplier of an incoming queue for the given link
      */
     protected Supplier<Queue<SocketMsg>> getInQueueSupplier(Link link){
-        return () -> new LinkedList();
+        return LinkedList::new;
     }
     protected abstract Protocol getProtocol();
     protected abstract Set<Protocol> getCompatibleProtocols();
     protected abstract byte[] receive(Long timeout, boolean notifyIfNone);
     protected abstract boolean send(byte[] payload, Long timeout, boolean notifyIfNone);
+
+    /**
+     * Checks if the payload is valid under the custom socket semantics
+     * and current state.
+     * @param payload payload to be verified
+     * @return "true" if the payload is valid or "false" if the payload
+     * is valid but cannot be sent under the current state.
+     * @throws IllegalArgumentException If the payload is not valid under
+     * any state.
+     */
+    protected abstract boolean isCustomPayloadValid(Payload payload);
 }

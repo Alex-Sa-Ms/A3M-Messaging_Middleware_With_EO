@@ -1,4 +1,4 @@
-package pt.uminho.di.a3m.core.messages;
+package pt.uminho.di.a3m.core.messaging;
 public class Msg{
     private final String srcNodeId;
     private final String destNodeId;
@@ -10,6 +10,13 @@ public class Msg{
         this.destNodeId = destNodeId;
         this.type = type;
         this.payload = payload;
+    }
+
+    public Msg(String srcNodeId, String destNodeId, Payload payload) {
+        this.srcNodeId = srcNodeId;
+        this.destNodeId = destNodeId;
+        this.type = payload.getType();
+        this.payload = payload.getPayload();
     }
 
     public String getSrcNodeId() {

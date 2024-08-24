@@ -1,7 +1,8 @@
 package pt.uminho.di.a3m.core;
 
 import pt.uminho.di.a3m.core.events.SocketEvent;
-import pt.uminho.di.a3m.core.messages.SocketMsg;
+import pt.uminho.di.a3m.core.messaging.Payload;
+import pt.uminho.di.a3m.core.messaging.SocketMsg;
 
 import java.util.Queue;
 import java.util.Set;
@@ -34,6 +35,11 @@ public class DummySocket extends Socket{
 
     @Override
     protected boolean send(byte[] payload, Long timeout, boolean notifyIfNone) {
+        return false;
+    }
+
+    @Override
+    protected boolean isCustomPayloadValid(Payload payload) {
         return false;
     }
 
