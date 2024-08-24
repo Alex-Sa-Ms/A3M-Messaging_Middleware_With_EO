@@ -103,19 +103,25 @@ public abstract class Socket{
     //}
 
     /**
-     * Checks if a payload is valid under the default socket semantics
-     * and then under the custom socket semantics and state.
-     * @param payload payload to be verified
-     * @return "true" if the payload is valid or "false" if the payload
-     * is valid but cannot be sent under the current state.
-     * @throws IllegalArgumentException If the payload is not valid under
-     * any state.
+     * Checks if an outgoing message is valid. The method starts by verifying that the
+     * message is not related to default socket functionality. Then, if the skip parameter
+     * is not set, provides the message to isCustomOutgoingMessageValid() in order to check if
+     * the message is valid under the socket's custom semantics and state.
+     * @param outMsg outgoing message to be verified
+     * @param skipCustomVerification determines if the custom verification should be skipped.
+     *                               Enables the socket custom logic to bypass a verification that
+     *                               is sure to be successful. However, the public send() method of
+     *                               a link does not bypass the custom verification, in order, to
+     *                               enable the link method to be exposed outside the socket.
+     * @return "true" if the payload is valid or "false" if the payload is valid but cannot be sent
+     * under the current state.
+     * @throws IllegalArgumentException If the payload is not valid under any state.
      */
-    boolean isPayloadValid(Payload payload) {
-        // TODO - isPayloadValid()
-        //  1. Check if range type is acceptable.
+    boolean isOutgoingMessageValid(SocketMsg outMsg, boolean skipCustomVerification) {
+        // TODO - isOutgoingMessageValid()
+        //  1. Check if type is within the custom range.
         //  2. If it is not, throw IllegalArgumentException
-        //  3. Else, pass it to isCustomPayloadValid() to conclude
+        //  3. Else, pass it to isCustomOutgoingMessageValid() to conclude
         //  the verification under the socket's semantics and current state.
         return false;
     }
@@ -274,13 +280,16 @@ public abstract class Socket{
     protected abstract boolean send(byte[] payload, Long timeout, boolean notifyIfNone);
 
     /**
-     * Checks if the payload is valid under the custom socket semantics
-     * and current state.
-     * @param payload payload to be verified
-     * @return "true" if the payload is valid or "false" if the payload
-     * is valid but cannot be sent under the current state.
-     * @throws IllegalArgumentException If the payload is not valid under
-     * any state.
+     * Checks if the outgoing custom message is valid under the custom socket
+     * semantics and current state.
+     * @param msg message to be verified
+     * @return "true" if the message is valid or "false" if the payload is valid
+     * but cannot be sent under the current state.
+     * @throws IllegalArgumentException If the payload is not valid under any state.
+     * @implNote Any custom runtime exception thrown must be properly documented. The custom
+     * runtime exceptions are allowed to expose the problem behind the message not being
+     * valid. However, such exceptions are caught by the non-public send() version(s) of the
+     * link instances, to prevent internal crashing.
      */
-    protected abstract boolean isCustomPayloadValid(Payload payload);
+    protected abstract boolean isCustomOutgoingCustomMsgValid(SocketMsg msg);
 }

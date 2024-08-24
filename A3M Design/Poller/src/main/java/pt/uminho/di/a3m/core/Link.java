@@ -152,26 +152,31 @@ public class Link implements Pollable {
         // TODO - sendCredits()
     }
 
+
+    private boolean hasFlowControlPermission(SocketMsg msg){
+        return !Socket.isSocketDataMsg(msg) || outFCS.hasCredits();
+    }
+
     /**
-     * Tries to dispatch message using the provided payload.
-     * If the payload is data payload (analogous to data msg),
-     * then in addition to requiring the validation of the
-     * socket to dispatch the message, it also requires a credit.
-     * @return "true" if the message was dispatched. "false" if
-     * the message could not be sent immediately.
-     * @throws IllegalArgumentException Can throw illegal argument
-     * exception if the payload is not considered valid under the
-     * socket semantics. This differs from receiving "false" as the
-     * message may not be accepted under the current state but
+     * Tries to dispatch message using the provided payload. If the payload is
+     * data payload (analogous to data msg), then in addition to requiring the
+     * validation of the socket to dispatch the message, it also requires a credit.
+     * @param msg message to be dispatched
+     * @param skipCustomVerification if the verification under the socket's custom
+     *                               semantics can be skipped.
+     * @return "true" if the message was dispatched. "false" if the message could
+     * not be sent immediately.
+     * @throws IllegalArgumentException Can throw illegal argument exception if the
+     * payload is not considered valid under the socket semantics. This differs from
+     * receiving "false" as the message may not be accepted under the current state but
      * may be in the future.
      * @implNote Socket lock is assumed to be held by the caller.
      */
-    private boolean tryDispatchingMessage(Payload payload){
+    private boolean tryDispatchingMessage(SocketMsg msg, boolean skipCustomVerification){
         boolean ret = false;
-        if(owner.isPayloadValid(payload)
-                && (!Socket.isSocketDataPayload(payload) || outFCS.trySend())) {
-            owner.getMessageDispatcher().dispatch(
-                    new SocketMsg(id.srcId(), id.destId(), payload));
+        if(owner.isOutgoingMessageValid(msg, skipCustomVerification)
+                && (!Socket.isSocketDataMsg(msg) || outFCS.trySend())) {
+            owner.getMessageDispatcher().dispatch(msg);
             ret = true;
         }
         return ret;
@@ -279,14 +284,12 @@ public class Link implements Pollable {
 
             // try retrieving a message immediatelly
             msg = tryPollingMessage();
-            if (msg != null)
-                return msg;
+            if (msg != null) return msg;
 
-            if (timedOut)
-                return null;
+            // return if timed out
+            if (timedOut) return null;
 
-            // If a message could not be retrieved,
-            // make the caller a waiter
+            // If a message could not be retrieved, make the caller a waiter
             wait = queueDirectEventWaiter(PollFlags.POLLIN, true);
             ps = ((ParkStateWithEvents) wait.getPriv()).ps();
         } finally {
@@ -304,28 +307,32 @@ public class Link implements Pollable {
             WaitQueueEntry.defaultWaitFunction(wait, ps, deadline, true);
             try {
                 owner.getLock().lock();
+
                 // attempt to poll a message
                 msg = tryPollingMessage();
-                if (msg != null)
-                    break;
-                // if a message was not available and
-                // the operation has not timed out,
-                // sets parked state to true preemptively, 
+                if (msg != null) break;
+
+                // if a message was not available and the operation has not
+                // timed out, sets parked state to true preemptively,
                 // so that a notification is not missed
                 timedOut = Timeout.hasTimedOut(deadline);
-                if (!timedOut)
-                    ps.parked.set(true);
+                if (!timedOut) ps.parked.set(true);
             } finally {
                 owner.getLock().unlock();
             }
         }
-
-        // delete entry since a hanging wait 
-        // queue entry is not desired.
+        // delete entry since a hanging wait queue entry is not desired.
         wait.delete();
         return msg;
     }
 
+    // TODO - (sending message) checking if payload is valid when attempting to
+    //  dispatch a message makes a lot of sense. But so does
+    //  doing such verification before waking up a waiter exclusively.
+    //  However, since waking up and sending is not done atomically,
+    //  maybe the dispatching of the message needs to be done at the
+    //  wake up to prevent multiple verifications of the payload and
+    //  to avoid pointless wake-up calls.
     /**
      * Wait queue function for payload senders, i.e.,
      * callers interested in the POLLOUT event.
@@ -333,7 +340,7 @@ public class Link implements Pollable {
      * link is closed, is an error state, or when the
      * required sending conditions are met.
      */
-    private static final WaitQueueFunc payloadSenderWakeFunc = (entry, mode, flags, key) -> {
+    private final WaitQueueFunc payloadSenderWakeFunc = (entry, mode, flags, key) -> {
         ParkStateWithPayload pswe = (ParkStateWithPayload) entry.getPriv();
         int ret = 0;
         if((PollFlags.POLLOUT & (int) key) != 0){
@@ -360,6 +367,7 @@ public class Link implements Pollable {
      * will be sent.
      */
     private WaitQueueEntry queuePayloadSender(int events, boolean initialParkState){
+        // TODO - queue payload sender
         // subscribes hang-up and error events
         events |= PollFlags.POLLHUP | PollFlags.POLLERR;
         // Creates private object to match the wake-up function.
@@ -386,10 +394,12 @@ public class Link implements Pollable {
      * @apiNote Caller must not hold socket lock as it will result in a deadlock
      * when a blocking operation with a non-expired deadline is requested. 
      */
-    public boolean send(Payload payload, Long deadline){
+    public boolean send(Payload payload, Long deadline) throws InterruptedException {
+        boolean ret = false;
         WaitQueueEntry wait;
         ParkState ps;
         boolean timedOut = Timeout.hasTimedOut(deadline);
+        SocketMsg msg = new SocketMsg(id.srcId(), id.destId(), payload);
 
         try {
             owner.getLock().lock();
@@ -398,26 +408,18 @@ public class Link implements Pollable {
             if (state.get() == LinkState.CLOSED)
                 throw new LinkClosedException();
 
-            // try sending a message immediatelly
-            if(tryDispatchingMessage(payload))
-                return true;
+            // if message is not a data message, or if it is a data message and there
+            // are available credits, then attempt to send the message. Without
+            // bypassing the verifications under the custom semantics
+            if(hasFlowControlPermission(msg))
+                return tryDispatchingMessage(msg, false);
 
+            // return if timed out
             if (timedOut)
                 return false;
 
-            // TODO - checking if payload is valid when attempting to
-            //  dispatch a message makes a lot of sense. But so does
-            //  doing such verification before waking up a waiter exclusively.
-            //  However, since waking up and sending is not done atomically,
-            //  maybe the dispatching of the message needs to be done at the
-            //  wake up to prevent multiple verifications of the payload and
-            //  to avoid pointless wake-up calls.
-
-            // If the message could not be sent,
-            // make the caller a waiter
-            // TODO - keep developing send(), requires a method that queues a message to be sent.
-            //  Instead of having an outgoing queue, the message can be queued with the waiter.
-            wait = queueDirectEventWaiter(PollFlags.POLLIN, true);
+            // If the message could not be sent, make the caller a waiter
+            wait = queueDirectEventWaiter(PollFlags.POLLOUT, true);
             ps = ((ParkStateWithEvents) wait.getPriv()).ps();
         } finally {
             owner.getLock().unlock();
@@ -434,44 +436,24 @@ public class Link implements Pollable {
             WaitQueueEntry.defaultWaitFunction(wait, ps, deadline, true);
             try {
                 owner.getLock().lock();
-                // attempt to poll a message
-                msg = inMsgQ.poll();
-                if (msg != null)
+
+                // attempt to send the message again
+                if(hasFlowControlPermission(msg)) {
+                    ret = tryDispatchingMessage(msg, false);
                     break;
-                // if a message was not available and
-                // the operation has not timed out,
-                // sets parked state to true preemptively,
-                // so that a notification is not missed
+                }
+
+                // if permission to send the message was not granted and
+                // the operation has not timed out,sets parked state to
+                // true preemptively, so that a notification is not missed
                 timedOut = Timeout.hasTimedOut(deadline);
-                if (!timedOut)
-                    ps.parked.set(true);
+                if (!timedOut) ps.parked.set(true);
             } finally {
                 owner.getLock().unlock();
             }
         }
-
-        // delete entry since a hanging wait
-        // queue entry is not desired.
+        // delete entry since a hanging wait queue entry is not desired.
         wait.delete();
-        return msg;
-
-
-
-
-
-
-
-
-        // ---------
-
-        boolean ret = false;
-        try {
-            owner.getLock().lock();
-
-        } finally {
-            owner.getLock().unlock();
-        }
-
         return ret;
     }
     
