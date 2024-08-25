@@ -57,3 +57,7 @@ Sockets that require such functionality can create wrapper objects that use the 
 # What to do when a link has incoming messages and close() is invoked?
 ## Solution 1
 - Provide the link reference in an event to the `customHandleEvent()` which allows the queue to be drained if required by the socket semantics. 
+
+# Linking process should include incarnation number
+## Rationale
+If socket A establishes a link with socket B, closes the link and attempts to link again, what prevents messages from the previous link establishment from interfering with the current link? For instance, a flow control message providing/removing credits.

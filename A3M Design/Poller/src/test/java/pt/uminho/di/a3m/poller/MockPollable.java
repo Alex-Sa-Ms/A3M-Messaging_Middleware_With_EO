@@ -1,6 +1,5 @@
 package pt.uminho.di.a3m.poller;
 
-import pt.uminho.di.a3m.auxiliary.Timeout;
 import pt.uminho.di.a3m.waitqueue.ParkState;
 import pt.uminho.di.a3m.waitqueue.WaitQueue;
 import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;
@@ -11,7 +10,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
-public class MockSocket implements Pollable {
+public class MockPollable implements Pollable {
     private final String id;
     private final Lock lock = new ReentrantLock();
     private final AtomicBoolean closed = new AtomicBoolean(false);
@@ -20,11 +19,11 @@ public class MockSocket implements Pollable {
     private final Deque<String> inQ = new ArrayDeque<>();
     private final WaitQueue waitQ = new WaitQueue();
 
-    public MockSocket(String id) {
+    public MockPollable(String id) {
         this.id = id;
     }
 
-    public MockSocket(String id, int sendCredits) {
+    public MockPollable(String id, int sendCredits) {
         this.id = id;
         this.sendCredits = sendCredits;
     }

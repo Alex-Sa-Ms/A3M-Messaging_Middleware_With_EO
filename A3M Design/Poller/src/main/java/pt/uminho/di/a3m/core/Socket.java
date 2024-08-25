@@ -1,12 +1,12 @@
 package pt.uminho.di.a3m.core;
 
-import pt.uminho.di.a3m.core.events.SocketEvent;
 import pt.uminho.di.a3m.core.messaging.Payload;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
+import pt.uminho.di.a3m.core.options.GenericOptionHandler;
+import pt.uminho.di.a3m.core.options.OptionHandler;
 
-import java.util.LinkedList;
-import java.util.Queue;
-import java.util.Set;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -29,19 +29,11 @@ public abstract class Socket{
     private final AtomicReference<SocketState> state = new AtomicReference<>(SocketState.CREATED);
     private final Lock lock = new ReentrantLock(); // TODO - a more efficient locking mechanism may be required in the future
 
+    // Map of option handlers
+    private final Map<String, OptionHandler<?>> options = defaultSocketOptions();
+
     protected Socket(SocketIdentifier sid) {
         this.sid = sid;
-    }
-
-    public static boolean isSocketDataMsg(SocketMsg msg){
-        // TODO - isSocketDataMsg
-        // return msg != null && msg.type() == Msg.DATA_TYPE;
-        return false;
-    }
-
-    public static boolean isSocketDataPayload(Payload payload) {
-        // TODO - isSocketDataPayload
-        return false;
     }
 
     public final SocketState getState() {
@@ -57,6 +49,70 @@ public abstract class Socket{
     }
     final MessageDispatcher getMessageDispatcher(){
         return dispatcher;
+    }
+    private Map<String, OptionHandler<?>> defaultSocketOptions() {
+        Map<String, OptionHandler<?>> options = new ConcurrentHashMap<>();
+        // sets default batch size percentage to 5%
+        options.put("defaultBatchSizePercentage", new GenericOptionHandler<>(0.05f, Float.class){
+            @Override
+            public void set(Object value) {
+                if(!(value instanceof Float) || (float) value <= 0f || (float) value > 1f)
+                    throw new IllegalArgumentException("Default batch size percentage must be " +
+                            "a float value between 0 (exclusive) and 1 (inclusive).");
+                super.set(value);
+            }
+        });
+        // sets default peer capacity to 100 credits
+        options.put("defaultPeerCapacity", new GenericOptionHandler<>(100, Integer.class));
+        return options;
+    }
+
+    /**
+     * Gets socket option. If not a default socket option,
+     * lets the custom socket logic handle the retrieval.
+     * @param option option from which the associated value should be retrieved.
+     * @param optionClass class to which the object should be cast to.
+     * @return cast value associated with the option or "null" if the option does
+     * not have a value associated.
+     * @param <Option> class of the option value
+     * @throws ClassCastException if the value is not null and its class does not match
+     * the requested class.
+     */
+    public final <Option> Option getOption(String option, Class<Option> optionClass){
+        if(optionClass == null)
+            throw new IllegalArgumentException("Option class must not be null.");
+        OptionHandler<?> handler = options.get(option);
+        if(handler != null)
+            return optionClass.cast(handler.get());
+        else
+            throw new IllegalArgumentException("Option does not exist.");
+    }
+
+    /**
+     * If there is a handler associated with the
+     * option, invoke the set() method of the handler,
+     * using the provided value. If there isn't a handler,
+     * creates a generic handler that allows setting and
+     * getting the option.
+     * @param option identifier of the option
+     * @param value value to be "set" to the option
+     */
+    public final <Option> void setOption(String option, Option value){
+        OptionHandler<?> handler = options.get(option);
+        if(handler != null)
+                handler.set(value);
+        else
+            throw new IllegalArgumentException("Option does not exist.");
+    }
+
+    /**
+     * To register options or option handlers.
+     * @param option identifier of the option
+     * @param handler option handler. Use GenericOptionHandler when
+     *                wanting the traditional get-set behavior.
+     */
+    protected final void registerOption(String option, OptionHandler<?> handler){
+        options.put(option, handler);
     }
 
     final void setCoreComponents(MessageDispatcher dispatcher, SocketManager socketMananer) {
@@ -176,15 +232,6 @@ public abstract class Socket{
         return null;
     }
 
-    public final <O> O getOption(String option, Class<O> objectClass){
-        // TODO - getOption()
-        return null;
-    }
-
-    public final void setOption(String option, Object value){
-        // TODO - setOption()
-    }
-
     public final void start() {
         try {
             lock.lock();
@@ -255,8 +302,6 @@ public abstract class Socket{
      * close the socket.
      */
     protected abstract void destroy();
-    protected abstract Object getCustomOption(String option);
-    protected abstract void setCustomOption(String option, Object value);
     protected abstract void customHandleEvent(SocketEvent event);
     protected abstract void customFeedMsg(SocketMsg msg);
 

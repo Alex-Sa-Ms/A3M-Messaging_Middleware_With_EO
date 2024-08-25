@@ -34,4 +34,8 @@ public class Msg{
     public byte[] getPayload() {
         return payload;
     }
+
+    public static boolean isType(Msg msg, byte type){
+        return msg != null && msg.type == type;
+    }
 }

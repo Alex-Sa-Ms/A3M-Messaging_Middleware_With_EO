@@ -2,8 +2,12 @@ package pt.uminho.di.a3m.core;
 
 import pt.uminho.di.a3m.auxiliary.Timeout;
 import pt.uminho.di.a3m.core.exceptions.LinkClosedException;
+import pt.uminho.di.a3m.core.flowcontrol.FlowCreditsPayload;
 import pt.uminho.di.a3m.core.flowcontrol.InFlowControlState;
 import pt.uminho.di.a3m.core.flowcontrol.OutFlowControlState;
+import pt.uminho.di.a3m.core.linking.LinkClosedEvent;
+import pt.uminho.di.a3m.core.messaging.BytePayload;
+import pt.uminho.di.a3m.core.messaging.MsgType;
 import pt.uminho.di.a3m.core.messaging.Payload;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 import pt.uminho.di.a3m.poller.PollFlags;
@@ -18,7 +22,6 @@ import java.util.Queue;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class Link implements Pollable {
-    // TODO - Link class
     private final LinkIdentifier id;
     private Protocol peerProtocol = null;
     private final AtomicReference<LinkState> state = new AtomicReference<>(LinkState.UNINITIALIZED);
@@ -52,14 +55,6 @@ public class Link implements Pollable {
      * @param events events of interest
      */
     private record ParkStateWithEvents(ParkState ps, int events){}
-
-    /**
-     * Record that combines a park state instance and a payload.
-     * To be used when queuing a waiter that wants to send a message.
-     * @param ps park state
-     * @param payload payload to be sent
-     */
-    private record ParkStateWithPayload(ParkState ps, Payload payload){}
 
     /**
      * @return link identifier
@@ -131,13 +126,12 @@ public class Link implements Pollable {
      */
     private SocketMsg tryPollingMessage(){
         SocketMsg msg = inMsgQ.poll();
-        if(msg != null && Socket.isSocketDataMsg(msg)) {
+        if(SocketMsg.isType(msg, MsgType.DATA)) {
             // if a message was polled,
             // "mark" the message as delivered and
             // send a credits batch when required
             int batch = inFCS.deliver();
-            if(batch != 0)
-                sendCredits(batch);
+            sendCredits(batch);
         }
         return msg;
     }
@@ -147,14 +141,72 @@ public class Link implements Pollable {
      * @param credits credits to be sent. Can be negative
      *                if removing credits from the peer
      *                is desirable.
+     * @apiNote Socket lock is assumed to be held by the caller and
+     * the link state is assumed to not be closed.
      */
     private void sendCredits(int credits) {
-        // TODO - sendCredits()
+        if(credits != 0)
+            owner.getMessageDispatcher().dispatch(
+                    new SocketMsg(id.srcId(), id.destId(), new FlowCreditsPayload(credits)));
     }
 
+    /**
+     * If the link is not closed, adjusts the peer's capacity
+     * using provided credit variation and clears the current batch.
+     * @param credits variation of credits to apply to the
+     *                peer's current capacity.
+     */
+    public void adjustPeerCreditsCapacity(int credits) {
+        try {
+            owner.getLock().lock();
+            if (state.get() != LinkState.CLOSED) {
+                int batch = inFCS.adjustPeerCapacity(credits);
+                sendCredits(batch);
+            }
+        }finally {
+            owner.getLock().unlock();
+        }
+    }
+
+    /**
+     * If the link is not closed, sets peer capacity to the provided
+     * value, sends current batch and clears the current batch.
+     * @param newCapacity new peer capacity
+     */
+    public void setPeerCreditsCapacity(int newCapacity) {
+        try {
+            owner.getLock().lock();
+            if(state.get() != LinkState.CLOSED) {
+                int batch = inFCS.setPeerCapacity(newCapacity);
+                sendCredits(batch);
+            }
+        } finally {
+            owner.getLock().unlock();
+        }
+    }
+
+    /**
+     * Updates the batch size using the provided percentage.
+     * @param newPercentage percentage of the peer's capacity that
+     *                            should make the batch size. When the capacity
+     *                            is positive, the minimum batch size is of 1 credit.
+     * @throws IllegalArgumentException If the provided batch size percentage is not a
+     * value between 0 (exclusive) and 1 (inclusive).
+     */
+    public void setCreditsBatchSizePercentage(float newPercentage) {
+        try {
+            owner.getLock().lock();
+            if(state.get() != LinkState.CLOSED) {
+                int batch = inFCS.setBatchSizePercentage(newPercentage);
+                sendCredits(batch);
+            }
+        } finally {
+            owner.getLock().unlock();
+        }
+    }
 
     private boolean hasFlowControlPermission(SocketMsg msg){
-        return !Socket.isSocketDataMsg(msg) || outFCS.hasCredits();
+        return !SocketMsg.isType(msg, MsgType.DATA) || outFCS.hasCredits();
     }
 
     /**
@@ -175,7 +227,7 @@ public class Link implements Pollable {
     private boolean tryDispatchingMessage(SocketMsg msg, boolean skipCustomVerification){
         boolean ret = false;
         if(owner.isOutgoingMessageValid(msg, skipCustomVerification)
-                && (!Socket.isSocketDataMsg(msg) || outFCS.trySend())) {
+                && (!SocketMsg.isType(msg, MsgType.DATA) || outFCS.trySend())) {
             owner.getMessageDispatcher().dispatch(msg);
             ret = true;
         }
@@ -185,31 +237,74 @@ public class Link implements Pollable {
     /**
      * 
      * @param msg
-     * @return
-     * @apiNote Thread must hold socket lock when the method is called. 
+     * @apiNote Thread must hold socket lock when the method is called.
      */
-    boolean handleLinkMessage(SocketMsg msg){
-        // TODO - handleLinkMsg() / mudar tipo para receber LinkMsg?
-        return false;
+    void handleLinkMessage(SocketMsg msg){
+        assert msg != null;
+        switch (msg.getType()){
+            case MsgType.LINK:
+                //TODO - handle LINK msg
+                break;
+            case MsgType.UNLINK:
+                close(false);
+                break;
+            default:
+                break;
+        }
+    }
+
+    void handleErrorMessage(SocketMsg msg){
+        //TODO - handle ERROR msg
     }
 
     /**
-     * 
-     * @param msg
-     * @return
-     * @apiNote Thread must hold socket lock when the method is called. 
+     * Handles a credits flow control message.
+     * @param msg not null flow control message
+     * @apiNote Thread must hold socket lock when the method is called.
      */
-    boolean handleFlowControlMessage(SocketMsg msg){
-        // TODO - handleFlowControlMessage() / mudar tipo para receber FlowControlMsg?
-        return false;
+    void handleFlowControlMessage(SocketMsg msg){
+        assert msg != null;
+        FlowCreditsPayload fcp = FlowCreditsPayload.convertFrom(msg.getType(), msg.getPayload());
+        assert fcp != null;
+        outFCS.applyCreditVariation(fcp.getCredits());
+        // notify waiters up to the number of credits received
+        if(fcp.getCredits() > 0)
+            waitQ.fairWakeUp(0, fcp.getCredits(), 0, PollFlags.POLLOUT);
+    }
+
+    // TODO - socket must also perform its cleaning up procedure.
+    //  It is the caller of the method and also is the one that receives
+    //  the UNLINK message first.
+    /**
+     * Closes link.
+     * @param local Indicates if the call was invoked locally, or a consequence
+     *              of an UNLINK message from the peer.
+     * @apiNote Thread must hold socket lock when the method is called.
+     */
+    private void close(boolean local){
+        if(state.getAndSet(LinkState.CLOSED) != LinkState.CLOSED) {
+            // notify with POLLHUP to inform the closure,
+            // and POLLFREE to make the wake-up callbacks
+            // remove the entry regardless of whether the waiter
+            // is waiting or not.
+            waitQ.wakeUp(0,0,0,PollFlags.POLLHUP | PollFlags.POLLFREE);
+            // if call was local, send an UNLINK message to the peer.
+            if(local)
+                owner.getMessageDispatcher().dispatch(
+                        new SocketMsg(id.srcId(), id.destId(),
+                                new BytePayload(MsgType.UNLINK, null)));
+            // Inform link closure to the custom socket logic
+            owner.customHandleEvent(new LinkClosedEvent(this));
+        }
     }
 
     /**
-     *
+     * Closes link. To be invoked by the socket, when closing the link
+     * is a local initiative.
      * @apiNote Thread must hold socket lock when the method is called. 
      */
     void close(){
-        // TODO - close()
+        close(true);
     }
     
     /**
@@ -326,61 +421,6 @@ public class Link implements Pollable {
         return msg;
     }
 
-    // TODO - (sending message) checking if payload is valid when attempting to
-    //  dispatch a message makes a lot of sense. But so does
-    //  doing such verification before waking up a waiter exclusively.
-    //  However, since waking up and sending is not done atomically,
-    //  maybe the dispatching of the message needs to be done at the
-    //  wake up to prevent multiple verifications of the payload and
-    //  to avoid pointless wake-up calls.
-    /**
-     * Wait queue function for payload senders, i.e.,
-     * callers interested in the POLLOUT event.
-     * This wake-up function wakes up a thread when the
-     * link is closed, is an error state, or when the
-     * required sending conditions are met.
-     */
-    private final WaitQueueFunc payloadSenderWakeFunc = (entry, mode, flags, key) -> {
-        ParkStateWithPayload pswe = (ParkStateWithPayload) entry.getPriv();
-        int ret = 0;
-        if((PollFlags.POLLOUT & (int) key) != 0){
-            // TODO - try sending the message, maybe use atomic reference to extract message to be sent,
-            //  in order to avoid re-sending the message, or simply check if the waiter is parked or not.
-
-        } // wakes up the thread if the link is closed or an error occurrs.
-        else if(((PollFlags.POLLHUP | PollFlags.POLLERR) & (int) key) != 0)
-            ret = entry.parkStateWakeUp(pswe.ps);
-        return ret;
-    };
-
-    /**
-     * <p>Adds a waiter that wants to send a payload as an exclusive waiter.
-     * <p>Subscribes to hang-up and error events in addition to the mentioned events.
-     * <p>The wake-up function used is directExclusiveCallerWakeFunc.</p>
-     * @param events events of interest
-     * @param initialParkState initial park state
-     * @return queued wait queue entry
-     * @implSpec Wait queue has own lock, so the queuing action does not
-     * require any other locking mechanism to be secured when the method is
-     * called. However, the link is assumed to not be closed, since queuing
-     * a waiter when the link is closed is pointless as no more notifications
-     * will be sent.
-     */
-    private WaitQueueEntry queuePayloadSender(int events, boolean initialParkState){
-        // TODO - queue payload sender
-        // subscribes hang-up and error events
-        events |= PollFlags.POLLHUP | PollFlags.POLLERR;
-        // Creates private object to match the wake-up function.
-        // Contains the park state required to wake up the thread and
-        // the mask with events of interest.
-        // The park state is initialized with "true" to ensure a possible
-        // notification is not missed.
-        ParkStateWithEvents pswe = new ParkStateWithEvents(new ParkState(initialParkState), events);
-        WaitQueueEntry wait = waitQ.initEntry();
-        wait.addExclusive(directEventWakeFunc, pswe);
-        return wait;
-    }
-
     /**
      * Sends message to the peer associated with this link.
      * @param payload message content
@@ -411,8 +451,12 @@ public class Link implements Pollable {
             // if message is not a data message, or if it is a data message and there
             // are available credits, then attempt to send the message. Without
             // bypassing the verifications under the custom semantics
-            if(hasFlowControlPermission(msg))
-                return tryDispatchingMessage(msg, false);
+            if(hasFlowControlPermission(msg)) {
+                ret = tryDispatchingMessage(msg, false);
+                // if sending failed, then the message is invalid,
+                // meaning another waiter should get the opportunity of sending.
+                if(!ret) waitQ.fairWakeUp(0,1,0,PollFlags.POLLOUT);
+            }
 
             // return if timed out
             if (timedOut)
@@ -440,6 +484,7 @@ public class Link implements Pollable {
                 // attempt to send the message again
                 if(hasFlowControlPermission(msg)) {
                     ret = tryDispatchingMessage(msg, false);
+                    if(!ret) waitQ.fairWakeUp(0,1,0,PollFlags.POLLOUT);
                     break;
                 }
 
@@ -455,25 +500,6 @@ public class Link implements Pollable {
         // delete entry since a hanging wait queue entry is not desired.
         wait.delete();
         return ret;
-    }
-    
-    // TODO - delete this method if not employed in the end
-    /**
-     * Notify available messages. If "nrExclusive" is null,
-     * notifies an exclusive waiter interested in the POLLIN event
-     * for each available message in the incoming queue.
-     */
-    private void notifyAvailableMessages(Integer nrExclusive){
-        try {
-            owner.getLock().lock();
-            if(!waitQ.isEmpty() && !inMsgQ.isEmpty()) {
-                if(nrExclusive == null) 
-                    nrExclusive = inMsgQ.size();
-                waitQ.fairWakeUp(0, nrExclusive, 0, PollFlags.POLLIN);
-            }
-        }finally {
-            owner.getLock().unlock();
-        }
     }
     
     /**
@@ -493,7 +519,16 @@ public class Link implements Pollable {
 
     @Override
     public int poll(PollTable pt) {
-        // TODO - poll()
-        return 0;
+        try{
+            owner.getLock().lock();
+            if(!PollTable.pollDoesNotWait(pt)){
+                WaitQueueEntry wait =
+                        state.get() != LinkState.CLOSED ? waitQ.initEntry() : null;
+                pt.pollWait(this, wait);
+            }
+            return getAvailableEventsMask();
+        }finally {
+            owner.getLock().unlock();
+        }
     }
 }

@@ -8,8 +8,6 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.junit.jupiter.api.Assertions.*;
-
 class PollerTest {
 
     @Test
@@ -32,7 +30,7 @@ class PollerTest {
         } catch (IllegalArgumentException ignored) {}
 
         // Create a valid pollable
-        MockSocket s1 = new MockSocket("1");
+        MockPollable s1 = new MockPollable("1");
         // assert there aren't waiters
         assert s1.getWaitQ().isEmpty();
 
@@ -48,7 +46,7 @@ class PollerTest {
         assert ret == Poller.PEXIST;
 
         // Add a second valid pollable
-        MockSocket s2 = new MockSocket("2");
+        MockPollable s2 = new MockPollable("2");
         poller.add(s2, PollFlags.POLLIN | PollFlags.POLLOUT);
         // assert the pollable has been registered
         assert poller.size() == 2;
@@ -56,7 +54,7 @@ class PollerTest {
         assert s2.getWaitQ().size() == 1;
 
         // Confirm POLLEXCLUSIVE cannot be added with POLLONESHOT
-        MockSocket s3 = new MockSocket("3");
+        MockPollable s3 = new MockPollable("3");
         try {
             poller.add(s3, PollFlags.POLLET | PollFlags.POLLEXCLUSIVE | PollFlags.POLLONESHOT);
             assert false; // should not get here
@@ -70,7 +68,7 @@ class PollerTest {
         assert s3.getWaitQ().size() == 1;
 
         // Confirm POLLONESHOT can be added without POLLEXCLUSIVE
-        MockSocket s4 = new MockSocket("4");
+        MockPollable s4 = new MockPollable("4");
         poller.add(s4, PollFlags.POLLET | PollFlags.POLLONESHOT);
         // assert the pollable has been registered
         assert poller.size() == 4;
@@ -82,7 +80,7 @@ class PollerTest {
     void modify() {
         Poller poller = Poller.create();
         // Adds valid pollable
-        MockSocket s1 = new MockSocket("1");
+        MockPollable s1 = new MockPollable("1");
         poller.add(s1, 0);
 
         // Check that adding any event flag, POLLET and POLLONESHOT
@@ -104,7 +102,7 @@ class PollerTest {
 
         // Check that modifying the event mask to remove
         // POLLEXCLUSIVE is not possible.
-        MockSocket s2 = new MockSocket("2");
+        MockPollable s2 = new MockPollable("2");
         poller.add(s2, PollFlags.POLLET | PollFlags.POLLEXCLUSIVE);
         try {
             poller.modify(s2, 0);
@@ -125,7 +123,7 @@ class PollerTest {
 
         // Delete a non registered pollable
         // should return Poller.PNOEXIST
-        MockSocket s1 = new MockSocket("1");
+        MockPollable s1 = new MockPollable("1");
         int ret = poller.delete(s1);
         assert ret == Poller.PNOEXIST;
 
@@ -151,7 +149,7 @@ class PollerTest {
         assert !poller.hasWaiters();
 
         // create socket with 0 so that immediate send is not allowed.
-        MockSocket s1 = new MockSocket("1", 0);
+        MockPollable s1 = new MockPollable("1", 0);
         // assert immediate send is unsuccessful
         assert !s1.trySendMsg("Hello");
 
@@ -193,7 +191,7 @@ class PollerTest {
 
         // create socket with 0 credits
         // so that immediate send is not allowed.
-        MockSocket s1 = new MockSocket("1", 0);
+        MockPollable s1 = new MockPollable("1", 0);
         // assert immediate send is unsuccessful
         assert !s1.trySendMsg("Hello");
 
@@ -255,7 +253,7 @@ class PollerTest {
 
         // create socket with 0 credits
         // so that immediate send is not allowed.
-        MockSocket s1 = new MockSocket("1", 0);
+        MockPollable s1 = new MockPollable("1", 0);
         // assert immediate send is unsuccessful
         assert !s1.trySendMsg("Hello");
 
@@ -310,7 +308,7 @@ class PollerTest {
 
         // create socket with 0 credits so
         // that immediate send is not allowed.
-        MockSocket s1 = new MockSocket("1", 0);
+        MockPollable s1 = new MockPollable("1", 0);
         // assert immediate send is unsuccessful
         assert !s1.trySendMsg("Hello");
 
@@ -377,9 +375,9 @@ class PollerTest {
         // poller created and
         // filled with some sockest
         poller = Poller.create();
-        MockSocket s1 = new MockSocket("1", 0),
-                s2 = new MockSocket("2", 0),
-                s3 = new MockSocket("3", 0);
+        MockPollable s1 = new MockPollable("1", 0),
+                s2 = new MockPollable("2", 0),
+                s3 = new MockPollable("3", 0);
         poller.add(s1, 0);
         poller.add(s2, 0);
         poller.add(s3, 0);
@@ -427,7 +425,7 @@ class PollerTest {
     void immediatePoll() throws InterruptedException {
         // socket created with 0 credits so that
         // a non-blocking immediate poll can fail.
-        MockSocket s1 = new MockSocket("1", 0);
+        MockPollable s1 = new MockPollable("1", 0);
 
         // the individual immediate poll returns 0
         // when it times out
@@ -477,7 +475,7 @@ class PollerTest {
         // only one waiter is notified and
         // all events are cleared
         Poller poller = Poller.create();
-        MockSocket s1 = new MockSocket("1", 0);
+        MockPollable s1 = new MockPollable("1", 0);
         poller.add(s1, PollFlags.POLLET);
         assert poller.size() == 1;
         assert s1.getWaitQ().size() == 1;

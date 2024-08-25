@@ -49,7 +49,7 @@ public class InFlowControlState {
      * @return size of batch
      */
     public static int calculateBatchSize(int capacity, float percentage){
-        int bs = (int) ((float) capacity * percentage);
+        int bs = (int) ((float) Math.max(0, capacity) * percentage);
         if(capacity > 0 && bs == 0)
             bs = 1;
         return bs;
@@ -85,9 +85,9 @@ public class InFlowControlState {
     }
 
     /**
-     * Set peer capacity to a specific value and returns
+     * Set peer capacity to the provided value and returns
      * the credits variation that needs to be sent to the
-     * peer. The batch size is changed to 0.
+     * peer. The current batch is cleared.
      * @param newCapacity new peer capacity
      * @return amount of credits to be sent to the peer
      */
@@ -97,18 +97,18 @@ public class InFlowControlState {
         // so it can adjust them to match the new capacity.
         int diff = newCapacity - peerCapacity;
         // updates capacity and gets the amount of credits to be sent
-        return applyVariationToPeerCapacity(diff);
+        return adjustPeerCapacity(diff);
     }
 
     /**
-     * Applies the credit variation to the peer's capacity
-     * and returns the credits variation that needs to be
-     * sent to the peer. The batch size is changed to 0.
+     * Adjusts the peer's capacity using the provided credit
+     * variation and returns the credits variation that needs
+     * to be sent to the peer. The current batch is cleared.
      * @param credits variation of credits to apply to the
      *                peer's current capacity.
      * @return amount of credits to be sent to the peer
      */
-    public int applyVariationToPeerCapacity(int credits){
+    public int adjustPeerCapacity(int credits){
         // updates capacity
         this.peerCapacity += credits;
         // updates batch size

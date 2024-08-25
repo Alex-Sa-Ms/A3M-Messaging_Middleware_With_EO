@@ -1,7 +1,5 @@
 package pt.uminho.di.a3m.core;
 
-import pt.uminho.di.a3m.core.events.SocketEvent;
-import pt.uminho.di.a3m.core.messaging.Payload;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 
 import java.util.Queue;
@@ -39,7 +37,7 @@ public class DummySocket extends Socket{
     }
 
     @Override
-    protected boolean isCustomPayloadValid(Payload payload) {
+    protected boolean isCustomOutgoingCustomMsgValid(SocketMsg msg) {
         return false;
     }
 
@@ -49,16 +47,6 @@ public class DummySocket extends Socket{
     @Override
     protected void destroy() {
         destroyCompleted();
-    }
-
-    @Override
-    protected Object getCustomOption(String option) {
-        return null;
-    }
-
-    @Override
-    protected void setCustomOption(String option, Object value) {
-
     }
 
     @Override
