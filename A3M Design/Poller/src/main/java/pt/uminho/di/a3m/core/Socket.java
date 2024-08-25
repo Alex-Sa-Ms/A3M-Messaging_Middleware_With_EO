@@ -14,46 +14,61 @@ import java.util.function.Supplier;
 
 public abstract class Socket{
     /**
-     * Notas:
-     * 1. Deve-se adicionar nos métodos abstratos que podem não ser
-     * implementados a seguinte informação: "Método deve emitir a
-     * exceção java.lang.UnsupportedOperationException quando a
-     * operação não faz sentido para o socket.". Um exemplo pode ser
-     * o padrão de comunicação Push-Pull, em que não faz sentido
-     * implementar métodos receive() para o socket de tipo PUSH,
-     * logo estes métodos devem emitir a exceção.
+     * TODO:
+     *   1. Deve-se adicionar nos métodos abstratos que podem não ser
+     *      implementados a seguinte informação: "Método deve emitir a
+     *      exceção java.lang.UnsupportedOperationException quando a
+     *      operação não faz sentido para o socket.". Um exemplo pode ser
+     *      o padrão de comunicação Push-Pull, em que não faz sentido
+     *      implementar métodos receive() para o socket de tipo PUSH,
+     *      logo estes métodos devem emitir a exceção.
      */
     private final SocketIdentifier sid;
     private SocketManager socketManager = null;
     private MessageDispatcher dispatcher = null;
     private final AtomicReference<SocketState> state = new AtomicReference<>(SocketState.CREATED);
     private final Lock lock = new ReentrantLock(); // TODO - a more efficient locking mechanism may be required in the future
-
-    // Map of option handlers
-    private final Map<String, OptionHandler<?>> options = defaultSocketOptions();
+    private final Map<String, OptionHandler<?>> options = defaultSocketOptions(); // Map of option handlers
 
     protected Socket(SocketIdentifier sid) {
         this.sid = sid;
     }
 
+    // ******** Getters & Setters ******** //
+
+    /** @return current socket state */
     public final SocketState getState() {
         return state.get();
     }
 
+    /** @return socket identifier */
     public final SocketIdentifier getId() {
         return sid;
     }
 
+    /**
+     * Gives access to the socket's lock for the custom
+     * logic to use.
+     * @return socket lock
+     */
     protected final Lock getLock(){
         return lock;
     }
-    final MessageDispatcher getMessageDispatcher(){
-        return dispatcher;
+
+    final void setCoreComponents(MessageDispatcher dispatcher, SocketManager socketMananer) {
+        this.dispatcher = dispatcher;
+        this.socketManager = socketMananer;
     }
-    private Map<String, OptionHandler<?>> defaultSocketOptions() {
-        Map<String, OptionHandler<?>> options = new ConcurrentHashMap<>();
-        // sets default batch size percentage to 5%
-        options.put("defaultBatchSizePercentage", new GenericOptionHandler<>(0.05f, Float.class){
+
+    /**
+     * To initialize the default options of a socket.
+     * @return map with default socket options (option handlers)
+     */
+    private static Map<String, OptionHandler<?>> defaultSocketOptions() {
+        Map<String, OptionHandler<?>> options = new HashMap<>();
+        // Sets default batch size percentage to 5%.
+        // Defines the percentage to be used by new links.
+        options.put("batchSizePercentage", new GenericOptionHandler<>(0.05f, Float.class){
             @Override
             public void set(Object value) {
                 if(!(value instanceof Float) || (float) value <= 0f || (float) value > 1f)
@@ -62,8 +77,14 @@ public abstract class Socket{
                 super.set(value);
             }
         });
-        // sets default peer capacity to 100 credits
-        options.put("defaultPeerCapacity", new GenericOptionHandler<>(100, Integer.class));
+        // Sets default peer capacity to 100 credits.
+        // Defines the capacity new peers will have as starting point.
+        options.put("peerCapacity", new GenericOptionHandler<>(100, Integer.class));
+        // Sets link limit handler. Does not have any effect on currently established or requested links.
+        options.put("maxLinks", new GenericOptionHandler<>(Short.MAX_VALUE, Short.class));
+        // Set flag that allows disabling the acceptance of incoming link requests. Does not affect currently
+        // established or requested links.
+        options.put("allowIncomingLinkRequests", new GenericOptionHandler<>(true, Boolean.class));
         return options;
     }
 
@@ -81,11 +102,16 @@ public abstract class Socket{
     public final <Option> Option getOption(String option, Class<Option> optionClass){
         if(optionClass == null)
             throw new IllegalArgumentException("Option class must not be null.");
-        OptionHandler<?> handler = options.get(option);
-        if(handler != null)
-            return optionClass.cast(handler.get());
-        else
-            throw new IllegalArgumentException("Option does not exist.");
+        try {
+            lock.lock();
+            OptionHandler<?> handler = options.get(option);
+            if(handler != null)
+                return optionClass.cast(handler.get());
+            else
+                throw new IllegalArgumentException("Option does not exist.");
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**
@@ -98,11 +124,16 @@ public abstract class Socket{
      * @param value value to be "set" to the option
      */
     public final <Option> void setOption(String option, Option value){
-        OptionHandler<?> handler = options.get(option);
-        if(handler != null)
+        try {
+            lock.lock();
+            OptionHandler<?> handler = options.get(option);
+            if(handler != null)
                 handler.set(value);
-        else
-            throw new IllegalArgumentException("Option does not exist.");
+            else
+                throw new IllegalArgumentException("Option does not exist.");
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**
@@ -112,15 +143,23 @@ public abstract class Socket{
      *                wanting the traditional get-set behavior.
      */
     protected final void registerOption(String option, OptionHandler<?> handler){
-        options.put(option, handler);
+        try {
+            lock.lock();
+            options.put(option, handler);
+        } finally {
+            lock.unlock();
+        }
     }
 
-    final void setCoreComponents(MessageDispatcher dispatcher, SocketManager socketMananer) {
-        this.dispatcher = dispatcher;
-        this.socketManager = socketMananer;
+    final MessageDispatcher getMessageDispatcher(){
+        return dispatcher;
     }
 
-    // ********** Final methods ********** //
+    // ********** Link logic ********** //
+
+
+
+    // ********** Socket final methods ********** //
 
     /**
      * <p>
@@ -293,7 +332,7 @@ public abstract class Socket{
         }
     }
 
-    // ********** Abstract methods ********** //
+    // ********** Abstract socket methods ********** //
     protected abstract void init();
     /**
      * Custom closing procedures.
@@ -304,7 +343,19 @@ public abstract class Socket{
     protected abstract void destroy();
     protected abstract void customHandleEvent(SocketEvent event);
     protected abstract void customFeedMsg(SocketMsg msg);
-
+    /**
+     * Checks if the outgoing custom message is valid under the custom socket
+     * semantics and current state.
+     * @param msg message to be verified
+     * @return "true" if the message is valid or "false" if the payload is valid
+     * but cannot be sent under the current state.
+     * @throws IllegalArgumentException If the payload is not valid under any state.
+     * @implNote Any custom runtime exception thrown must be properly documented. The custom
+     * runtime exceptions are allowed to expose the problem behind the message not being
+     * valid. However, such exceptions are caught by the non-public send() version(s) of the
+     * link instances, to prevent internal crashing.
+     */
+    protected abstract boolean isOutgoingCustomMsgValid(SocketMsg msg);
     /**
      * Method to get an incoming queue supplier. Custom sockets may override this method to
      * supply queues that best meets the socket's semantics, such as providing a queue
@@ -319,22 +370,8 @@ public abstract class Socket{
     protected Supplier<Queue<SocketMsg>> getInQueueSupplier(Link link){
         return LinkedList::new;
     }
-    protected abstract Protocol getProtocol();
-    protected abstract Set<Protocol> getCompatibleProtocols();
-    protected abstract byte[] receive(Long timeout, boolean notifyIfNone);
-    protected abstract boolean send(byte[] payload, Long timeout, boolean notifyIfNone);
-
-    /**
-     * Checks if the outgoing custom message is valid under the custom socket
-     * semantics and current state.
-     * @param msg message to be verified
-     * @return "true" if the message is valid or "false" if the payload is valid
-     * but cannot be sent under the current state.
-     * @throws IllegalArgumentException If the payload is not valid under any state.
-     * @implNote Any custom runtime exception thrown must be properly documented. The custom
-     * runtime exceptions are allowed to expose the problem behind the message not being
-     * valid. However, such exceptions are caught by the non-public send() version(s) of the
-     * link instances, to prevent internal crashing.
-     */
-    protected abstract boolean isCustomOutgoingCustomMsgValid(SocketMsg msg);
+    public abstract Protocol getProtocol();
+    public abstract Set<Protocol> getCompatibleProtocols();
+    public abstract byte[] receive(Long timeout, boolean notifyIfNone);
+    public abstract boolean send(byte[] payload, Long timeout, boolean notifyIfNone);
 }

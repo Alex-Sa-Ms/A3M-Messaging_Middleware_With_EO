@@ -293,7 +293,6 @@ public class Link implements Pollable {
             // emit a link establishment event to let any required custom
             // logic be performed
             owner.customHandleEvent(new LinkEstablishedEvent(this, payload));
-
         } catch (Exception ignored) {}
     }
 

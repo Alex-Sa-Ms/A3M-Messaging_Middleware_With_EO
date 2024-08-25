@@ -22,22 +22,22 @@ public class DummySocket extends Socket{
     }
 
     @Override
-    protected Set<Protocol> getCompatibleProtocols() {
+    public Set<Protocol> getCompatibleProtocols() {
         return null;
     }
 
     @Override
-    protected byte[] receive(Long timeout, boolean notifyIfNone) {
+    public byte[] receive(Long timeout, boolean notifyIfNone) {
         return new byte[0];
     }
 
     @Override
-    protected boolean send(byte[] payload, Long timeout, boolean notifyIfNone) {
+    public boolean send(byte[] payload, Long timeout, boolean notifyIfNone) {
         return false;
     }
 
     @Override
-    protected boolean isCustomOutgoingCustomMsgValid(SocketMsg msg) {
+    public boolean isOutgoingCustomMsgValid(SocketMsg msg) {
         return false;
     }
 
