@@ -1,15 +1,14 @@
 package pt.uminho.di.a3m.core;
 
+import com.google.protobuf.InvalidProtocolBufferException;
 import pt.uminho.di.a3m.auxiliary.Timeout;
 import pt.uminho.di.a3m.core.exceptions.LinkClosedException;
 import pt.uminho.di.a3m.core.flowcontrol.FlowCreditsPayload;
 import pt.uminho.di.a3m.core.flowcontrol.InFlowControlState;
 import pt.uminho.di.a3m.core.flowcontrol.OutFlowControlState;
 import pt.uminho.di.a3m.core.linking.LinkClosedEvent;
-import pt.uminho.di.a3m.core.messaging.BytePayload;
-import pt.uminho.di.a3m.core.messaging.MsgType;
-import pt.uminho.di.a3m.core.messaging.Payload;
-import pt.uminho.di.a3m.core.messaging.SocketMsg;
+import pt.uminho.di.a3m.core.linking.LinkEstablishedEvent;
+import pt.uminho.di.a3m.core.messaging.*;
 import pt.uminho.di.a3m.poller.PollFlags;
 import pt.uminho.di.a3m.poller.PollTable;
 import pt.uminho.di.a3m.poller.Pollable;
@@ -243,7 +242,7 @@ public class Link implements Pollable {
         assert msg != null;
         switch (msg.getType()){
             case MsgType.LINK:
-                //TODO - handle LINK msg
+                handleLinkRequest(msg);
                 break;
             case MsgType.UNLINK:
                 close(false);
@@ -251,6 +250,51 @@ public class Link implements Pollable {
             default:
                 break;
         }
+    }
+
+    // TODO - socket needs to have a handleLinkRequest method to be invoked
+    //  when the link has not been created yet. It must have in consideration
+    //  a active links limitation option. if such limitation is achieved, send
+    //  "temporarily" unavailable error. Have options such as not enabling
+    //  incoming link requests. And sending outgoing requests? (not sending outgoing
+    //  requests may not make sense)
+    private void handleLinkRequest(SocketMsg msg) {
+        boolean establish = false;
+        // deserializes the payload into a map
+        SerializableMap payload = null;
+        try {
+            payload = SerializableMap.deserialize(msg.getPayload());
+
+            // checks protocol compatibility
+            boolean isCompatible = false;
+            if(payload.hasInt("protocolId")){
+                int protocolId = payload.getInt("protocolId");
+                if(owner.getCompatibleProtocols().stream().anyMatch(p -> p.id() == protocolId))
+                    isCompatible = true;
+            }
+
+            // If not compatible, close link. Since a link is
+            // already created, this means a link request as been
+            // sent. This fact, in conjunction, to the linking protocol
+            // symmetry, means the incompatibility can be perceived by
+            // the remote peer through the link request that has been sent.
+            if(!isCompatible) close();
+
+            // set state to "established"
+            state.set(LinkState.ESTABLISHED);
+
+            // adjust outgoing capacity using the received credits,
+            // and wake up waiters on writing event.
+            if(payload.hasInt("credits")) {
+                int outCapacity = payload.getInt("credits");
+                adjustOutgoingCredits(outCapacity);
+            }
+
+            // emit a link establishment event to let any required custom
+            // logic be performed
+            owner.customHandleEvent(new LinkEstablishedEvent(this, payload));
+
+        } catch (Exception ignored) {}
     }
 
     void handleErrorMessage(SocketMsg msg){
@@ -266,10 +310,20 @@ public class Link implements Pollable {
         assert msg != null;
         FlowCreditsPayload fcp = FlowCreditsPayload.convertFrom(msg.getType(), msg.getPayload());
         assert fcp != null;
-        outFCS.applyCreditVariation(fcp.getCredits());
-        // notify waiters up to the number of credits received
-        if(fcp.getCredits() > 0)
-            waitQ.fairWakeUp(0, fcp.getCredits(), 0, PollFlags.POLLOUT);
+        adjustOutgoingCredits(fcp.getCredits());
+    }
+
+    private void adjustOutgoingCredits(int credits){
+        outFCS.applyCreditVariation(credits);
+        // Waiters can only be notified when there are available
+        // credits. Therefore, if current amount of credits is
+        // equal or superior to the amount of positive credits
+        // received, wake up waiters up to the received amount of credits.
+        // Else, wake up only the amount of waiters that the available
+        // credits allow.
+        int wakeUps = Math.min(outFCS.getCredits(), credits);
+        if(wakeUps > 0)
+            waitQ.fairWakeUp(0, wakeUps, 0, PollFlags.POLLOUT);
     }
 
     // TODO - socket must also perform its cleaning up procedure.
@@ -353,7 +407,7 @@ public class Link implements Pollable {
 
     /**
      * Waits until an incoming message, from the peer associated 
-     * with this link, is available or the dealine is reached or
+     * with this link, is available or the deadline is reached or
      * the thread is interrupted.
      * If the socket is in COOKED mode, the returned messages are
      * data messages. If in RAW mode, the returned messages may also
@@ -377,7 +431,7 @@ public class Link implements Pollable {
             if (state.get() == LinkState.CLOSED && inMsgQ.isEmpty())
                 throw new LinkClosedException();
 
-            // try retrieving a message immediatelly
+            // try retrieving a message immediately
             msg = tryPollingMessage();
             if (msg != null) return msg;
 

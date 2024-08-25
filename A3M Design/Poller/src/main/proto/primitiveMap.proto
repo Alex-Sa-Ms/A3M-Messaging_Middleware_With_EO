@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package pt.uminho.di.a3m.core.messaging;
+
+message Value{
+  oneof value{
+    int32 int_value = 1;
+    float float_value = 2;
+    double double_value = 3;
+    string string_value = 4; // To serialize complex objects, convert them to JSON
+    bool bool_value = 5;
+    }
+}
+
+message PrimitiveMap {
+  map<string, Value> items = 1;
+}
