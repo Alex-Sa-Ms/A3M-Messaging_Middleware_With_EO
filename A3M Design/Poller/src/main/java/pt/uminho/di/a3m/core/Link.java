@@ -9,6 +9,7 @@ import pt.uminho.di.a3m.core.flowcontrol.OutFlowControlState;
 import pt.uminho.di.a3m.core.linking.LinkClosedEvent;
 import pt.uminho.di.a3m.core.linking.LinkEstablishedEvent;
 import pt.uminho.di.a3m.core.messaging.*;
+import pt.uminho.di.a3m.core.messaging.CoreMessages.*;
 import pt.uminho.di.a3m.poller.PollFlags;
 import pt.uminho.di.a3m.poller.PollTable;
 import pt.uminho.di.a3m.poller.Pollable;
@@ -17,12 +18,16 @@ import pt.uminho.di.a3m.waitqueue.WaitQueue;
 import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;
 import pt.uminho.di.a3m.waitqueue.WaitQueueFunc;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.Logger;
 
 public class Link implements Pollable {
     private final LinkIdentifier id;
-    private Protocol peerProtocol = null;
+    private Integer peerProtocol = null;
     private final AtomicReference<LinkState> state = new AtomicReference<>(LinkState.UNINITIALIZED);
     private final Socket owner; // socket that owns the link
     private final InFlowControlState inFCS;
@@ -84,12 +89,12 @@ public class Link implements Pollable {
     /**
      * Sets the peer's protocol if the
      * peer's protocol has not been set yet.
-     * @param peerProtocol peer's protocol
+     * @param protocolId peer's protocol identifier
      * @apiNote Thread must hold socket lock when the method is called. 
      */
-    public void setPeerProtocol(Protocol peerProtocol) {
+    public void setPeerProtocol(int protocolId) {
         if(this.peerProtocol == null)
-            this.peerProtocol = peerProtocol;
+            this.peerProtocol = protocolId;
     }
 
     /**
@@ -121,7 +126,7 @@ public class Link implements Pollable {
      * sender.
      * @return socket message or "null" if there wasn't
      * an available message.
-     * @implNote Socket lock is assumed to be held by the caller.
+     * @apiNote Socket lock is assumed to be held by the caller.
      */
     private SocketMsg tryPollingMessage(){
         SocketMsg msg = inMsgQ.poll();
@@ -145,7 +150,7 @@ public class Link implements Pollable {
      */
     private void sendCredits(int credits) {
         if(credits != 0)
-            owner.getMessageDispatcher().dispatch(
+            owner.dispatch(
                     new SocketMsg(id.srcId(), id.destId(), new FlowCreditsPayload(credits)));
     }
 
@@ -227,7 +232,7 @@ public class Link implements Pollable {
         boolean ret = false;
         if(owner.isOutgoingMessageValid(msg, skipCustomVerification)
                 && (!SocketMsg.isType(msg, MsgType.DATA) || outFCS.trySend())) {
-            owner.getMessageDispatcher().dispatch(msg);
+            owner.dispatch(msg);
             ret = true;
         }
         return ret;
@@ -252,52 +257,91 @@ public class Link implements Pollable {
         }
     }
 
-    // TODO - socket needs to have a handleLinkRequest method to be invoked
-    //  when the link has not been created yet. It must have in consideration
-    //  a active links limitation option. if such limitation is achieved, send
-    //  "temporarily" unavailable error. Have options such as not enabling
-    //  incoming link requests. And sending outgoing requests? (not sending outgoing
-    //  requests may not make sense)
     private void handleLinkRequest(SocketMsg msg) {
-        boolean establish = false;
-        // deserializes the payload into a map
-        SerializableMap payload = null;
-        try {
-            payload = SerializableMap.deserialize(msg.getPayload());
+        if(state.get() == LinkState.PENDING) {
+            // deserializes the payload into a map
+            SerializableMap payload = null;
+            try {
+                payload = SerializableMap.deserialize(msg.getPayload());
 
-            // checks protocol compatibility
-            boolean isCompatible = false;
-            if(payload.hasInt("protocolId")){
-                int protocolId = payload.getInt("protocolId");
-                if(owner.getCompatibleProtocols().stream().anyMatch(p -> p.id() == protocolId))
-                    isCompatible = true;
+                // checks protocol compatibility
+                boolean isCompatible = false;
+                if (payload.hasInt("protocolId")) {
+                    peerProtocol = payload.getInt("protocolId");
+                    if (owner.getCompatibleProtocols().stream().anyMatch(p -> p.id() == peerProtocol))
+                        isCompatible = true;
+                }
+
+                // If not compatible, close link. Since a link is
+                // already created, this means a link request as been
+                // sent. This fact, in conjunction, to the linking protocol
+                // symmetry, means the incompatibility can be perceived by
+                // the remote peer through the link request that has been sent.
+                if (!isCompatible) close();
+
+                // set state to "established"
+                state.set(LinkState.ESTABLISHED);
+
+                // adjust outgoing capacity using the received credits,
+                // and wake up waiters on writing event.
+                if (payload.hasInt("credits")) {
+                    int outCapacity = payload.getInt("credits");
+                    adjustOutgoingCredits(outCapacity);
+                }
+
+                // emit a link establishment event to let any required custom
+                // logic be performed
+                owner.customHandleEvent(new LinkEstablishedEvent(this, payload));
+            } catch (Exception ignored) {
             }
-
-            // If not compatible, close link. Since a link is
-            // already created, this means a link request as been
-            // sent. This fact, in conjunction, to the linking protocol
-            // symmetry, means the incompatibility can be perceived by
-            // the remote peer through the link request that has been sent.
-            if(!isCompatible) close();
-
-            // set state to "established"
-            state.set(LinkState.ESTABLISHED);
-
-            // adjust outgoing capacity using the received credits,
-            // and wake up waiters on writing event.
-            if(payload.hasInt("credits")) {
-                int outCapacity = payload.getInt("credits");
-                adjustOutgoingCredits(outCapacity);
-            }
-
-            // emit a link establishment event to let any required custom
-            // logic be performed
-            owner.customHandleEvent(new LinkEstablishedEvent(this, payload));
-        } catch (Exception ignored) {}
+        }
     }
 
     void handleErrorMessage(SocketMsg msg){
-        //TODO - handle ERROR msg
+        assert msg != null && msg.getType() == MsgType.ERROR;
+        // convert payload
+        ErrorPayload payload = null;
+        try {
+            payload = ErrorPayload.parseFrom(msg.getPayload());
+        } catch (InvalidProtocolBufferException e) {
+            // Ignore faulty error message for now.
+            Logger.getLogger(id.toString()).warning("Received faulty error msg payload: " +
+                    "{\n\tBytes: " + Arrays.toString(msg.getPayload()) +
+                    ",\n\tUTF8: " + StandardCharsets.UTF_8.decode(ByteBuffer.wrap(msg.getPayload())) + "}");
+            return;
+        }
+
+        if(payload.getCode().size() == 1){
+            byte code = payload.getCode().byteAt(0);
+            switch (code){
+                case ErrorType.SOCK_NFOUND, ErrorType.SOCK_NAVAIL ->{
+                    if(state.get() == LinkState.PENDING) {
+                        int peerCapacity =
+                                owner.getOption("peerCapacity", Integer.class);
+                        long dispatchTime =
+                                owner.getOption("retryInterval", Long.class)
+                                + System.currentTimeMillis();
+                        SocketMsg linkRequest =
+                                createLinkRequest(id.srcId(), id.destId(),
+                                        owner.getProtocol().id(), peerCapacity);
+                        owner.scheduleDispatch(linkRequest, dispatchTime);
+                    } // else, ignore because might be a delayed message
+                }
+                default -> {} // do nothing
+            }
+        }
+
+        // Ignore faulty error message for now.
+        Logger.getLogger(id.toString()).warning("Received faulty error msg payload: " +
+                "{\n\tCode: " + Arrays.toString(payload.getCode().toByteArray()) +
+                ",\n\tText: \"" + payload.getText() + "\"}");
+    }
+
+    static SocketMsg createLinkRequest(SocketIdentifier src, SocketIdentifier dest, int protocolId, int credits){
+        SerializableMap map = new SerializableMap();
+        map.putInt("protocolId", protocolId);
+        map.putInt("credits", credits);
+        return new SocketMsg(src, dest, MsgType.LINK, map.serialize());
     }
 
     /**
@@ -325,9 +369,6 @@ public class Link implements Pollable {
             waitQ.fairWakeUp(0, wakeUps, 0, PollFlags.POLLOUT);
     }
 
-    // TODO - socket must also perform its cleaning up procedure.
-    //  It is the caller of the method and also is the one that receives
-    //  the UNLINK message first.
     /**
      * Closes link.
      * @param local Indicates if the call was invoked locally, or a consequence
@@ -343,7 +384,7 @@ public class Link implements Pollable {
             waitQ.wakeUp(0,0,0,PollFlags.POLLHUP | PollFlags.POLLFREE);
             // if call was local, send an UNLINK message to the peer.
             if(local)
-                owner.getMessageDispatcher().dispatch(
+                owner.dispatch(
                         new SocketMsg(id.srcId(), id.destId(),
                                 new BytePayload(MsgType.UNLINK, null)));
             // Inform link closure to the custom socket logic

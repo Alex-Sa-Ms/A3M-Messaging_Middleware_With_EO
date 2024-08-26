@@ -6,4 +6,9 @@ public record SocketIdentifier(String nodeId, String tagId) {
                 && sid.nodeId != null
                 && sid.tagId != null;
     }
+
+    @Override
+    public String toString() {
+        return "SockId{" + nodeId + '.' + tagId + '}';
+    }
 }

@@ -6,4 +6,9 @@ public record LinkIdentifier(SocketIdentifier srcId, SocketIdentifier destId) {
                 && SocketIdentifier.isValid(linkId.srcId)
                 && SocketIdentifier.isValid(linkId.destId);
     }
+
+    @Override
+    public String toString() {
+        return "LinkId{" + srcId + "." + destId + "}";
+    }
 }

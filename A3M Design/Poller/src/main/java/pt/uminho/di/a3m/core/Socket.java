@@ -6,7 +6,6 @@ import pt.uminho.di.a3m.core.options.GenericOptionHandler;
 import pt.uminho.di.a3m.core.options.OptionHandler;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -28,7 +27,9 @@ public abstract class Socket{
     private MessageDispatcher dispatcher = null;
     private final AtomicReference<SocketState> state = new AtomicReference<>(SocketState.CREATED);
     private final Lock lock = new ReentrantLock(); // TODO - a more efficient locking mechanism may be required in the future
-    private final Map<String, OptionHandler<?>> options = defaultSocketOptions(); // Map of option handlers
+    private final Map<String, OptionHandler<?>> options = defaultSocketOptions(); // Map of option handlers. Handlers are required to prevent changing options to unacceptable values.
+    private final Map<SocketIdentifier,Link> links = new HashMap<>(); // maps link objects to the peer's socket identifier
+    private Exception error = null;
 
     protected Socket(SocketIdentifier sid) {
         this.sid = sid;
@@ -60,6 +61,14 @@ public abstract class Socket{
         this.socketManager = socketMananer;
     }
 
+    public Exception getError() {
+        return error;
+    }
+
+    protected void setError(Exception error) {
+        this.error = error;
+    }
+
     /**
      * To initialize the default options of a socket.
      * @return map with default socket options (option handlers)
@@ -85,6 +94,9 @@ public abstract class Socket{
         // Set flag that allows disabling the acceptance of incoming link requests. Does not affect currently
         // established or requested links.
         options.put("allowIncomingLinkRequests", new GenericOptionHandler<>(true, Boolean.class));
+        // Sets interval of time that should be waited before retrying the linking process when
+        // a non-fatal linking process cancelation is received.
+        options.put("retryInterval", new GenericOptionHandler<>(50L, Long.class));
         return options;
     }
 
@@ -151,16 +163,32 @@ public abstract class Socket{
         }
     }
 
-    final MessageDispatcher getMessageDispatcher(){
-        return dispatcher;
-    }
-
     // ********** Link logic ********** //
 
+    // TODO - socket needs to have a handleLinkRequest method to be invoked
+    //  when the link has not been created yet. It must have in consideration
+    //  a active links limitation option. if such limitation is achieved, send
+    //  "temporarily" unavailable error. Have options such as not enabling
+    //  incoming link requests. And sending outgoing requests? (not sending outgoing
+    //  requests may not make sense)
 
 
     // ********** Socket final methods ********** //
 
+    /**
+     * Schedule the dispatch of a message.  
+     * @param msg message to be dispatched
+     * @param dispatchTime time at which the dispatch should be executed.
+     *                     Must be obtained using System.currentTimeMillis()
+     */
+    void scheduleDispatch(SocketMsg msg, long dispatchTime) {
+        dispatcher.scheduleDispatch(msg, dispatchTime);
+    }
+
+    void dispatch(SocketMsg msg){
+        dispatcher.dispatch(msg);
+    }
+    
     /**
      * <p>
      * To be used by the message management system to deliver
@@ -275,7 +303,7 @@ public abstract class Socket{
         try {
             lock.lock();
             if (state.get() != SocketState.CREATED)
-                throw new IllegalArgumentException("Socket has already been started.");
+                throw new IllegalArgumentException("Socket has already been started once.");
             // performs custom initializing procedure
             init();
             // sets state to ready if socket's state is "CREATED"
@@ -317,11 +345,18 @@ public abstract class Socket{
             SocketState tmpState = state.get();
             if (tmpState == SocketState.CLOSED)
                 return;
-            // TODO - wait using polling mechanism
+            // TODO - when invoked for the second time, wait using polling mechanism
             if (tmpState == SocketState.CLOSING)
                 throw new IllegalArgumentException("Socket is closing or has already closed.");
             // set state to CLOSING
             state.set(SocketState.CLOSING);
+            // close all links
+            Iterator<Map.Entry<SocketIdentifier, Link>> it = links.entrySet().iterator();
+            while (it.hasNext()) {
+                Map.Entry<SocketIdentifier, Link> entry = it.next();
+                entry.getValue().close(); // close link
+                it.remove(); // remove it from links collection
+            }
             // calls custom closing procedure and expects destroyCompleted()
             // to be called in order for the state to proceed to CLOSE and
             // for the middleware to perform the required socket clean-up

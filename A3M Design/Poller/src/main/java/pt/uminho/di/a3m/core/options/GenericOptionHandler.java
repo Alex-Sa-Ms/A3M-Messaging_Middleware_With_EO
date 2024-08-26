@@ -18,6 +18,9 @@ public class GenericOptionHandler<Option> implements OptionHandler<Option> {
 
     @Override
     public void set(Object value) {
-        this.value = optionClass.cast(this.value.getClass().cast(value));
+        if(value != null)
+            this.value = optionClass.cast(value);
+        else
+            throw new IllegalArgumentException("null value is not allowed.");
     }
 }

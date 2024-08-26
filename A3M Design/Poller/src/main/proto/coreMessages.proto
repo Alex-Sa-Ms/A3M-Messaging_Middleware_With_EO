@@ -2,7 +2,8 @@ syntax = "proto3";
 
 package pt.uminho.di.a3m.core.messaging;
 
-message Value{
+// primitive value
+message PValue{
   oneof value{
     int32 int_value = 1;
     float float_value = 2;
@@ -12,6 +13,13 @@ message Value{
     }
 }
 
-message PrimitiveMap {
-  map<string, Value> items = 1;
+// primitive map
+message PMap {
+  map<string, PValue> items = 1;
+}
+
+// error payload
+message ErrorPayload{
+  bytes code = 1;
+  string text = 2;
 }

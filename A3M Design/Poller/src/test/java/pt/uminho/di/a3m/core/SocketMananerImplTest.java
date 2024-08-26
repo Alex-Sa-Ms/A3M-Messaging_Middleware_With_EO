@@ -3,6 +3,7 @@ package pt.uminho.di.a3m.core;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import pt.uminho.di.a3m.core.messaging.Msg;
+import pt.uminho.di.a3m.core.messaging.SocketMsg;
 
 class SocketMananerImplTest {
     SocketManager socketManager;
@@ -20,6 +21,11 @@ class SocketMananerImplTest {
         socketManager = new SocketMananerImpl("dummyNodeId",new MessageDispatcher() {
             @Override
             public void dispatch(Msg msg) {}
+
+            @Override
+            public void scheduleDispatch(SocketMsg msg, long dispatchTime) {
+
+            }
         });
     }
 
