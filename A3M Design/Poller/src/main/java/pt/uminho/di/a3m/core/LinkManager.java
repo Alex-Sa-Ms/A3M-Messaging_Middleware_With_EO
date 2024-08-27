@@ -222,6 +222,7 @@ When invoking link():
     // ********* Linking/Unlinking logic ********* //
 
     // TODO - see where notifying waiters and creating socket events is required
+    //      - set credits to zero when unlinking to prevent sending of data messages?    
 
     /**
      * Determines if a peer is compatible
@@ -347,15 +348,19 @@ When invoking link():
                 if(peerClockId < link.getPeerClockId()) return;
                 switch (link.state.get()){
                     case LINKING -> {
-                        // TODO - where is the verification of compatibility?
-                        link.state.set(LinkState.ESTABLISHED);
-                        // update peer's information
-                        setPeerInformation(link, peerProtocolId, peerClockId, outCredits);
-                        // if a link message is scheduled, cancel it,
-                        // and send it immediatelly
-                        SocketMsg scheduled = link.cancelScheduledMessage();
-                        if(scheduled != null)
-                            dispatch(scheduled);
+                        // If peer is compatible, establish the link.
+                        // If not, the confirmPeerCompatibility() initiates 
+                        // an unlinking process.
+                        if(confirmPeerCompatibility(link, peerProtocolId)) {
+                            link.state.set(LinkState.ESTABLISHED);
+                            // update peer's information
+                            setPeerInformation(link, peerProtocolId, peerClockId, outCredits);
+                            // if a link request is scheduled, cancel it,
+                            // and send it immediatelly
+                            SocketMsg scheduled = link.cancelScheduledMessage();
+                            if (scheduled != null)
+                                dispatch(scheduled);
+                        }
                     }
                     // Ignore message when ESTABLISHED. This cannot happen, as
                     // for a LINK/LINKACK message to be sent, the sender must not
@@ -501,11 +506,6 @@ When invoking link():
                             return;
                         }
                         
-                        // Confirm compatibility. Initiates unlinking process
-                        // if not compatible. 
-                        if(!confirmPeerCompatibility(link, peerProtocolId))
-                            return;
-                        
                         // Send an UNLINK message
                         dispatch(peerId, MsgType.UNLINK, createUnlinkMsg(link.getClockId()));
 
@@ -524,14 +524,50 @@ When invoking link():
         } finally {
             lock().unlock();
         }
-
     }
 
     private void handleUnlinkMsg(SocketMsg msg) {
+        SocketIdentifier peerId = msg.getSrcId();
+        Integer peerClockId = parseUnlinkMsg(msg); 
+        if(peerClockId == null) return; // ignore if payload is invalid
         try {
             lock().lock();
-            SocketIdentifier peerId = msg.getSrcId();
-            // TODO - handle unlink msg
+            LinkNew link = links.get(peerId);
+            // if link exists
+            if(link != null){
+                // discard messages with old clock identifiers
+                if(peerClockId < link.getPeerClockId()) return;
+                switch (link.state.get()){
+                    case LINKING -> {
+                        // Peer must have accepted the link and closed it right after. 
+                        // Since this socket is not established, we need to wait for 
+                        // the LINK/LINKACK from the peer that results in the establishment
+                        // before unlinking, or a new link could be created from a LINK msg
+                        // that has not arrived yet.
+                        link.setPeerClockId(peerClockId);
+                        link.state.set(LinkState.WAITING_TO_UNLINK);
+                    }
+                    case ESTABLISHED -> {
+                        // send UNLINK message and close link
+                        dispatch(peerId, MsgType.UNLINK, createUnlinkMsg(link.getClockId()));
+                        removeLink(link);
+                    }
+                    case UNLINKING -> {
+                        removeLink(link);
+                    }
+                    // Other peer is in UNLINKING state. This means it accepted the link, then
+                    // closed it. We need to catch the LINK/LINKACK message that would lead this
+                    // socket to establish a link, before sending an UNLINK message and closing.
+                    // Since an unlink message has been received, after sending the unlink message,
+                    // the link can be closed instead of changing for an UNLINKING state and waiting
+                    // for an UNLINK message that has already been received.
+                    case WAITING_TO_UNLINK -> {
+                        // set "unlink message received" flag to enable the link
+                        // to be closed right after sending the unlink message.
+                        link.setUnlinkReceived(true);
+                    }
+                }
+            }
         } finally {
             lock().unlock();
         }
@@ -540,16 +576,16 @@ When invoking link():
 
     /**
      * Initiate a linking process for the provided socket identifier.
-     * @param sid socket identifier of the peer with which a link should be established
+     * @param peerId peer's socket identifier
      * @throws IllegalArgumentException If socket identifier is null.
      * @throws IllegalStateException If the link is being closed or if the limit of links has been reached.
      */
-    public void link(SocketIdentifier sid){
-        if(sid == null)
+    public void link(SocketIdentifier peerId){
+        if(peerId == null)
             throw new IllegalArgumentException("Socket identifier cannot be null.");
         try{
             lock().lock();
-            LinkNew link = links.get(sid);
+            LinkNew link = links.get(peerId);
             if(link != null){
                 // if link is established or attempting to link, there is nothing to do.
                 // If link is in a state that unlinking will follow, then throw an exception
@@ -563,11 +599,11 @@ When invoking link():
                 int maxLinks = socket.getOption("maxLinks", Integer.class);
                 if(links.size() < maxLinks) {
                     // Each link created is given a different clock identifier.
-                    link = createLinkingLink(sid);
-                    links.put(sid, link);
+                    link = createLinkingLink(peerId);
+                    links.put(peerId, link);
                     // send a LINK message to the peer
                     SerializableMap map = createLinkRequestMsg(clock);
-                    dispatch(sid, MsgType.LINK, map.serialize());
+                    dispatch(peerId, MsgType.LINK, map.serialize());
                 }else{
                     throw new IllegalStateException("Maximum amount of links has been reached.");
                 }
@@ -580,153 +616,49 @@ When invoking link():
     /**
      * Initiate an unlinking process for the provided socket identifier.
      * Can be used to cancel an ongoing linking process.
-     * @param sid socket identifier of the peer with which the link should be closed.
+     * @param peerId peer's socket identifier
      */
-    public void unlink(SocketIdentifier sid){
-        if(sid == null)
+    public void unlink(SocketIdentifier peerId){
+        if(peerId == null)
             throw new IllegalArgumentException("Socket identifier cannot be null.");
         try {
             lock().lock();
-            // TODO - unlink()
+            LinkNew link = links.get(peerId);
+            if(link != null){
+                switch (link.state.get()){
+                    case LINKING -> {
+                        // try cancelling scheduled link request
+                        SocketMsg msg = link.cancelScheduledMessage();
+                        // if message was canceled, remove link
+                        if(msg != null)
+                            removeLink(link);
+                        else{
+                            // else, switch to WAITING_TO_UNLINK state, to wait
+                            // for a LINK/LINKACK message that answers the
+                            // link request already sent, before initiating
+                            // the unlinking process.
+                            link.state.set(LinkState.WAITING_TO_UNLINK);
+                        }
+                    }
+                    case ESTABLISHED -> {
+                        // if link is established, changed it to UNLINKING
+                        // and initiate the unlinking process by sending
+                        // an unlink message.
+                        link.state.set(LinkState.UNLINKING);
+                        dispatch(peerId, MsgType.UNLINK, createUnlinkMsg(link.getClockId()));
+                    }
+                    // If state is UNLINKING or WAITING_TO_UNLINK, then
+                    // the unlinking process is already in progress.
+                    //case UNLINKING, WAITING_TO_UNLINK -> {}
+                }
+            }
         } finally {
             lock().unlock();
         }
     }
 
-    /*
-    TODO - Linking/Unlink algorithm using link identifier:
-
-        *** Linking algorithm ***
-
-        - A clock is required to determine the identifier of the link.
-        - Each link is a combination of a clock identifier from each peer.
-        - Every link-related message carries the integer identifier of the link (the identifier generated on its own side).
-
-        Link states:
-        LINKING
-        UNLINKING
-        WAITING-TO-UNLINK
-        ESTABLISHED
-        UNLINKED
-
-        When invoking link():
-        1. If link exists:
-            1-LINKING/ESTABLISHED:
-                1. If link state is LINKING or ESTABLISHED, do nothing and return.
-            1-UNLINKING/WAITING-TO-UNLINK:
-                1. Throw exception, saying, link is closing (IllegalStateException)
-        2. Create link with peer's identifier as -1.
-        3. Set link to LINKING state.
-        4. Send a LINK message to the peer.
-        5. Wait for a message from the peer (rejects any message with an identifier smaller than the currently saved peer's identifier)
-            5-LINK:
-                1. If either a link or a positive link acknowledgement message is received, set link state
-                    to "established", update the peer's identifier using the received value and return.
-            5-REFUSAL:
-                1. If a negative link acknowledgment message is received,
-                   determine if the reason is fatal or non-fatal.
-                    5-REFUSAL-FATAL:
-                        1. If fatal, close and delete link. The closure must wake up
-                           all waiters with a POLLHUP and POLLFREE notification.
-                    5-REFUSAL-NON-FATAL:
-                        1. If not-fatal, schedule a retry.
-                            NOTE: Since there is a possibility of the scheduled retry undoing an unlink from the peer,
-                                  when the peer sends a link and unlink messages after sending the non-fatal refusal,
-                                  the scheduled dispatches should return an atomic reference that enables cancelling
-                                  the dispatch. To cancel the dispatch, one should set the value to "null". The messaging
-                                  system, will also set the value to "null" using getAndSet(null) enabling to verify if
-                                  the message was dispatched.
-            5-UNLINK:
-                1. If an unlink message is received, send an UNLINK message and close the link.
-
-
-        When receiving a LINK message:
-        1. If link exists (discard if not a newer clock identifier):
-            1-LINKING: Link is in a "LINKING" state
-                1. Set link state to ESTABLISHED and save peer's identifier.
-                2. If there is a scheduled retry, cancel it, and dispatch it immediatelly.
-                3. If there isn't a scheduled retry, then, nothing more is required.
-                NOTE: If the link state is LINKING, then a link message has already been sent and
-                due to the symmetry of the linking procedure, the peer should also establish the LINK on his side.
-            1-ESTABLISHED:
-                1. Can't happen because a peer cannot send a LINK message unless it does not have a link.
-                If the link was established and closed recently, then both peers confirmed the unlink operation,
-                meaning, neither peer can be in an ESTABLISHED state.
-                <discarded>. However, if it could happen:
-                    Keep ESTABLISHED, DO NOT SAVE peer's clock, and send a LINKACK with a non-fatal negative response
-                    "ALREADY_LINKED". This makes sure a link retry can happen in the future, potentially, when the
-                    link has already received the
-                    NOTE: Linking symmetry assumes it will always lead to the same result,
-                    so there is no need to check the message.
-            1-UNLINKING:
-                1. Newer link message is being received:
-                    Keep the same state, send a LINKACK with a non-fatal negative response
-                    "ALREADY_LINKED". This makes sure the link establishment request can be retried until
-                     the peer receives the unlink message that closes the link, and enables the link
-                     to be established again.
-            1-WAITING-TO-UNLINK:
-                1. Update peer's identifier, change to UNLINKING and send an UNLINK msg.
-        2. If link does not exist, analyze LINK message and link restrictions (maxLinks).
-            2-COMPATIBLE:
-                1. Create link with peer's clock identifier.
-                2. Set link state to "ESTABLISHED".
-                3. Send a positive LINKACK message.
-            2-NOT_COMPAT:
-                1. Send a negative LINKACK informing which reason is behind the refusal.
-
-        When receiving a LINKACK message :
-        1. If link exists (discard if not a newer clock identifier):
-            1-LINKING: Link state is LINKING
-                1. Set link state to "established", update the peer's identifier using
-                 the received value and return.
-            1-ESTABLISHED: Link state is ESTABLISHED
-                1. Ignore message. Peer clock identifier must match.
-                NOTE: A no-match is not possible, because for a newer clock identifier to
-                be present in the message, an unlink procedure had to be performed which
-                involves both peers agreeing on the unlink.
-            1-UNLINKING: Link state is UNLINKING
-                1. Ignore message.
-            1-WAITING-TO-UNLINK:
-                1. If a close flag is set, meaning an UNLINK message has been received before the LINK/LINKACK message,
-                then send an UNLINK msg and close the link.
-                2. If the close flag is not set: Update peer's identifier, change to UNLINKING and send an UNLINK msg.
-
-        2. If link does not exist:
-            - Ignore message.
-
-        ** Unlinking **
-
-        When invoking unlink():
-        1. If does not exist, do nothing and return.
-        2. If the link exists:
-            2-LINKING:
-                1. If has scheduled retry, cancel it and close link.
-                2. If there isn't a scheduled retry, then a link message has been sent.
-                   Set state to WAITING-TO-UNLINK.
-            2-ESTABLISHED:
-                1. Set state to UNLINKING and send unlink message.
-            2-UNLINKING:
-                1. Return.
-            2-WAIITING-TO-UNLINK:
-                1. Return.
-
-        When receiving UNLINK:
-        1. If link does not exists, do nothing and return. This scenarion shouldn't be possible.
-        2. If link exists:
-            2-LINKING:
-                1. Change to state WAITING-TO-UNLINK, update peer's identifier and set close flag to true.
-            2-ESTABLISHED:
-                1. Send unlink message and close link.
-            2-UNLINKING:
-                1. Close link.
-            2-WAIITING-TO-UNLINK:
-                1. Ignore this UNLINK msg. The other peer is in an UNLINKING state because it sent this
-                UNLINK message. And since the WAITING-TO-UNLINK state, means waiting for the message that
-                would establish the link before sending an UNLINK message, the peer will receive the required
-                UNLINK message to close the link when the LINK/LINKACK message is received by this socket.
-                However, this socket does need to have a flag indicating that it can close immediatelly,
-                instead of passing to the UNLINKING state.
-     */
+    // TODO - since there are "wait for link" methods which wait for a link
+    //  to be established, then there should be a "wait for link closure" also.
 
     private void adjustOutgoingCredits(LinkNew link, int credits){
         outFCS.applyCreditVariation(credits);
