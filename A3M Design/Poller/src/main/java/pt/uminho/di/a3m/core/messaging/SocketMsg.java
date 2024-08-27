@@ -33,4 +33,12 @@ public class SocketMsg extends Msg{
     public String getDestTagId() {
         return destTagId;
     }
+
+    public SocketIdentifier getSrcId(){
+        return new SocketIdentifier(getSrcNodeId(),getSrcTagId());
+    }
+
+    public SocketIdentifier getDestId(){
+        return new SocketIdentifier(getDestNodeId(),getDestTagId());
+    }
 }

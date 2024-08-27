@@ -1,7 +1,6 @@
 package pt.uminho.di.a3m.core.linking;
 
 import pt.uminho.di.a3m.core.Link;
-import pt.uminho.di.a3m.core.LinkIdentifier;
 import pt.uminho.di.a3m.core.SocketEvent;
 
 public class LinkClosedEvent extends SocketEvent {

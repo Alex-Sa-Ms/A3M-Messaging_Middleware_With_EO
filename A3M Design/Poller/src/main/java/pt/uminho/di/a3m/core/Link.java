@@ -51,6 +51,10 @@ public class Link implements Pollable {
         this.owner = socket;
     }
 
+    public void unlink() {
+        // TODO - unlink
+    }
+
     /**
      * Record that combines a park state instance and events of interest
      * to be used by methods of the link instance that imply waiting
@@ -258,7 +262,7 @@ public class Link implements Pollable {
     }
 
     private void handleLinkRequest(SocketMsg msg) {
-        if(state.get() == LinkState.PENDING) {
+        if(state.get() == LinkState.LINKING) {
             // deserializes the payload into a map
             SerializableMap payload = null;
             try {
@@ -315,7 +319,7 @@ public class Link implements Pollable {
             byte code = payload.getCode().byteAt(0);
             switch (code){
                 case ErrorType.SOCK_NFOUND, ErrorType.SOCK_NAVAIL ->{
-                    if(state.get() == LinkState.PENDING) {
+                    if(state.get() == LinkState.LINKING) {
                         int peerCapacity =
                                 owner.getOption("peerCapacity", Integer.class);
                         long dispatchTime =

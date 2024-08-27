@@ -71,6 +71,7 @@ Cookies are essentially a confirmation of reception message. Since we can consid
 A *Cookie* can be used to determine when a message has arrived at the destination. Since messages are processed by order of arrival, a Cookie can be used to determine when it is safe to send a new message so that it does not arrive first at the destination. This does not work if the messages have different priorities and are reordered by the socket custom logic. 
 
 # Linking algorithm reformulated
+## Final Solution
 
 ```
 /*
@@ -123,6 +124,8 @@ A *Cookie* can be used to determine when a message has arrived at the destinatio
         1. If link exists (discard if not a newer clock identifier):
             1-LINKING: Link is in a "LINKING" state
                 1. Set link state to ESTABLISHED and save peer's identifier.
+                2. If there is a scheduled retry, cancel it, and dispatch it immediatelly.
+                3. If there isn't a scheduled retry, then, nothing more is required.
                 NOTE: If the link state is LINKING, then a link message has already been sent and
                 due to the symmetry of the linking procedure, the peer should also establish the LINK on his side.
             1-ESTABLISHED:
@@ -203,5 +206,139 @@ A *Cookie* can be used to determine when a message has arrived at the destinatio
                 UNLINK message to close the link when the LINK/LINKACK message is received by this socket. 
                 However, this socket does need to have a flag indicating that it can close immediatelly,
                 instead of passing to the UNLINKING state.
+     */
+```
+## Failed ideas to search for problems to write in the thesis
+```
+ /*
+    TODO - Linking/Unlink algorithm:
+
+        *** Linking algorithm ***
+
+        When invoking link():
+        1. If link exists, do nothing and return.
+        2. Create link, set it to "linking" state, and send a link message to the peer.
+        3. Wait for a link/link acknowledgment message from the peer to confirm the establishment.
+        4-LINK:
+            1. If either a link or a positive link acknowledgement message is received, set link state
+                to "established" and return.
+        4-REFUSAL:
+            1. If a negative link acknowledgment message is received,
+               determine if the reason is fatal or non-fatal.
+                4-REFUSAL-FATAL:
+                    1. If fatal, close and delete link. The closure must wake up
+                    all waiters with a POLLHUP and POLLFREE notification.
+                4-REFUSAL-NON-FATAL:
+                    1. If not-fatal, schedule a retry.
+        4-UNLINK:
+            1. If an unlink message is received, set state to "UNLINKING" and send an UNLINK message.
+
+        NOTE: COOKIES could make solving this easier. One would require the cookie from a link-related
+        message sent to that particular link to be received by the destination before sending a new
+        link-related message. This would avoid messages cancelling each other.
+
+        When receiving a LINK message:
+        1. If link exists and in a "LINKING" state, set link state to ESTABLISHED.
+        2. If link does not exist, analyze LINK message and link restrictions (maxLinks) :
+            2-COMPATIBLE. Create link, set link state to "ESTABLISHED" and send a positive LINKACK message.
+            2-NOT_COMPAT. Send a negative LINKACK informing which the reason behind the refusal
+
+        When receiving a LINKACK message:
+
+
+
+        ** Unlinking **
+
+        1. If does not exist, do nothing and return.
+        2. If the link is in an "UNLINKING" state, do nothing and return.
+        3. If the link is "ESTABLISHED", set state to "UNLINKING" and send an unlink message.
+        4.
+
+
+     */
+
+    /*
+    NOTE: COOKIES could make solving this easier. One would require the cookie from a link-related
+        message sent to that particular link to be received by the destination before sending a new
+        link-related message. This would avoid messages cancelling each other.
+     */
+
+
+    /*
+    TODO - Linking/Unlink algorithm with causal consistency clock:
+
+        *** Linking algorithm ***
+
+        - A clock is required for causal consistency.
+        - Every link-related message carries the socket's clock and increases the clock.
+        - Ignore any message with clock smaller than the last highest saved clock of the peer.
+
+        When invoking link():
+        1. If link exists:
+            1-LINKING/ESTABLISHED:
+                1. If link state is LINKING or ESTABLISHED, do nothing and return.
+            1-UNLINKING:
+                1. If link state is UNLINKING, go to step 3.
+        2. Create link with peer's clock as -1.
+        3. Set link to LINKING state.
+        4. Send a LINK message to the peer.
+        5. Wait for a message from the peer (rejects any message with a clock smaller than the currently saved peer's clock)
+            5-LINK:
+                1. If either a link or a positive link acknowledgement message is received, set link state
+                    to "established", update the clock of the peer to match the received clock and return.
+            5-REFUSAL:
+                1. If a negative link acknowledgment message is received,
+                   determine if the reason is fatal or non-fatal.
+                    5-REFUSAL-FATAL:
+                        1. If fatal, close and delete link. The closure must wake up
+                           all waiters with a POLLHUP and POLLFREE notification.
+                    5-REFUSAL-NON-FATAL:
+                        1. If not-fatal, schedule a retry.
+                            NOTE: Since there is a possibility of the scheduled retry undoing an unlink from the peer,
+                                  when the peer sends a link and unlink messages after sending the non-fatal refusal,
+                                  the scheduled dispatches should return an atomic reference that enables cancelling
+                                  the dispatch. To cancel the dispatch, one should set the value to "null". The messaging
+                                  system, will also set the value to "null" using getAndSet(null) enabling to verify if
+                                  the message was dispatched.
+            5-UNLINK:
+                1. If an unlink message is received, send an UNLINK message and close the link.
+
+
+        When receiving a LINK message (discard if not a newer clock) :
+        1. If link exists:
+            1-LINKING: Link is in a "LINKING" state
+                1. Set link state to ESTABLISHED and save peer's clock.
+                NOTE: If the link state is LINKING, then a link message has already been sent and
+                due to the symmetry of the linking procedure, the peer should also establish the LINK on his side.
+            1-ESTABLISHED:
+                1. Keep ESTABLISHED and save peer's clock.
+                    NOTE: Linking symmetry assumes it will always lead to the same result,
+                    so there is no need to check the message.
+            1-UNLINKING:
+                1. Change to ESTABLISHED and save peer's clock.
+                    NOTE: This changes theoretically should have impact on the state (such as queued incoming messages),
+                    since a successfully closed link has its associated state lost, which means
+                    that by not having in mind this possible changes, the sockets may have incongruent states.
+        2. If link does not exist, analyze LINK message and link restrictions (maxLinks).
+            2-COMPATIBLE:
+                1. Create link with peer's clock.
+                2. Set link state to "ESTABLISHED".
+                3. Send a positive LINKACK message.
+            2-NOT_COMPAT:
+                1. Send a negative LINKACK informing
+                which the reason behind the refusal.
+
+        When receiving a LINKACK message (discard if not a newer clock):
+
+
+
+        ** Unlinking **
+
+        1. If does not exist, do nothing and return.
+        2. If the link is in an "UNLINKING" state, do nothing and return.
+        3. If the link is "ESTABLISHED", set state to "UNLINKING" and send an unlink message.
+        4.
+
+
      */
 ```

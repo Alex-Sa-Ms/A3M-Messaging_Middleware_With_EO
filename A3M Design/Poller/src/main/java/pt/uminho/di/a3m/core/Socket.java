@@ -25,10 +25,10 @@ public abstract class Socket{
     private final SocketIdentifier sid;
     private SocketManager socketManager = null;
     private MessageDispatcher dispatcher = null;
-    private final AtomicReference<SocketState> state = new AtomicReference<>(SocketState.CREATED);
-    private final Lock lock = new ReentrantLock(); // TODO - a more efficient locking mechanism may be required in the future
+    final AtomicReference<SocketState> state = new AtomicReference<>(SocketState.CREATED);
+    final Lock lock = new ReentrantLock(); // TODO - a more efficient locking mechanism may be required in the future
     private final Map<String, OptionHandler<?>> options = defaultSocketOptions(); // Map of option handlers. Handlers are required to prevent changing options to unacceptable values.
-    private final Map<SocketIdentifier,Link> links = new HashMap<>(); // maps link objects to the peer's socket identifier
+    private final Map<SocketIdentifier, Link> links = new HashMap<>(); // maps link objects to the peer's socket identifier
     private Exception error = null;
 
     protected Socket(SocketIdentifier sid) {
@@ -37,14 +37,8 @@ public abstract class Socket{
 
     // ******** Getters & Setters ******** //
 
-    /** @return current socket state */
-    public final SocketState getState() {
-        return state.get();
-    }
-
-    /** @return socket identifier */
-    public final SocketIdentifier getId() {
-        return sid;
+    MessageDispatcher getDispatcher() {
+        return dispatcher;
     }
 
     /**
@@ -56,18 +50,39 @@ public abstract class Socket{
         return lock;
     }
 
-    final void setCoreComponents(MessageDispatcher dispatcher, SocketManager socketMananer) {
-        this.dispatcher = dispatcher;
-        this.socketManager = socketMananer;
+    /** @return current socket state */
+    public final SocketState getState() {
+        return state.get();
+    }
+
+    /** @return socket identifier */
+    public final SocketIdentifier getId() {
+        return sid;
     }
 
     public Exception getError() {
         return error;
     }
 
-    protected void setError(Exception error) {
-        this.error = error;
+    public boolean isCompatibleProtocol(int protocolId){
+        for(Protocol prot : getCompatibleProtocols()){
+            if(prot.id() == protocolId)
+                return true;
+        }
+        return false;
     }
+
+    final void setCoreComponents(MessageDispatcher dispatcher, SocketManager socketMananer) {
+        this.dispatcher = dispatcher;
+        this.socketManager = socketMananer;
+    }
+
+    protected void setErrorState(Exception error) {
+        this.error = error;
+        this.state.set(SocketState.ERROR);
+    }
+
+    // ******** Socket Options ******** //
 
     /**
      * To initialize the default options of a socket.
@@ -149,7 +164,7 @@ public abstract class Socket{
     }
 
     /**
-     * To register options or option handlers.
+     * To register option handlers.
      * @param option identifier of the option
      * @param handler option handler. Use GenericOptionHandler when
      *                wanting the traditional get-set behavior.
@@ -277,11 +292,35 @@ public abstract class Socket{
     }
 
     public final void link(SocketIdentifier sid){
-        // TODO - link()
+        try {
+            lock.lock();
+            if (state.get() == SocketState.READY) {
+                // 1. If link already exists, do nothing,
+                //      since it will either be pending or established.
+                // 2. Link does not exist, so, create a link using default
+                // values present in the socket options.
+                // 3. Send a link request.
+
+            }
+        }finally {
+            lock.unlock();
+        }
     }
 
     public final void unlink(SocketIdentifier sid){
-        // TODO - unlink()
+        /* TODO - unlink()
+        //  1. If link does not exist, do not do anything.
+        //  2. If link does exist and its state is:
+        //      - ESTABLISHED:
+        //          - send UNLINK and close link
+        //      - PENDING:
+        //          1. Change state to UNLINKING
+        //              -> Note: Required because if a LINK request is coming it
+        //                       would result in the establishment of the link once again.
+        //
+        //
+
+         */
     }
 
     public final boolean isLinked(SocketIdentifier sid){
@@ -324,7 +363,6 @@ public abstract class Socket{
             lock.lock();
             // sets state to CLOSED if the current state is CLOSING,
             // and performs last closing procedures.
-            // and
             if(state.compareAndSet(SocketState.CLOSING, SocketState.CLOSED)){
                 // Calls the socket manager close() method to perform
                 // the clean-up procedures such as removing the socket.
@@ -348,32 +386,48 @@ public abstract class Socket{
             // TODO - when invoked for the second time, wait using polling mechanism
             if (tmpState == SocketState.CLOSING)
                 throw new IllegalArgumentException("Socket is closing or has already closed.");
-            // set state to CLOSING
-            state.set(SocketState.CLOSING);
-            // close all links
-            Iterator<Map.Entry<SocketIdentifier, Link>> it = links.entrySet().iterator();
-            while (it.hasNext()) {
-                Map.Entry<SocketIdentifier, Link> entry = it.next();
-                entry.getValue().close(); // close link
-                it.remove(); // remove it from links collection
-            }
-            // calls custom closing procedure and expects destroyCompleted()
-            // to be called in order for the state to proceed to CLOSE and
-            // for the middleware to perform the required socket clean-up
-            // procedures.
-            destroy();
+            closeInternal();
         } finally {
             lock.unlock();
         }
     }
 
+    /**
+     * Internal close call. Called to close and invoke
+     * cleaning procedures when appropriate.
+     */
+    protected void closeInternal() {
+        if(state.get() != SocketState.CLOSED){
+            if(state.get() != SocketState.CLOSING){
+                // set state to CLOSING
+                state.set(SocketState.CLOSING);
+                // Unlinking all links is required before closing the socket.
+                // When the socket is closing, if the link is the last link to
+                // be removed, it must invoke this closeInternal() method to
+                // move to the next step of the closing procedure.
+                for (Map.Entry<SocketIdentifier, Link> entry : links.entrySet())
+                    entry.getValue().unlink(); // unlink link
+            }
+            else{
+                if(links.isEmpty()){
+                    // calls custom closing procedure and expects destroyCompleted()
+                    // to be called in order for the state to proceed to CLOSE and
+                    // for the middleware to perform the required socket clean-up
+                    // procedures.
+                    destroy();
+                }
+            }
+        }
+    }
+
     // ********** Abstract socket methods ********** //
     protected abstract void init();
+
     /**
-     * Custom closing procedures.
-     * Must invoke destroyCompleted() when
-     * the procedures are done to effectively
-     * close the socket.
+     * To implement custom closing procedures,
+     * such as destroying and closing any resources initialized
+     * by the custom socket logic.
+     * @implSpec implementation must avoid - more like "not include" - any blocking operations.
      */
     protected abstract void destroy();
     protected abstract void customHandleEvent(SocketEvent event);

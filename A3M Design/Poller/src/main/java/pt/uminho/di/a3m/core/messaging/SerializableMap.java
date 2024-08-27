@@ -138,6 +138,8 @@ public class SerializableMap {
     }
 
     public static SerializableMap deserialize(byte[] array) throws InvalidProtocolBufferException {
-        return new SerializableMap(PMap.parseFrom(array).getItemsMap());
+        return array != null ?
+                new SerializableMap(PMap.parseFrom(array).getItemsMap())
+                : null;
     }
 }
