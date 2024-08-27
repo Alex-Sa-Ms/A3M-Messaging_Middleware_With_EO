@@ -59,6 +59,30 @@ public class LinkManager {
         socket.dispatch(msg);
     }
 
+    /**
+     * Schedule dispatch of a message to the peer
+     * @param dest identifier of the destination
+     * @param type type of the message
+     * @param payload content of the message
+     * @param dispatchTime time at which the dispatch should be executed. 
+     *                     Must be obtained using System.currentTimeMillis()               
+     */
+    private AtomicReference<SocketMsg> scheduleDispatch(SocketIdentifier dest, byte type, byte[] payload, long dispatchTime){
+        assert dest != null;
+        SocketMsg msg = new SocketMsg(socket.getId(), dest, type, payload);
+        return socket.scheduleDispatch(msg, dispatchTime);
+    }
+
+    /**
+     * Schedule dispatch of a message to the peer
+     * @param msg socket message to be dispatched
+     * @param dispatchTime time at which the dispatch should be executed. 
+     *                     Must be obtained using System.currentTimeMillis() 
+     */
+    private AtomicReference<SocketMsg> scheduleDispatch(SocketMsg msg, long dispatchTime){
+        return socket.scheduleDispatch(msg, dispatchTime);
+    }
+
 /*
 When invoking link():
         1. If link exists:
@@ -164,14 +188,14 @@ When invoking link():
 
     /**
      * Creates link acknowledgement payload. Identical to the link request
-     * payload but enables a refusal code to be provided.
+     * payload but enables an acknowledgement code to be provided.
      * @param clockId link's clock identifier
-     * @param refusalCode Set to 'null' if the link acknowledgment is positive
+     * @param ackCode acknowledgement code
      * @return serializable map which corresponds to the link request payload.
      */
-    private SerializableMap createLinkAckMsg(int clockId, int refusalCode) {
+    private SerializableMap createLinkAckMsg(int clockId, int ackCode) {
         SerializableMap map = createLinkRequestMsg(clockId);
-        map.putInt("refusalCode", refusalCode);
+        map.putInt("ackCode", ackCode);
         return map;
     }
 
@@ -197,6 +221,59 @@ When invoking link():
 
     // ********* Linking/Unlinking logic ********* //
 
+    // TODO - see where notifying waiters and creating socket events is required
+
+    /**
+     * Determines if a peer is compatible
+     * @param peerProtocolId peer's protocol identifier
+     * @return true if peer is compatible. Otherwise, returns false.
+     */
+    private boolean isPeerCompatible(int peerProtocolId){
+        return socket.isCompatibleProtocol(peerProtocolId);
+    }
+
+    /**
+     * Confirms peer compatibility. If the peer is not compatible,
+     * sets in motion an unlinking process.
+     * @return true if peer is compatible. false, otherwise.
+     */
+    private boolean confirmPeerCompatibility(LinkNew link, int peerProtocolId){
+        if(!isPeerCompatible(peerProtocolId)){
+            // in the absence of malicious nodes, this does not happen.
+            link.state.set(LinkState.UNLINKING);
+            dispatch(link.id.destId(), MsgType.UNLINK, createUnlinkMsg(link.getClockId()));
+            return false;
+        }else
+            return true;
+    }
+    
+    /**
+     * Sets peer's information received on a LINK/LINKACK message.
+     * This method limits itself to setting the values. It does not
+     * do any special procedures, such as waking up waiters.
+     * @param link link instance related to the peer
+     * @param protocolId peer's protocol identifier
+     * @param clockId peer's clock identifier
+     * @param outCredits peer's provided credits
+     */
+    private void setPeerInformation(LinkNew link, int protocolId, int clockId, int outCredits){
+        // set peer's protocol
+        link.setPeerProtocolId(protocolId);
+        // update peer's link clock identifier
+        link.setPeerClockId(clockId);
+        // update outgoing credits
+        link.outFCS.applyCreditVariation(outCredits);
+    }
+    
+    /**
+     * Closes link and removes it from the links collection
+     * @param link link to be closed and removed
+     */
+    private void removeLink(LinkNew link){
+        link.close();
+        links.remove(link.id.destId());
+    }
+    
     /**
      * Creates link with default incoming capacity.
      * @param sid peer's socket identifier
@@ -233,10 +310,8 @@ When invoking link():
      */
     private LinkNew createEstablishedLink(SocketIdentifier sid, int peerProtocolId, int peerClockId, int outCredits){
         LinkNew link = createLink(sid);
-        link.setPeerClockId(peerClockId);
         link.state.set(LinkState.ESTABLISHED);
-        link.setPeerProtocol(peerProtocolId);
-        link.outFCS.applyCreditVariation(outCredits);
+        setPeerInformation(link, peerProtocolId, peerClockId, outCredits);
         return link;
     }
 
@@ -272,15 +347,21 @@ When invoking link():
                 if(peerClockId < link.getPeerClockId()) return;
                 switch (link.state.get()){
                     case LINKING -> {
+                        // TODO - where is the verification of compatibility?
                         link.state.set(LinkState.ESTABLISHED);
-                        // update peer's link clock identifier
-                        link.setPeerClockId(peerClockId);
+                        // update peer's information
+                        setPeerInformation(link, peerProtocolId, peerClockId, outCredits);
                         // if a link message is scheduled, cancel it,
                         // and send it immediatelly
                         SocketMsg scheduled = link.cancelScheduledMessage();
                         if(scheduled != null)
                             dispatch(scheduled);
                     }
+                    // Ignore message when ESTABLISHED. This cannot happen, as
+                    // for a LINK/LINKACK message to be sent, the sender must not
+                    // have the link, and the state of this link is that both peers
+                    // agreed on having the link established.
+                    // case ESTABLISHED -> {}
                     case UNLINKING -> {
                         // The received message must have a higher clock id
                         // then the peer's clock id associated with the link.
@@ -329,7 +410,7 @@ When invoking link():
 
                 // If the peer's protocol is not compatible with the socket's protocol,
                 // send a fatal refusal reason informing the incompatibility
-                if(!socket.isCompatibleProtocol(peerProtocolId)){
+                if(!isPeerCompatible(peerProtocolId)){
                     ackPayload = createLinkAckMsg(0, AC_INCOMPATIBLE).serialize();
                     dispatch(peerId, MsgType.LINKACK, ackPayload);
                     return;
@@ -350,10 +431,96 @@ When invoking link():
     }
 
     private void handleLinkAckMsg(SocketMsg msg) {
+        SocketIdentifier peerId = msg.getSrcId();
+        SerializableMap payload = parseLinkAckMsg(msg);
+        if(payload == null) return; // if payload is invalid
+        int ackCode = payload.getInt("ackCode");
+        int peerProtocolId = payload.getInt("protocolId");
+        int outCredits = payload.getInt("credits");
+        int peerClockId = payload.getInt("clockId");
         try {
             lock().lock();
-            SocketIdentifier peerId = msg.getSrcId();
-            // TODO - handle LinkAck msg
+            LinkNew link = links.get(peerId);
+            // If link exists
+            if(link != null) {
+                // discard messages with old clock identifiers
+                if(peerClockId < link.getPeerClockId()) return;
+                switch (link.state.get()){
+                    case LINKING -> {
+                        // if the link was accepted by the peer
+                        if(ackCode == 0){
+                            // Confirm compatibility. Initiates 
+                            // unlinking process if not compatible. 
+                            if(confirmPeerCompatibility(link, peerProtocolId)){
+                                link.state.set(LinkState.ESTABLISHED);
+                                setPeerInformation(link, peerProtocolId, peerClockId, outCredits);
+                            }
+                        }
+                        // if the acknowledgement message contains a fatal
+                        // refusal code, then remove the link
+                        else if(isFatalRefusalCode(ackCode))
+                            removeLink(link);
+                        else { 
+                            // if not fatal refusal code, then 
+                            // schedule a linking process retry
+                            byte[] linkReqPayload =
+                                    createLinkRequestMsg(link.getClockId()).serialize();
+                            long dispatchTime =
+                                    System.currentTimeMillis()
+                                    + socket.getOption("retryInterval", Long.class);
+                            AtomicReference<SocketMsg> scheduled =
+                                    scheduleDispatch(peerId, MsgType.LINK, linkReqPayload, dispatchTime);
+                            link.setScheduled(scheduled);
+                        }
+                    }
+                    // Ignore message when ESTABLISHED. This cannot happen, as
+                    // for a LINK/LINKACK message to be sent, the sender must not
+                    // have the link, and the state of this link is that both peers
+                    // agreed on having the link established.
+                    // case ESTABLISHED -> {}
+
+                    // Receiving a LINKACK message when in UNLINKING state is not possible.
+                    // To pass to the UNLINKING state, one must have already received a LINK/LINKACK
+                    // message.
+                    // case UNLINKING -> {}
+                    case WAITING_TO_UNLINK -> {
+                        // A link is set to the WAITING_TO_UNLINK state when a LINK/LINKACK
+                        // message has not yet been received to determine if the link should be
+                        // established or not.
+
+                        // Update peer's identifier as it is the first time receiving
+                        // a message from the peer since the creation of the link.
+                        link.setPeerClockId(peerClockId);
+                        
+                        // if the ack code is not successful, closing the link.
+                        // can be done has the link establishment was rejected.
+                        if(ackCode != 0) {
+                            removeLink(link);
+                            // A closing event does not need to be emitted as 
+                            // a link established event was not emitted.
+                            return;
+                        }
+                        
+                        // Confirm compatibility. Initiates unlinking process
+                        // if not compatible. 
+                        if(!confirmPeerCompatibility(link, peerProtocolId))
+                            return;
+                        
+                        // Send an UNLINK message
+                        dispatch(peerId, MsgType.UNLINK, createUnlinkMsg(link.getClockId()));
+
+                        // If an UNLINK msg as already been received while
+                        // in the WAITING_TO_UNLINK state, then the link
+                        // can be closed after sending the UNLINK message.
+                        if(link.isUnlinkReceived()) removeLink(link);
+                        // Else, the link can progress to the UNLINKING state
+                        else link.state.set(LinkState.UNLINKING);
+                    }
+                }
+            }
+            // Else: if link does not exist. 
+            // Ignore message, although a LINKACK message is not
+            // supposed to be received when the link does not exist.
         } finally {
             lock().unlock();
         }
@@ -375,7 +542,7 @@ When invoking link():
      * Initiate a linking process for the provided socket identifier.
      * @param sid socket identifier of the peer with which a link should be established
      * @throws IllegalArgumentException If socket identifier is null.
-     * @throws IllegalStateException If the link is being closed.
+     * @throws IllegalStateException If the link is being closed or if the limit of links has been reached.
      */
     public void link(SocketIdentifier sid){
         if(sid == null)
@@ -391,13 +558,19 @@ When invoking link():
                 if(state == LinkState.UNLINKING || state == LinkState.WAITING_TO_UNLINK)
                     throw new IllegalStateException("Link is currently being closed. Try again later.");
             }else{
-                // Link does not exist, so create and register it.
-                // Each link created is given a different clock identifier.
-                link = createLinkingLink(sid);
-                links.put(sid, link);
-                // send a LINK message to the peer
-                SerializableMap map = createLinkRequestMsg(clock);
-                dispatch(sid, MsgType.LINK, map.serialize());
+                // Link does not exist, so create and register it if
+                // the maximum amount of links has not been reached.
+                int maxLinks = socket.getOption("maxLinks", Integer.class);
+                if(links.size() < maxLinks) {
+                    // Each link created is given a different clock identifier.
+                    link = createLinkingLink(sid);
+                    links.put(sid, link);
+                    // send a LINK message to the peer
+                    SerializableMap map = createLinkRequestMsg(clock);
+                    dispatch(sid, MsgType.LINK, map.serialize());
+                }else{
+                    throw new IllegalStateException("Maximum amount of links has been reached.");
+                }
             }
         }finally {
             lock().unlock();

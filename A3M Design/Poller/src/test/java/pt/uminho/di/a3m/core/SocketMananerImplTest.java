@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test;
 import pt.uminho.di.a3m.core.messaging.Msg;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 
+import java.util.concurrent.atomic.AtomicReference;
+
 class SocketMananerImplTest {
     SocketManager socketManager;
     Protocol reqProt = new Protocol(123456, "REQ");
@@ -20,11 +22,11 @@ class SocketMananerImplTest {
     void init(){
         socketManager = new SocketMananerImpl("dummyNodeId",new MessageDispatcher() {
             @Override
-            public void dispatch(Msg msg) {}
+            public void dispatch(SocketMsg msg) {}
 
             @Override
-            public void scheduleDispatch(SocketMsg msg, long dispatchTime) {
-
+            public AtomicReference<SocketMsg> scheduleDispatch(SocketMsg msg, long dispatchTime) {
+                return new AtomicReference<>(msg);
             }
         });
     }

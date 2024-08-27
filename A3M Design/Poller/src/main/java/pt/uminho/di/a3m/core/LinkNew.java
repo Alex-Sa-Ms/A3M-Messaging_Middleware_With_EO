@@ -3,6 +3,7 @@ package pt.uminho.di.a3m.core;
 import pt.uminho.di.a3m.core.flowcontrol.InFlowControlState;
 import pt.uminho.di.a3m.core.flowcontrol.OutFlowControlState;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
+import pt.uminho.di.a3m.poller.PollFlags;
 import pt.uminho.di.a3m.waitqueue.WaitQueue;
 
 import java.util.Queue;
@@ -19,7 +20,7 @@ public class LinkNew {
     final WaitQueue waitQ = new WaitQueue();
     private Queue<SocketMsg> inMsgQ = null;
     private AtomicReference<SocketMsg> scheduled = null; // To keep track of scheduled LINK message
-
+    private boolean unlinkReceived = false; // Used when in WAITING_TO_UNLINK state.
     /**
      * Link constructor
      * @param id identifier of the link
@@ -59,13 +60,16 @@ public class LinkNew {
         return scheduled;
     }
 
+    public boolean isUnlinkReceived() {
+        return unlinkReceived;
+    }
 
     /**
      * Lets setting the peer protocol once known. Setting this
      * value is limited to one time.
      * @param peerProtocolId peer's protocol id
      */
-    public void setPeerProtocol(Integer peerProtocolId) {
+    public void setPeerProtocolId(Integer peerProtocolId) {
         if(this.peerProtocolId == null)
             this.peerProtocolId = peerProtocolId;
     }
@@ -109,5 +113,16 @@ public class LinkNew {
             scheduled = null;
         }
         return msg;
+    }
+
+    public void setUnlinkReceived(boolean unlinkReceived) {
+        this.unlinkReceived = unlinkReceived;
+    }
+
+    public void close() {
+        state.set(LinkState.CLOSED);
+        // Wake up all waiters with POLLHUP and
+        // POLLFREE to inform the closure.
+        waitQ.wakeUp(0,0,0, PollFlags.POLLHUP | PollFlags.POLLFREE);
     }
 }

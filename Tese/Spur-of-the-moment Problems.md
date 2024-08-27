@@ -72,6 +72,7 @@ A *Cookie* can be used to determine when a message has arrived at the destinatio
 
 # Linking algorithm reformulated
 ## Final Solution
+Note: While this may seem like a non-symmetric procedure due to each side consulting their options such as max limits and block incoming requests, the algorithm is still symmetric. The reason being that this verification (apart from the compatibility one which is always done) is only done when initiating a linking process or when receiving a LINK message. If both sides send a LINK message, then both have agreed on linking if the compatibility is verified. The compatibility check is a symmetric process, so, is symmetry makes the linking process symmetric as well.  If only one side sends a LINK message, than it will receive the answer regarding the compatibility from a LINKACK message that carries the a code informing if the link was accepted or denied. If denied the reason may be fatal or non-fatal, with a fatal reason meaning that retrying must not be performed as it will yield the same result.
 
 ```
 /*

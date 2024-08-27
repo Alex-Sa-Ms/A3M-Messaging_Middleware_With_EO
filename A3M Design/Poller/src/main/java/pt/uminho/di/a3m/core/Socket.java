@@ -196,8 +196,8 @@ public abstract class Socket{
      * @param dispatchTime time at which the dispatch should be executed.
      *                     Must be obtained using System.currentTimeMillis()
      */
-    void scheduleDispatch(SocketMsg msg, long dispatchTime) {
-        dispatcher.scheduleDispatch(msg, dispatchTime);
+    AtomicReference<SocketMsg> scheduleDispatch(SocketMsg msg, long dispatchTime) {
+        return dispatcher.scheduleDispatch(msg, dispatchTime);
     }
 
     void dispatch(SocketMsg msg){
