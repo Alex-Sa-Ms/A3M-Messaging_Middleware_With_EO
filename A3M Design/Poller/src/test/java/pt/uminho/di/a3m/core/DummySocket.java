@@ -2,18 +2,38 @@ package pt.uminho.di.a3m.core;
 
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 
+import java.util.HashSet;
 import java.util.Queue;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 public class DummySocket extends Socket{
     // NOTE: The protocol must be static and final, however, for 
     // tests purposes, allowing the protocol to be defined is helpful
-    Protocol protocol;
+    private Protocol protocol;
+    private final Set<Protocol> compatProtocols = new HashSet<>();
 
     protected DummySocket(SocketIdentifier sid, Protocol protocol) {
         super(sid);
-        this.protocol = protocol;        
+        this.protocol = protocol;
+        this.compatProtocols.add(this.protocol);
+    }
+
+    /**
+     * @param nodeId node identifier
+     * @param tagId socket's tag identifier
+     * @param protocolId protocol identifier
+     * @param protocolName protocol name
+     * @param compatProtocols set of compatible protocols. If 'null' the socket is assumed to be compatible with its own protocol.
+     */
+    public DummySocket(String nodeId, String tagId, int protocolId, String protocolName, Set<Protocol> compatProtocols) {
+        super(new SocketIdentifier(nodeId, tagId));
+        this.protocol = new Protocol(protocolId, protocolName);
+        if(compatProtocols == null)
+            this.compatProtocols.add(this.protocol);
+        else
+            this.compatProtocols.addAll(compatProtocols);
     }
 
     @Override
@@ -23,7 +43,19 @@ public class DummySocket extends Socket{
 
     @Override
     public Set<Protocol> getCompatibleProtocols() {
-        return null;
+        return new HashSet<>(compatProtocols);
+    }
+
+    public void setProtocol(Protocol protocol) {
+        this.protocol = protocol;
+    }
+
+    public void setCompatProtocols(Set<Protocol> compatProtocols){
+        this.compatProtocols.clear();
+        if(compatProtocols != null)
+            this.compatProtocols.addAll(compatProtocols);
+        else
+            this.compatProtocols.add(protocol);
     }
 
     @Override

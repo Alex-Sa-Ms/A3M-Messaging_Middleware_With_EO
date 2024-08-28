@@ -105,7 +105,7 @@ public abstract class Socket{
         // Defines the capacity new peers will have as starting point.
         options.put("peerCapacity", new GenericOptionHandler<>(100, Integer.class));
         // Sets link limit handler. Does not have any effect on currently established or requested links.
-        options.put("maxLinks", new GenericOptionHandler<>(Short.MAX_VALUE, Short.class));
+        options.put("maxLinks", new GenericOptionHandler<>(Integer.MAX_VALUE, Integer.class));
         // Set flag that allows disabling the acceptance of incoming link requests. Does not affect currently
         // established or requested links.
         options.put("allowIncomingLinkRequests", new GenericOptionHandler<>(true, Boolean.class));
@@ -397,8 +397,8 @@ public abstract class Socket{
      * cleaning procedures when appropriate.
      */
     protected void closeInternal() {
-        if(state.get() != SocketState.CLOSED){
-            if(state.get() != SocketState.CLOSING){
+        if(state.get() != SocketState.CLOSED) {
+            if (state.get() != SocketState.CLOSING) {
                 // set state to CLOSING
                 state.set(SocketState.CLOSING);
                 // Unlinking all links is required before closing the socket.
@@ -408,14 +408,13 @@ public abstract class Socket{
                 for (Map.Entry<SocketIdentifier, Link> entry : links.entrySet())
                     entry.getValue().unlink(); // unlink link
             }
-            else{
-                if(links.isEmpty()){
-                    // calls custom closing procedure and expects destroyCompleted()
-                    // to be called in order for the state to proceed to CLOSE and
-                    // for the middleware to perform the required socket clean-up
-                    // procedures.
-                    destroy();
-                }
+
+            if (links.isEmpty()) {
+                // calls custom closing procedure and expects destroyCompleted()
+                // to be called in order for the state to proceed to CLOSE and
+                // for the middleware to perform the required socket clean-up
+                // procedures.
+                destroy();
             }
         }
     }

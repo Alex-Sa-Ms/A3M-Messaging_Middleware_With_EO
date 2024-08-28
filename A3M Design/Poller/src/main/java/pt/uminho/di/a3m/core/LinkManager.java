@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
+import java.util.function.Predicate;
 import java.util.logging.Logger;
 
 import pt.uminho.di.a3m.core.LinkNew.LinkState;
@@ -18,7 +19,7 @@ import pt.uminho.di.a3m.poller.PollFlags;
 
 public class LinkManager {
     private final Socket socket;
-    private final Map<SocketIdentifier, LinkNew> links = new HashMap<>();
+    final Map<SocketIdentifier, LinkNew> links = new HashMap<>();
     private int clock = 0; // TODO - starting at 0 to simplify debugging, but then change to Integer.MIN_VALUE
     public LinkManager(Socket socket) {
         this.socket = socket;
@@ -82,38 +83,6 @@ public class LinkManager {
     private AtomicReference<SocketMsg> scheduleDispatch(SocketMsg msg, long dispatchTime){
         return socket.scheduleDispatch(msg, dispatchTime);
     }
-
-/*
-When invoking link():
-        1. If link exists:
-            1-LINKING/ESTABLISHED:
-                1. If link state is LINKING or ESTABLISHED, do nothing and return.
-            1-UNLINKING/WAITING-TO-UNLINK:
-                1. Throw exception, saying, link is closing (IllegalStateException)
-        2. Create link with peer's identifier as -1.
-        3. Set link to LINKING state.
-        4. Send a LINK message to the peer.
-        5. Wait for a message from the peer (rejects any message with an identifier smaller than the currently saved peer's identifier)
-            5-LINK:
-                1. If either a link or a positive link acknowledgement message is received, set link state
-                    to "established", update the peer's identifier using the received value and return.
-            5-REFUSAL:
-                1. If a negative link acknowledgment message is received,
-                   determine if the reason is fatal or non-fatal.
-                    5-REFUSAL-FATAL:
-                        1. If fatal, close and delete link. The closure must wake up
-                           all waiters with a POLLHUP and POLLFREE notification.
-                    5-REFUSAL-NON-FATAL:
-                        1. If not-fatal, schedule a retry.
-                            NOTE: Since there is a possibility of the scheduled retry undoing an unlink from the peer,
-                                  when the peer sends a link and unlink messages after sending the non-fatal refusal,
-                                  the scheduled dispatches should return an atomic reference that enables cancelling
-                                  the dispatch. To cancel the dispatch, one should set the value to "null". The messaging
-                                  system, will also set the value to "null" using getAndSet(null) enabling to verify if
-                                  the message was dispatched.
-            5-UNLINK:
-                1. If an unlink message is received, send an UNLINK message and close the link.
- */
 
     // ********* Linking Acknowledgment Codes ********* //
     // Zero for success.
@@ -203,6 +172,10 @@ When invoking link():
         return parseLinkReqOrAckMsg(msg);
     }
 
+    /**
+     * @param clockId link's clock identifier
+     * @return payload of unlink message
+     */
     private byte[] createUnlinkMsg(int clockId) {
         return ByteBuffer.allocate(4).putInt(clockId).array();
     }
@@ -213,13 +186,17 @@ When invoking link():
      * @return the clock identifier if the message's payload is valid. Otherwise, returns null.
      */
     private Integer parseUnlinkMsg(SocketMsg msg){
-        if(msg.getPayload() == null || msg.getPayload().length != 4)
-            return null;
-        else
+        if(msg.getPayload() != null && msg.getPayload().length == 4)
             return ByteBuffer.wrap(msg.getPayload()).getInt();
+        else
+            return null;
     }
 
     // ********* Linking/Unlinking logic ********* //
+
+    // TODO - what happens when a DATA message is received before the link is established?
+    //      Accumulate messages in the incoming queue and when the link is established, feed them
+    //      again to the socket's handle custom msg?
 
     // TODO - see where notifying waiters and creating socket events is required
     //      - set credits to zero when unlinking to prevent sending of data messages?    
@@ -238,14 +215,15 @@ When invoking link():
      * sets in motion an unlinking process.
      * @return true if peer is compatible. false, otherwise.
      */
-    private boolean confirmPeerCompatibility(LinkNew link, int peerProtocolId){
-        if(!isPeerCompatible(peerProtocolId)){
+    private boolean confirmCompatibilityOrUnlink(LinkNew link, int peerProtocolId){
+        if(isPeerCompatible(peerProtocolId))
+            return true;
+        else{
             // in the absence of malicious nodes, this does not happen.
             link.state.set(LinkState.UNLINKING);
             dispatch(link.id.destId(), MsgType.UNLINK, createUnlinkMsg(link.getClockId()));
             return false;
-        }else
-            return true;
+        }
     }
     
     /**
@@ -277,6 +255,7 @@ When invoking link():
     
     /**
      * Creates link with default incoming capacity.
+     * <p>The link is inserted in the "links" collection.
      * @param sid peer's socket identifier
      * @return link with 'null' state
      */
@@ -284,6 +263,7 @@ When invoking link():
         int peerCapacity = socket.getOption("peerCapacity", Integer.class);
         LinkIdentifier linkId = new LinkIdentifier(socket.getId(), sid);
         LinkNew link = new LinkNew(linkId, clock, peerCapacity);
+        links.put(sid, link);
         // The clock identifiers are provided in an increasing order,
         // as a form of causal consistency.
         clock++;
@@ -292,6 +272,7 @@ When invoking link():
 
     /**
      * Create link and set it to LINKING state.
+     * <p>The link is inserted in the "links" collection.
      * @param sid peer's socket identifier
      * @return link in LINKING state
      */
@@ -306,6 +287,7 @@ When invoking link():
      * Create link, set provided attributes and set state to ESTABLISHED.
      * This method limits itself to setting the attributes. It does
      * not do any special procedures such as waking up waiters.
+     * <p> The link is inserted in the "links" collection.
      * @param sid peer's socket identifier
      * @return link in LINKING state
      */
@@ -351,7 +333,7 @@ When invoking link():
                         // If peer is compatible, establish the link.
                         // If not, the confirmPeerCompatibility() initiates 
                         // an unlinking process.
-                        if(confirmPeerCompatibility(link, peerProtocolId)) {
+                        if(confirmCompatibilityOrUnlink(link, peerProtocolId)) {
                             link.state.set(LinkState.ESTABLISHED);
                             // update peer's information
                             setPeerInformation(link, peerProtocolId, peerClockId, outCredits);
@@ -381,14 +363,20 @@ When invoking link():
                         }
                     }
                     case WAITING_TO_UNLINK -> {
-                        // Update peer's identifier as it is the first time receiving
-                        // a message from the peer since the creation of the link.
-                        link.setPeerClockId(peerClockId);
-                        // Change to UNLINKING as the required to establish the link
-                        // was received
-                        link.state.set(LinkState.UNLINKING);
-                        // Send an UNLINK message to initiate the unlinking process
+                        // Send an UNLINK message to initiate the unlinking process if the
+                        // "unlink received" flag was not set, or to finish the unlinking process
+                        // if the flag was set.
                         dispatch(peerId, MsgType.UNLINK, createUnlinkMsg(link.getClockId()));
+
+                        if(!link.isUnlinkReceived()) {
+                            // Update peer's identifier as it is the first time receiving
+                            // a message from the peer since the creation of the link.
+                            link.setPeerClockId(peerClockId);
+                            // Change to UNLINKING as the required to establish the link
+                            // was received
+                            link.state.set(LinkState.UNLINKING);
+                        }else
+                            removeLink(link); // UNLINK msg was received, so removing link is allowed
                     }
                 }
             }
@@ -456,7 +444,7 @@ When invoking link():
                         if(ackCode == 0){
                             // Confirm compatibility. Initiates 
                             // unlinking process if not compatible. 
-                            if(confirmPeerCompatibility(link, peerProtocolId)){
+                            if(confirmCompatibilityOrUnlink(link, peerProtocolId)){
                                 link.state.set(LinkState.ESTABLISHED);
                                 setPeerInformation(link, peerProtocolId, peerClockId, outCredits);
                             }
@@ -493,28 +481,29 @@ When invoking link():
                         // message has not yet been received to determine if the link should be
                         // established or not.
 
-                        // Update peer's identifier as it is the first time receiving
-                        // a message from the peer since the creation of the link.
-                        link.setPeerClockId(peerClockId);
-                        
-                        // if the ack code is not successful, closing the link.
-                        // can be done has the link establishment was rejected.
-                        if(ackCode != 0) {
-                            removeLink(link);
-                            // A closing event does not need to be emitted as 
-                            // a link established event was not emitted.
-                            return;
-                        }
-                        
                         // Send an UNLINK message
                         dispatch(peerId, MsgType.UNLINK, createUnlinkMsg(link.getClockId()));
 
-                        // If an UNLINK msg as already been received while
-                        // in the WAITING_TO_UNLINK state, then the link
+                        // If an UNLINK msg as already been received, then the link
                         // can be closed after sending the UNLINK message.
-                        if(link.isUnlinkReceived()) removeLink(link);
-                        // Else, the link can progress to the UNLINKING state
-                        else link.state.set(LinkState.UNLINKING);
+                        if(link.isUnlinkReceived())
+                            removeLink(link);
+                        else {
+                            // Update peer's identifier as it is the first time receiving
+                            // a message from the peer since the creation of the link.
+                            link.setPeerClockId(peerClockId);
+
+                            // if the ack code is not successful, closing the link.
+                            // can be done has the link establishment was rejected.
+                            if (ackCode != 0) {
+                                removeLink(link);
+                                // A closing event does not need to be emitted as
+                                // a link established event was not emitted.
+                                return;
+                            }
+
+                            link.state.set(LinkState.UNLINKING);
+                        }
                     }
                 }
             }
@@ -528,7 +517,7 @@ When invoking link():
 
     private void handleUnlinkMsg(SocketMsg msg) {
         SocketIdentifier peerId = msg.getSrcId();
-        Integer peerClockId = parseUnlinkMsg(msg); 
+        Integer peerClockId = parseUnlinkMsg(msg);
         if(peerClockId == null) return; // ignore if payload is invalid
         try {
             lock().lock();
@@ -546,6 +535,9 @@ When invoking link():
                         // that has not arrived yet.
                         link.setPeerClockId(peerClockId);
                         link.state.set(LinkState.WAITING_TO_UNLINK);
+                        // since the unlink message has been received,
+                        // we need to set the flag related to that condition
+                        link.setUnlinkReceived(true);
                     }
                     case ESTABLISHED -> {
                         // send UNLINK message and close link
@@ -562,6 +554,7 @@ When invoking link():
                     // the link can be closed instead of changing for an UNLINKING state and waiting
                     // for an UNLINK message that has already been received.
                     case WAITING_TO_UNLINK -> {
+                        link.setPeerClockId(peerClockId);
                         // set "unlink message received" flag to enable the link
                         // to be closed right after sending the unlink message.
                         link.setUnlinkReceived(true);
@@ -600,9 +593,8 @@ When invoking link():
                 if(links.size() < maxLinks) {
                     // Each link created is given a different clock identifier.
                     link = createLinkingLink(peerId);
-                    links.put(peerId, link);
                     // send a LINK message to the peer
-                    SerializableMap map = createLinkRequestMsg(clock);
+                    SerializableMap map = createLinkRequestMsg(link.getClockId());
                     dispatch(peerId, MsgType.LINK, map.serialize());
                 }else{
                     throw new IllegalStateException("Maximum amount of links has been reached.");
@@ -657,19 +649,50 @@ When invoking link():
         }
     }
 
+    public boolean isLinkState(SocketIdentifier peerId, Predicate<LinkState> predicate){
+        try{
+            lock().lock();
+            LinkNew link = links.get(peerId);
+            LinkState state = link != null ? link.state.get() : null;
+            return predicate.test(state);
+        } finally {
+            lock().unlock();
+        }
+    }
+
+    public boolean isLinked(SocketIdentifier peerId){
+        return isLinkState(peerId, linkState -> linkState == LinkState.ESTABLISHED);
+    }
+
+    public boolean isLinking(SocketIdentifier peerId){
+        return isLinkState(peerId, linkState -> linkState == LinkState.LINKING);
+    }
+
+    public boolean isUnlinking(SocketIdentifier peerId){
+        return isLinkState(peerId, linkState -> linkState == LinkState.UNLINKING
+                                             || linkState == LinkState.WAITING_TO_UNLINK);
+    }
+
+    public boolean isUnlinked(SocketIdentifier peerId){
+        return isLinkState(peerId, linkState -> linkState == null
+                                             || linkState == LinkState.CLOSED);
+    }
+
+    // ********** Flow Control Methods ********** //
+
     // TODO - since there are "wait for link" methods which wait for a link
     //  to be established, then there should be a "wait for link closure" also.
 
     private void adjustOutgoingCredits(LinkNew link, int credits){
-        outFCS.applyCreditVariation(credits);
+        link.outFCS.applyCreditVariation(credits);
         // Waiters can only be notified when there are available
         // credits. Therefore, if current amount of credits is
         // equal or superior to the amount of positive credits
         // received, wake up waiters up to the received amount of credits.
         // Else, wake up only the amount of waiters that the available
         // credits allow.
-        int wakeUps = Math.min(outFCS.getCredits(), credits);
+        int wakeUps = Math.min(link.outFCS.getCredits(), credits);
         if(wakeUps > 0)
-            waitQ.fairWakeUp(0, wakeUps, 0, PollFlags.POLLOUT);
+            link.waitQ.fairWakeUp(0, wakeUps, 0, PollFlags.POLLOUT);
     }
 }
