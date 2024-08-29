@@ -13,6 +13,8 @@ import java.util.function.Predicate;
 import java.util.logging.Logger;
 
 import pt.uminho.di.a3m.core.LinkNew.LinkState;
+import pt.uminho.di.a3m.core.messaging.payloads.ErrorPayload;
+import pt.uminho.di.a3m.core.messaging.payloads.SerializableMap;
 import pt.uminho.di.a3m.poller.PollFlags;
 
 public class LinkManager {
@@ -33,11 +35,6 @@ public class LinkManager {
         return socket.state;
     }
 
-    ///** @return message dispatcher */
-    //private MessageDispatcher dispatcher(){
-    //    return socket.getDispatcher();
-    //}
-
     /**
      * Create message to the mentioned peer.
      * @param dest identifier of the destination
@@ -57,8 +54,7 @@ public class LinkManager {
      * @param payload content of the message
      */
     private void dispatch(SocketIdentifier dest, byte type, byte[] payload){
-        assert dest != null;
-        SocketMsg msg = new SocketMsg(socket.getId(), dest, type, payload);
+        SocketMsg msg = createMsg(dest, type, payload);
         socket.dispatch(msg);
     }
 
@@ -79,8 +75,7 @@ public class LinkManager {
      *                     Must be obtained using System.currentTimeMillis()               
      */
     private AtomicReference<SocketMsg> scheduleDispatch(SocketIdentifier dest, byte type, byte[] payload, long dispatchTime){
-        assert dest != null;
-        SocketMsg msg = new SocketMsg(socket.getId(), dest, type, payload);
+        SocketMsg msg = createMsg(dest, type, payload);
         return socket.scheduleDispatch(msg, dispatchTime);
     }
 
@@ -120,20 +115,20 @@ public class LinkManager {
     // Socket is closed
     public static final int AC_CLOSED = -4;
 
-    private boolean isPositiveLinkingCode(int ackcode){
+    private static boolean isPositiveLinkingCode(int ackcode){
         return ackcode == AC_SUCCESS;
     }
 
-    private boolean isFatalLinkingCode(int ackcode){
+    private static boolean isFatalLinkingCode(int ackcode){
         return ackcode < 0;
     }
 
-    private boolean isNonFatalLinkingCode(int ackcode){
+    private static boolean isNonFatalLinkingCode(int ackcode){
         return ackcode > 0;
     }
 
     // ********* Creation & Parsing of Link-related messages ********* //
-    
+
     /**
      * Creates link request payload.
      * @param clockId link's clock identifier
@@ -152,7 +147,7 @@ public class LinkManager {
     private void logParseErrorOnLinkReqOrAckMsg(SocketMsg msg){
         Logger.getLogger(socket.getId().toString())
                 .warning("Invalid " + (msg.getType() == MsgType.LINK ? "link request" : "link acknowledgement")
-                        + "from " + msg.getSrcId() + " : " + Arrays.toString(msg.getPayload()));
+                        + " from " + msg.getSrcId() + " : " + Arrays.toString(msg.getPayload()));
     }
 
     /**
@@ -217,11 +212,38 @@ public class LinkManager {
      * @param msg unlink message
      * @return the clock identifier if the message's payload is valid. Otherwise, returns null.
      */
-    private Integer parseUnlinkMsg(SocketMsg msg){
+    private static Integer parseUnlinkMsg(SocketMsg msg){
         if(msg.getPayload() != null && msg.getPayload().length == 4)
             return ByteBuffer.wrap(msg.getPayload()).getInt();
         else
             return null;
+    }
+
+    public static String linkRelatedMsgToString(SocketMsg msg) throws InvalidProtocolBufferException {
+        StringBuilder sb = new StringBuilder();
+        String type = "<not link-related>", payload = "";
+        if(msg == null) return null;
+
+        switch (msg.getType()) {
+            case MsgType.LINK -> {
+                type = "LINK";
+                payload = SerializableMap.deserialize(msg.getPayload()).toString();
+            }
+            case MsgType.LINKACK -> {
+                type = "LINKACK";
+                payload = SerializableMap.deserialize(msg.getPayload()).toString();
+            }
+            case MsgType.UNLINK -> {
+                type = "UNLINK";
+                payload = String.valueOf(parseUnlinkMsg(msg));
+            }
+        }
+
+        return sb.append("msg{src=").append(msg.getSrcId())
+                 .append(", dest=").append(msg.getDestId())
+                 .append(", type=").append(type)
+                 .append(", payload=").append(payload)
+                 .append("}").toString();
     }
 
     // ********* Linking/Unlinking logic ********* //

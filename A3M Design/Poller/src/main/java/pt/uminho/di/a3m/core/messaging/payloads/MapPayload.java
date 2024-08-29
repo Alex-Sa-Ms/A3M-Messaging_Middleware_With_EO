@@ -1,6 +1,7 @@
-package pt.uminho.di.a3m.core.messaging;
+package pt.uminho.di.a3m.core.messaging.payloads;
 
 import com.google.protobuf.InvalidProtocolBufferException;
+import pt.uminho.di.a3m.core.messaging.Payload;
 
 public class MapPayload implements Payload {
     private final byte type;

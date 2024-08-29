@@ -1,15 +1,14 @@
-package pt.uminho.di.a3m.core.messaging;
+package pt.uminho.di.a3m.core.messaging.payloads;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import pt.uminho.di.a3m.core.messaging.payloads.CoreMessages;
+import pt.uminho.di.a3m.core.messaging.payloads.SerializableMap;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 class SerializableMapTest {
     SerializableMap map;

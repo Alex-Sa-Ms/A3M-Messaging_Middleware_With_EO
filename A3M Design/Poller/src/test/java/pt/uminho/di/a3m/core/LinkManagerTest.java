@@ -3,6 +3,8 @@ package pt.uminho.di.a3m.core;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import pt.uminho.di.a3m.core.messaging.*;
+import pt.uminho.di.a3m.core.messaging.payloads.CoreMessages;
+import pt.uminho.di.a3m.core.messaging.payloads.SerializableMap;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -30,21 +32,13 @@ class LinkManagerTest {
 
         try {
             switch (msg.getType()) {
+                case MsgType.LINK, MsgType.LINKACK, MsgType.UNLINK -> {
+                    System.out.println(LinkManager.linkRelatedMsgToString(msg));
+                    return;
+                }
                 case MsgType.ERROR -> {
                     type = "ERROR";
                     payload = String.valueOf(CoreMessages.ErrorPayload.parseFrom(msg.getPayload()).getCode());
-                }
-                case MsgType.LINK -> {
-                    type = "LINK";
-                    payload = SerializableMap.deserialize(msg.getPayload()).toString();
-                }
-                case MsgType.LINKACK -> {
-                    type = "LINKACK";
-                    payload = SerializableMap.deserialize(msg.getPayload()).toString();
-                }
-                case MsgType.UNLINK -> {
-                    type = "UNLINK";
-                    payload = String.valueOf(ByteBuffer.wrap(msg.getPayload()).getInt());
                 }
                 case MsgType.DATA -> {
                     type = "DATA";
@@ -56,8 +50,8 @@ class LinkManagerTest {
                 }
             };
         }catch (Exception ignored){}
-        String print = "Dispatched: src=" + msg.getSrcId() + ", dest=" + msg.getDestId()
-                + ", type=" + type + ", payload=" + payload;
+        String print = "msg{src=" + msg.getSrcId() + ", dest=" + msg.getDestId()
+                + ", type=" + type + ", payload=" + payload + "}";
         System.out.println(print);
         System.out.flush();
     }
@@ -919,11 +913,6 @@ class LinkManagerTest {
         waitUntil(() -> lm1.isLinked(sid2));
         waitUntil(() -> lm2.isLinked(sid1));
     }
-     */
-
-     /*
-    TODO - missing tests:
-        7. receive data/control msg to establish link
      */
 
     void dataOrControlMsgConfirmingLinkEstablishment(byte msgType) throws InterruptedException {

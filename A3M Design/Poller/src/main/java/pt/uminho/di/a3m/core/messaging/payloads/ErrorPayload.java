@@ -1,8 +1,10 @@
-package pt.uminho.di.a3m.core.messaging;
+package pt.uminho.di.a3m.core.messaging.payloads;
 
 import com.google.protobuf.ByteString;
+import pt.uminho.di.a3m.core.messaging.MsgType;
+import pt.uminho.di.a3m.core.messaging.Payload;
 
-public class ErrorPayload implements Payload{
+public class ErrorPayload implements Payload {
     private final byte code;
     private final String text;
 

@@ -3,7 +3,7 @@
 // source: src/main/proto/coreMessages.proto
 // Protobuf Java Version: 4.27.3
 
-package pt.uminho.di.a3m.core.messaging;
+package pt.uminho.di.a3m.core.messaging.payloads;
 
 public final class CoreMessages {
   private CoreMessages() {}
@@ -102,7 +102,7 @@ public final class CoreMessages {
      */
     boolean getBoolValue();
 
-    pt.uminho.di.a3m.core.messaging.CoreMessages.PValue.ValueCase getValueCase();
+    CoreMessages.PValue.ValueCase getValueCase();
   }
   /**
    * <pre>
@@ -134,15 +134,15 @@ public final class CoreMessages {
 
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
-      return pt.uminho.di.a3m.core.messaging.CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PValue_descriptor;
+      return CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PValue_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return pt.uminho.di.a3m.core.messaging.CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PValue_fieldAccessorTable
+      return CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PValue_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              pt.uminho.di.a3m.core.messaging.CoreMessages.PValue.class, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue.Builder.class);
+              CoreMessages.PValue.class, CoreMessages.PValue.Builder.class);
     }
 
     private int valueCase_ = 0;
@@ -416,10 +416,10 @@ public final class CoreMessages {
       if (obj == this) {
        return true;
       }
-      if (!(obj instanceof pt.uminho.di.a3m.core.messaging.CoreMessages.PValue)) {
+      if (!(obj instanceof CoreMessages.PValue)) {
         return super.equals(obj);
       }
-      pt.uminho.di.a3m.core.messaging.CoreMessages.PValue other = (pt.uminho.di.a3m.core.messaging.CoreMessages.PValue) obj;
+      CoreMessages.PValue other = (CoreMessages.PValue) obj;
 
       if (!getValueCase().equals(other.getValueCase())) return false;
       switch (valueCase_) {
@@ -491,44 +491,44 @@ public final class CoreMessages {
       return hash;
     }
 
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PValue parseFrom(
+    public static CoreMessages.PValue parseFrom(
         java.nio.ByteBuffer data)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PValue parseFrom(
+    public static CoreMessages.PValue parseFrom(
         java.nio.ByteBuffer data,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data, extensionRegistry);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PValue parseFrom(
+    public static CoreMessages.PValue parseFrom(
         com.google.protobuf.ByteString data)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PValue parseFrom(
+    public static CoreMessages.PValue parseFrom(
         com.google.protobuf.ByteString data,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data, extensionRegistry);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PValue parseFrom(byte[] data)
+    public static CoreMessages.PValue parseFrom(byte[] data)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PValue parseFrom(
+    public static CoreMessages.PValue parseFrom(
         byte[] data,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data, extensionRegistry);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PValue parseFrom(java.io.InputStream input)
+    public static CoreMessages.PValue parseFrom(java.io.InputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessage
           .parseWithIOException(PARSER, input);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PValue parseFrom(
+    public static CoreMessages.PValue parseFrom(
         java.io.InputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws java.io.IOException {
@@ -536,26 +536,26 @@ public final class CoreMessages {
           .parseWithIOException(PARSER, input, extensionRegistry);
     }
 
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PValue parseDelimitedFrom(java.io.InputStream input)
+    public static CoreMessages.PValue parseDelimitedFrom(java.io.InputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessage
           .parseDelimitedWithIOException(PARSER, input);
     }
 
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PValue parseDelimitedFrom(
+    public static CoreMessages.PValue parseDelimitedFrom(
         java.io.InputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessage
           .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PValue parseFrom(
+    public static CoreMessages.PValue parseFrom(
         com.google.protobuf.CodedInputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessage
           .parseWithIOException(PARSER, input);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PValue parseFrom(
+    public static CoreMessages.PValue parseFrom(
         com.google.protobuf.CodedInputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws java.io.IOException {
@@ -568,7 +568,7 @@ public final class CoreMessages {
     public static Builder newBuilder() {
       return DEFAULT_INSTANCE.toBuilder();
     }
-    public static Builder newBuilder(pt.uminho.di.a3m.core.messaging.CoreMessages.PValue prototype) {
+    public static Builder newBuilder(CoreMessages.PValue prototype) {
       return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
     }
     @java.lang.Override
@@ -593,18 +593,18 @@ public final class CoreMessages {
     public static final class Builder extends
         com.google.protobuf.GeneratedMessage.Builder<Builder> implements
         // @@protoc_insertion_point(builder_implements:pt.uminho.di.a3m.core.messaging.PValue)
-        pt.uminho.di.a3m.core.messaging.CoreMessages.PValueOrBuilder {
+        CoreMessages.PValueOrBuilder {
       public static final com.google.protobuf.Descriptors.Descriptor
           getDescriptor() {
-        return pt.uminho.di.a3m.core.messaging.CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PValue_descriptor;
+        return CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PValue_descriptor;
       }
 
       @java.lang.Override
       protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
           internalGetFieldAccessorTable() {
-        return pt.uminho.di.a3m.core.messaging.CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PValue_fieldAccessorTable
+        return CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PValue_fieldAccessorTable
             .ensureFieldAccessorsInitialized(
-                pt.uminho.di.a3m.core.messaging.CoreMessages.PValue.class, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue.Builder.class);
+                CoreMessages.PValue.class, CoreMessages.PValue.Builder.class);
       }
 
       // Construct using pt.uminho.di.a3m.core.messaging.CoreMessages.PValue.newBuilder()
@@ -629,17 +629,17 @@ public final class CoreMessages {
       @java.lang.Override
       public com.google.protobuf.Descriptors.Descriptor
           getDescriptorForType() {
-        return pt.uminho.di.a3m.core.messaging.CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PValue_descriptor;
+        return CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PValue_descriptor;
       }
 
       @java.lang.Override
-      public pt.uminho.di.a3m.core.messaging.CoreMessages.PValue getDefaultInstanceForType() {
-        return pt.uminho.di.a3m.core.messaging.CoreMessages.PValue.getDefaultInstance();
+      public CoreMessages.PValue getDefaultInstanceForType() {
+        return CoreMessages.PValue.getDefaultInstance();
       }
 
       @java.lang.Override
-      public pt.uminho.di.a3m.core.messaging.CoreMessages.PValue build() {
-        pt.uminho.di.a3m.core.messaging.CoreMessages.PValue result = buildPartial();
+      public CoreMessages.PValue build() {
+        CoreMessages.PValue result = buildPartial();
         if (!result.isInitialized()) {
           throw newUninitializedMessageException(result);
         }
@@ -647,35 +647,35 @@ public final class CoreMessages {
       }
 
       @java.lang.Override
-      public pt.uminho.di.a3m.core.messaging.CoreMessages.PValue buildPartial() {
-        pt.uminho.di.a3m.core.messaging.CoreMessages.PValue result = new pt.uminho.di.a3m.core.messaging.CoreMessages.PValue(this);
+      public CoreMessages.PValue buildPartial() {
+        CoreMessages.PValue result = new CoreMessages.PValue(this);
         if (bitField0_ != 0) { buildPartial0(result); }
         buildPartialOneofs(result);
         onBuilt();
         return result;
       }
 
-      private void buildPartial0(pt.uminho.di.a3m.core.messaging.CoreMessages.PValue result) {
+      private void buildPartial0(CoreMessages.PValue result) {
         int from_bitField0_ = bitField0_;
       }
 
-      private void buildPartialOneofs(pt.uminho.di.a3m.core.messaging.CoreMessages.PValue result) {
+      private void buildPartialOneofs(CoreMessages.PValue result) {
         result.valueCase_ = valueCase_;
         result.value_ = this.value_;
       }
 
       @java.lang.Override
       public Builder mergeFrom(com.google.protobuf.Message other) {
-        if (other instanceof pt.uminho.di.a3m.core.messaging.CoreMessages.PValue) {
-          return mergeFrom((pt.uminho.di.a3m.core.messaging.CoreMessages.PValue)other);
+        if (other instanceof CoreMessages.PValue) {
+          return mergeFrom((CoreMessages.PValue)other);
         } else {
           super.mergeFrom(other);
           return this;
         }
       }
 
-      public Builder mergeFrom(pt.uminho.di.a3m.core.messaging.CoreMessages.PValue other) {
-        if (other == pt.uminho.di.a3m.core.messaging.CoreMessages.PValue.getDefaultInstance()) return this;
+      public Builder mergeFrom(CoreMessages.PValue other) {
+        if (other == CoreMessages.PValue.getDefaultInstance()) return this;
         switch (other.getValueCase()) {
           case INT_VALUE: {
             setIntValue(other.getIntValue());
@@ -1076,12 +1076,12 @@ public final class CoreMessages {
     }
 
     // @@protoc_insertion_point(class_scope:pt.uminho.di.a3m.core.messaging.PValue)
-    private static final pt.uminho.di.a3m.core.messaging.CoreMessages.PValue DEFAULT_INSTANCE;
+    private static final CoreMessages.PValue DEFAULT_INSTANCE;
     static {
-      DEFAULT_INSTANCE = new pt.uminho.di.a3m.core.messaging.CoreMessages.PValue();
+      DEFAULT_INSTANCE = new CoreMessages.PValue();
     }
 
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PValue getDefaultInstance() {
+    public static CoreMessages.PValue getDefaultInstance() {
       return DEFAULT_INSTANCE;
     }
 
@@ -1117,7 +1117,7 @@ public final class CoreMessages {
     }
 
     @java.lang.Override
-    public pt.uminho.di.a3m.core.messaging.CoreMessages.PValue getDefaultInstanceForType() {
+    public CoreMessages.PValue getDefaultInstanceForType() {
       return DEFAULT_INSTANCE;
     }
 
@@ -1140,25 +1140,25 @@ public final class CoreMessages {
      * Use {@link #getItemsMap()} instead.
      */
     @java.lang.Deprecated
-    java.util.Map<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue>
+    java.util.Map<java.lang.String, CoreMessages.PValue>
     getItems();
     /**
      * <code>map&lt;string, .pt.uminho.di.a3m.core.messaging.PValue&gt; items = 1;</code>
      */
-    java.util.Map<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue>
+    java.util.Map<java.lang.String, CoreMessages.PValue>
     getItemsMap();
     /**
      * <code>map&lt;string, .pt.uminho.di.a3m.core.messaging.PValue&gt; items = 1;</code>
      */
     /* nullable */
-pt.uminho.di.a3m.core.messaging.CoreMessages.PValue getItemsOrDefault(
+CoreMessages.PValue getItemsOrDefault(
         java.lang.String key,
         /* nullable */
-pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue);
+CoreMessages.PValue defaultValue);
     /**
      * <code>map&lt;string, .pt.uminho.di.a3m.core.messaging.PValue&gt; items = 1;</code>
      */
-    pt.uminho.di.a3m.core.messaging.CoreMessages.PValue getItemsOrThrow(
+    CoreMessages.PValue getItemsOrThrow(
         java.lang.String key);
   }
   /**
@@ -1191,7 +1191,7 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue);
 
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
-      return pt.uminho.di.a3m.core.messaging.CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PMap_descriptor;
+      return CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PMap_descriptor;
     }
 
     @SuppressWarnings({"rawtypes"})
@@ -1209,27 +1209,27 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue);
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return pt.uminho.di.a3m.core.messaging.CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PMap_fieldAccessorTable
+      return CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PMap_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              pt.uminho.di.a3m.core.messaging.CoreMessages.PMap.class, pt.uminho.di.a3m.core.messaging.CoreMessages.PMap.Builder.class);
+              CoreMessages.PMap.class, CoreMessages.PMap.Builder.class);
     }
 
     public static final int ITEMS_FIELD_NUMBER = 1;
     private static final class ItemsDefaultEntryHolder {
       static final com.google.protobuf.MapEntry<
-          java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue> defaultEntry =
+          java.lang.String, CoreMessages.PValue> defaultEntry =
               com.google.protobuf.MapEntry
-              .<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue>newDefaultInstance(
-                  pt.uminho.di.a3m.core.messaging.CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PMap_ItemsEntry_descriptor, 
+              .<java.lang.String, CoreMessages.PValue>newDefaultInstance(
+                  CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PMap_ItemsEntry_descriptor,
                   com.google.protobuf.WireFormat.FieldType.STRING,
                   "",
                   com.google.protobuf.WireFormat.FieldType.MESSAGE,
-                  pt.uminho.di.a3m.core.messaging.CoreMessages.PValue.getDefaultInstance());
+                  CoreMessages.PValue.getDefaultInstance());
     }
     @SuppressWarnings("serial")
     private com.google.protobuf.MapField<
-        java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue> items_;
-    private com.google.protobuf.MapField<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue>
+        java.lang.String, CoreMessages.PValue> items_;
+    private com.google.protobuf.MapField<java.lang.String, CoreMessages.PValue>
     internalGetItems() {
       if (items_ == null) {
         return com.google.protobuf.MapField.emptyMapField(
@@ -1254,14 +1254,14 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue);
      */
     @java.lang.Override
     @java.lang.Deprecated
-    public java.util.Map<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue> getItems() {
+    public java.util.Map<java.lang.String, CoreMessages.PValue> getItems() {
       return getItemsMap();
     }
     /**
      * <code>map&lt;string, .pt.uminho.di.a3m.core.messaging.PValue&gt; items = 1;</code>
      */
     @java.lang.Override
-    public java.util.Map<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue> getItemsMap() {
+    public java.util.Map<java.lang.String, CoreMessages.PValue> getItemsMap() {
       return internalGetItems().getMap();
     }
     /**
@@ -1269,12 +1269,12 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue);
      */
     @java.lang.Override
     public /* nullable */
-pt.uminho.di.a3m.core.messaging.CoreMessages.PValue getItemsOrDefault(
+CoreMessages.PValue getItemsOrDefault(
         java.lang.String key,
         /* nullable */
-pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
+CoreMessages.PValue defaultValue) {
       if (key == null) { throw new NullPointerException("map key"); }
-      java.util.Map<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue> map =
+      java.util.Map<java.lang.String, CoreMessages.PValue> map =
           internalGetItems().getMap();
       return map.containsKey(key) ? map.get(key) : defaultValue;
     }
@@ -1282,10 +1282,10 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
      * <code>map&lt;string, .pt.uminho.di.a3m.core.messaging.PValue&gt; items = 1;</code>
      */
     @java.lang.Override
-    public pt.uminho.di.a3m.core.messaging.CoreMessages.PValue getItemsOrThrow(
+    public CoreMessages.PValue getItemsOrThrow(
         java.lang.String key) {
       if (key == null) { throw new NullPointerException("map key"); }
-      java.util.Map<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue> map =
+      java.util.Map<java.lang.String, CoreMessages.PValue> map =
           internalGetItems().getMap();
       if (!map.containsKey(key)) {
         throw new java.lang.IllegalArgumentException();
@@ -1322,9 +1322,9 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
       if (size != -1) return size;
 
       size = 0;
-      for (java.util.Map.Entry<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue> entry
+      for (java.util.Map.Entry<java.lang.String, CoreMessages.PValue> entry
            : internalGetItems().getMap().entrySet()) {
-        com.google.protobuf.MapEntry<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue>
+        com.google.protobuf.MapEntry<java.lang.String, CoreMessages.PValue>
         items__ = ItemsDefaultEntryHolder.defaultEntry.newBuilderForType()
             .setKey(entry.getKey())
             .setValue(entry.getValue())
@@ -1342,10 +1342,10 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
       if (obj == this) {
        return true;
       }
-      if (!(obj instanceof pt.uminho.di.a3m.core.messaging.CoreMessages.PMap)) {
+      if (!(obj instanceof CoreMessages.PMap)) {
         return super.equals(obj);
       }
-      pt.uminho.di.a3m.core.messaging.CoreMessages.PMap other = (pt.uminho.di.a3m.core.messaging.CoreMessages.PMap) obj;
+      CoreMessages.PMap other = (CoreMessages.PMap) obj;
 
       if (!internalGetItems().equals(
           other.internalGetItems())) return false;
@@ -1369,44 +1369,44 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
       return hash;
     }
 
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PMap parseFrom(
+    public static CoreMessages.PMap parseFrom(
         java.nio.ByteBuffer data)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PMap parseFrom(
+    public static CoreMessages.PMap parseFrom(
         java.nio.ByteBuffer data,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data, extensionRegistry);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PMap parseFrom(
+    public static CoreMessages.PMap parseFrom(
         com.google.protobuf.ByteString data)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PMap parseFrom(
+    public static CoreMessages.PMap parseFrom(
         com.google.protobuf.ByteString data,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data, extensionRegistry);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PMap parseFrom(byte[] data)
+    public static CoreMessages.PMap parseFrom(byte[] data)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PMap parseFrom(
+    public static CoreMessages.PMap parseFrom(
         byte[] data,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data, extensionRegistry);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PMap parseFrom(java.io.InputStream input)
+    public static CoreMessages.PMap parseFrom(java.io.InputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessage
           .parseWithIOException(PARSER, input);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PMap parseFrom(
+    public static CoreMessages.PMap parseFrom(
         java.io.InputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws java.io.IOException {
@@ -1414,26 +1414,26 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
           .parseWithIOException(PARSER, input, extensionRegistry);
     }
 
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PMap parseDelimitedFrom(java.io.InputStream input)
+    public static CoreMessages.PMap parseDelimitedFrom(java.io.InputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessage
           .parseDelimitedWithIOException(PARSER, input);
     }
 
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PMap parseDelimitedFrom(
+    public static CoreMessages.PMap parseDelimitedFrom(
         java.io.InputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessage
           .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PMap parseFrom(
+    public static CoreMessages.PMap parseFrom(
         com.google.protobuf.CodedInputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessage
           .parseWithIOException(PARSER, input);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PMap parseFrom(
+    public static CoreMessages.PMap parseFrom(
         com.google.protobuf.CodedInputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws java.io.IOException {
@@ -1446,7 +1446,7 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
     public static Builder newBuilder() {
       return DEFAULT_INSTANCE.toBuilder();
     }
-    public static Builder newBuilder(pt.uminho.di.a3m.core.messaging.CoreMessages.PMap prototype) {
+    public static Builder newBuilder(CoreMessages.PMap prototype) {
       return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
     }
     @java.lang.Override
@@ -1471,10 +1471,10 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
     public static final class Builder extends
         com.google.protobuf.GeneratedMessage.Builder<Builder> implements
         // @@protoc_insertion_point(builder_implements:pt.uminho.di.a3m.core.messaging.PMap)
-        pt.uminho.di.a3m.core.messaging.CoreMessages.PMapOrBuilder {
+        CoreMessages.PMapOrBuilder {
       public static final com.google.protobuf.Descriptors.Descriptor
           getDescriptor() {
-        return pt.uminho.di.a3m.core.messaging.CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PMap_descriptor;
+        return CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PMap_descriptor;
       }
 
       @SuppressWarnings({"rawtypes"})
@@ -1502,9 +1502,9 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
       @java.lang.Override
       protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
           internalGetFieldAccessorTable() {
-        return pt.uminho.di.a3m.core.messaging.CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PMap_fieldAccessorTable
+        return CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PMap_fieldAccessorTable
             .ensureFieldAccessorsInitialized(
-                pt.uminho.di.a3m.core.messaging.CoreMessages.PMap.class, pt.uminho.di.a3m.core.messaging.CoreMessages.PMap.Builder.class);
+                CoreMessages.PMap.class, CoreMessages.PMap.Builder.class);
       }
 
       // Construct using pt.uminho.di.a3m.core.messaging.CoreMessages.PMap.newBuilder()
@@ -1528,17 +1528,17 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
       @java.lang.Override
       public com.google.protobuf.Descriptors.Descriptor
           getDescriptorForType() {
-        return pt.uminho.di.a3m.core.messaging.CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PMap_descriptor;
+        return CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_PMap_descriptor;
       }
 
       @java.lang.Override
-      public pt.uminho.di.a3m.core.messaging.CoreMessages.PMap getDefaultInstanceForType() {
-        return pt.uminho.di.a3m.core.messaging.CoreMessages.PMap.getDefaultInstance();
+      public CoreMessages.PMap getDefaultInstanceForType() {
+        return CoreMessages.PMap.getDefaultInstance();
       }
 
       @java.lang.Override
-      public pt.uminho.di.a3m.core.messaging.CoreMessages.PMap build() {
-        pt.uminho.di.a3m.core.messaging.CoreMessages.PMap result = buildPartial();
+      public CoreMessages.PMap build() {
+        CoreMessages.PMap result = buildPartial();
         if (!result.isInitialized()) {
           throw newUninitializedMessageException(result);
         }
@@ -1546,14 +1546,14 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
       }
 
       @java.lang.Override
-      public pt.uminho.di.a3m.core.messaging.CoreMessages.PMap buildPartial() {
-        pt.uminho.di.a3m.core.messaging.CoreMessages.PMap result = new pt.uminho.di.a3m.core.messaging.CoreMessages.PMap(this);
+      public CoreMessages.PMap buildPartial() {
+        CoreMessages.PMap result = new CoreMessages.PMap(this);
         if (bitField0_ != 0) { buildPartial0(result); }
         onBuilt();
         return result;
       }
 
-      private void buildPartial0(pt.uminho.di.a3m.core.messaging.CoreMessages.PMap result) {
+      private void buildPartial0(CoreMessages.PMap result) {
         int from_bitField0_ = bitField0_;
         if (((from_bitField0_ & 0x00000001) != 0)) {
           result.items_ = internalGetItems().build(ItemsDefaultEntryHolder.defaultEntry);
@@ -1562,16 +1562,16 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
 
       @java.lang.Override
       public Builder mergeFrom(com.google.protobuf.Message other) {
-        if (other instanceof pt.uminho.di.a3m.core.messaging.CoreMessages.PMap) {
-          return mergeFrom((pt.uminho.di.a3m.core.messaging.CoreMessages.PMap)other);
+        if (other instanceof CoreMessages.PMap) {
+          return mergeFrom((CoreMessages.PMap)other);
         } else {
           super.mergeFrom(other);
           return this;
         }
       }
 
-      public Builder mergeFrom(pt.uminho.di.a3m.core.messaging.CoreMessages.PMap other) {
-        if (other == pt.uminho.di.a3m.core.messaging.CoreMessages.PMap.getDefaultInstance()) return this;
+      public Builder mergeFrom(CoreMessages.PMap other) {
+        if (other == CoreMessages.PMap.getDefaultInstance()) return this;
         internalGetMutableItems().mergeFrom(
             other.internalGetItems());
         bitField0_ |= 0x00000001;
@@ -1602,7 +1602,7 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
                 done = true;
                 break;
               case 10: {
-                com.google.protobuf.MapEntry<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue>
+                com.google.protobuf.MapEntry<java.lang.String, CoreMessages.PValue>
                 items__ = input.readMessage(
                     ItemsDefaultEntryHolder.defaultEntry.getParserForType(), extensionRegistry);
                 internalGetMutableItems().ensureBuilderMap().put(
@@ -1627,30 +1627,30 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
       }
       private int bitField0_;
 
-      private static final class ItemsConverter implements com.google.protobuf.MapFieldBuilder.Converter<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValueOrBuilder, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue> {
+      private static final class ItemsConverter implements com.google.protobuf.MapFieldBuilder.Converter<java.lang.String, CoreMessages.PValueOrBuilder, CoreMessages.PValue> {
         @java.lang.Override
-        public pt.uminho.di.a3m.core.messaging.CoreMessages.PValue build(pt.uminho.di.a3m.core.messaging.CoreMessages.PValueOrBuilder val) {
-          if (val instanceof pt.uminho.di.a3m.core.messaging.CoreMessages.PValue) { return (pt.uminho.di.a3m.core.messaging.CoreMessages.PValue) val; }
-          return ((pt.uminho.di.a3m.core.messaging.CoreMessages.PValue.Builder) val).build();
+        public CoreMessages.PValue build(CoreMessages.PValueOrBuilder val) {
+          if (val instanceof CoreMessages.PValue) { return (CoreMessages.PValue) val; }
+          return ((CoreMessages.PValue.Builder) val).build();
         }
 
         @java.lang.Override
-        public com.google.protobuf.MapEntry<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue> defaultEntry() {
+        public com.google.protobuf.MapEntry<java.lang.String, CoreMessages.PValue> defaultEntry() {
           return ItemsDefaultEntryHolder.defaultEntry;
         }
       };
       private static final ItemsConverter itemsConverter = new ItemsConverter();
 
       private com.google.protobuf.MapFieldBuilder<
-          java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValueOrBuilder, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue.Builder> items_;
-      private com.google.protobuf.MapFieldBuilder<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValueOrBuilder, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue.Builder>
+          java.lang.String, CoreMessages.PValueOrBuilder, CoreMessages.PValue, CoreMessages.PValue.Builder> items_;
+      private com.google.protobuf.MapFieldBuilder<java.lang.String, CoreMessages.PValueOrBuilder, CoreMessages.PValue, CoreMessages.PValue.Builder>
           internalGetItems() {
         if (items_ == null) {
           return new com.google.protobuf.MapFieldBuilder<>(itemsConverter);
         }
         return items_;
       }
-      private com.google.protobuf.MapFieldBuilder<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValueOrBuilder, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue.Builder>
+      private com.google.protobuf.MapFieldBuilder<java.lang.String, CoreMessages.PValueOrBuilder, CoreMessages.PValue, CoreMessages.PValue.Builder>
           internalGetMutableItems() {
         if (items_ == null) {
           items_ = new com.google.protobuf.MapFieldBuilder<>(itemsConverter);
@@ -1676,14 +1676,14 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
        */
       @java.lang.Override
       @java.lang.Deprecated
-      public java.util.Map<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue> getItems() {
+      public java.util.Map<java.lang.String, CoreMessages.PValue> getItems() {
         return getItemsMap();
       }
       /**
        * <code>map&lt;string, .pt.uminho.di.a3m.core.messaging.PValue&gt; items = 1;</code>
        */
       @java.lang.Override
-      public java.util.Map<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue> getItemsMap() {
+      public java.util.Map<java.lang.String, CoreMessages.PValue> getItemsMap() {
         return internalGetItems().getImmutableMap();
       }
       /**
@@ -1691,22 +1691,22 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
        */
       @java.lang.Override
       public /* nullable */
-pt.uminho.di.a3m.core.messaging.CoreMessages.PValue getItemsOrDefault(
+CoreMessages.PValue getItemsOrDefault(
           java.lang.String key,
           /* nullable */
-pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
+CoreMessages.PValue defaultValue) {
         if (key == null) { throw new NullPointerException("map key"); }
-        java.util.Map<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValueOrBuilder> map = internalGetMutableItems().ensureBuilderMap();
+        java.util.Map<java.lang.String, CoreMessages.PValueOrBuilder> map = internalGetMutableItems().ensureBuilderMap();
         return map.containsKey(key) ? itemsConverter.build(map.get(key)) : defaultValue;
       }
       /**
        * <code>map&lt;string, .pt.uminho.di.a3m.core.messaging.PValue&gt; items = 1;</code>
        */
       @java.lang.Override
-      public pt.uminho.di.a3m.core.messaging.CoreMessages.PValue getItemsOrThrow(
+      public CoreMessages.PValue getItemsOrThrow(
           java.lang.String key) {
         if (key == null) { throw new NullPointerException("map key"); }
-        java.util.Map<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValueOrBuilder> map = internalGetMutableItems().ensureBuilderMap();
+        java.util.Map<java.lang.String, CoreMessages.PValueOrBuilder> map = internalGetMutableItems().ensureBuilderMap();
         if (!map.containsKey(key)) {
           throw new java.lang.IllegalArgumentException();
         }
@@ -1731,7 +1731,7 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
        * Use alternate mutation accessors instead.
        */
       @java.lang.Deprecated
-      public java.util.Map<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue>
+      public java.util.Map<java.lang.String, CoreMessages.PValue>
           getMutableItems() {
         bitField0_ |= 0x00000001;
         return internalGetMutableItems().ensureMessageMap();
@@ -1741,7 +1741,7 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
        */
       public Builder putItems(
           java.lang.String key,
-          pt.uminho.di.a3m.core.messaging.CoreMessages.PValue value) {
+          CoreMessages.PValue value) {
         if (key == null) { throw new NullPointerException("map key"); }
         if (value == null) { throw new NullPointerException("map value"); }
         internalGetMutableItems().ensureBuilderMap()
@@ -1753,8 +1753,8 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
        * <code>map&lt;string, .pt.uminho.di.a3m.core.messaging.PValue&gt; items = 1;</code>
        */
       public Builder putAllItems(
-          java.util.Map<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue> values) {
-        for (java.util.Map.Entry<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValue> e : values.entrySet()) {
+          java.util.Map<java.lang.String, CoreMessages.PValue> values) {
+        for (java.util.Map.Entry<java.lang.String, CoreMessages.PValue> e : values.entrySet()) {
           if (e.getKey() == null || e.getValue() == null) {
             throw new NullPointerException();
           }
@@ -1767,31 +1767,31 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
       /**
        * <code>map&lt;string, .pt.uminho.di.a3m.core.messaging.PValue&gt; items = 1;</code>
        */
-      public pt.uminho.di.a3m.core.messaging.CoreMessages.PValue.Builder putItemsBuilderIfAbsent(
+      public CoreMessages.PValue.Builder putItemsBuilderIfAbsent(
           java.lang.String key) {
-        java.util.Map<java.lang.String, pt.uminho.di.a3m.core.messaging.CoreMessages.PValueOrBuilder> builderMap = internalGetMutableItems().ensureBuilderMap();
-        pt.uminho.di.a3m.core.messaging.CoreMessages.PValueOrBuilder entry = builderMap.get(key);
+        java.util.Map<java.lang.String, CoreMessages.PValueOrBuilder> builderMap = internalGetMutableItems().ensureBuilderMap();
+        CoreMessages.PValueOrBuilder entry = builderMap.get(key);
         if (entry == null) {
-          entry = pt.uminho.di.a3m.core.messaging.CoreMessages.PValue.newBuilder();
+          entry = CoreMessages.PValue.newBuilder();
           builderMap.put(key, entry);
         }
-        if (entry instanceof pt.uminho.di.a3m.core.messaging.CoreMessages.PValue) {
-          entry = ((pt.uminho.di.a3m.core.messaging.CoreMessages.PValue) entry).toBuilder();
+        if (entry instanceof CoreMessages.PValue) {
+          entry = ((CoreMessages.PValue) entry).toBuilder();
           builderMap.put(key, entry);
         }
-        return (pt.uminho.di.a3m.core.messaging.CoreMessages.PValue.Builder) entry;
+        return (CoreMessages.PValue.Builder) entry;
       }
 
       // @@protoc_insertion_point(builder_scope:pt.uminho.di.a3m.core.messaging.PMap)
     }
 
     // @@protoc_insertion_point(class_scope:pt.uminho.di.a3m.core.messaging.PMap)
-    private static final pt.uminho.di.a3m.core.messaging.CoreMessages.PMap DEFAULT_INSTANCE;
+    private static final CoreMessages.PMap DEFAULT_INSTANCE;
     static {
-      DEFAULT_INSTANCE = new pt.uminho.di.a3m.core.messaging.CoreMessages.PMap();
+      DEFAULT_INSTANCE = new CoreMessages.PMap();
     }
 
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.PMap getDefaultInstance() {
+    public static CoreMessages.PMap getDefaultInstance() {
       return DEFAULT_INSTANCE;
     }
 
@@ -1827,7 +1827,7 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
     }
 
     @java.lang.Override
-    public pt.uminho.di.a3m.core.messaging.CoreMessages.PMap getDefaultInstanceForType() {
+    public CoreMessages.PMap getDefaultInstanceForType() {
       return DEFAULT_INSTANCE;
     }
 
@@ -1887,15 +1887,15 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
 
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
-      return pt.uminho.di.a3m.core.messaging.CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_ErrorPayload_descriptor;
+      return CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_ErrorPayload_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return pt.uminho.di.a3m.core.messaging.CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_ErrorPayload_fieldAccessorTable
+      return CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_ErrorPayload_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload.class, pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload.Builder.class);
+              CoreMessages.ErrorPayload.class, CoreMessages.ErrorPayload.Builder.class);
     }
 
     public static final int CODE_FIELD_NUMBER = 1;
@@ -1994,10 +1994,10 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
       if (obj == this) {
        return true;
       }
-      if (!(obj instanceof pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload)) {
+      if (!(obj instanceof CoreMessages.ErrorPayload)) {
         return super.equals(obj);
       }
-      pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload other = (pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload) obj;
+      CoreMessages.ErrorPayload other = (CoreMessages.ErrorPayload) obj;
 
       if (!getCode()
           .equals(other.getCode())) return false;
@@ -2023,44 +2023,44 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
       return hash;
     }
 
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload parseFrom(
+    public static CoreMessages.ErrorPayload parseFrom(
         java.nio.ByteBuffer data)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload parseFrom(
+    public static CoreMessages.ErrorPayload parseFrom(
         java.nio.ByteBuffer data,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data, extensionRegistry);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload parseFrom(
+    public static CoreMessages.ErrorPayload parseFrom(
         com.google.protobuf.ByteString data)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload parseFrom(
+    public static CoreMessages.ErrorPayload parseFrom(
         com.google.protobuf.ByteString data,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data, extensionRegistry);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload parseFrom(byte[] data)
+    public static CoreMessages.ErrorPayload parseFrom(byte[] data)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload parseFrom(
+    public static CoreMessages.ErrorPayload parseFrom(
         byte[] data,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data, extensionRegistry);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload parseFrom(java.io.InputStream input)
+    public static CoreMessages.ErrorPayload parseFrom(java.io.InputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessage
           .parseWithIOException(PARSER, input);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload parseFrom(
+    public static CoreMessages.ErrorPayload parseFrom(
         java.io.InputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws java.io.IOException {
@@ -2068,26 +2068,26 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
           .parseWithIOException(PARSER, input, extensionRegistry);
     }
 
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload parseDelimitedFrom(java.io.InputStream input)
+    public static CoreMessages.ErrorPayload parseDelimitedFrom(java.io.InputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessage
           .parseDelimitedWithIOException(PARSER, input);
     }
 
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload parseDelimitedFrom(
+    public static CoreMessages.ErrorPayload parseDelimitedFrom(
         java.io.InputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessage
           .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload parseFrom(
+    public static CoreMessages.ErrorPayload parseFrom(
         com.google.protobuf.CodedInputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessage
           .parseWithIOException(PARSER, input);
     }
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload parseFrom(
+    public static CoreMessages.ErrorPayload parseFrom(
         com.google.protobuf.CodedInputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws java.io.IOException {
@@ -2100,7 +2100,7 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
     public static Builder newBuilder() {
       return DEFAULT_INSTANCE.toBuilder();
     }
-    public static Builder newBuilder(pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload prototype) {
+    public static Builder newBuilder(CoreMessages.ErrorPayload prototype) {
       return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
     }
     @java.lang.Override
@@ -2125,18 +2125,18 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
     public static final class Builder extends
         com.google.protobuf.GeneratedMessage.Builder<Builder> implements
         // @@protoc_insertion_point(builder_implements:pt.uminho.di.a3m.core.messaging.ErrorPayload)
-        pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayloadOrBuilder {
+        CoreMessages.ErrorPayloadOrBuilder {
       public static final com.google.protobuf.Descriptors.Descriptor
           getDescriptor() {
-        return pt.uminho.di.a3m.core.messaging.CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_ErrorPayload_descriptor;
+        return CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_ErrorPayload_descriptor;
       }
 
       @java.lang.Override
       protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
           internalGetFieldAccessorTable() {
-        return pt.uminho.di.a3m.core.messaging.CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_ErrorPayload_fieldAccessorTable
+        return CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_ErrorPayload_fieldAccessorTable
             .ensureFieldAccessorsInitialized(
-                pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload.class, pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload.Builder.class);
+                CoreMessages.ErrorPayload.class, CoreMessages.ErrorPayload.Builder.class);
       }
 
       // Construct using pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload.newBuilder()
@@ -2161,17 +2161,17 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
       @java.lang.Override
       public com.google.protobuf.Descriptors.Descriptor
           getDescriptorForType() {
-        return pt.uminho.di.a3m.core.messaging.CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_ErrorPayload_descriptor;
+        return CoreMessages.internal_static_pt_uminho_di_a3m_core_messaging_ErrorPayload_descriptor;
       }
 
       @java.lang.Override
-      public pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload getDefaultInstanceForType() {
-        return pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload.getDefaultInstance();
+      public CoreMessages.ErrorPayload getDefaultInstanceForType() {
+        return CoreMessages.ErrorPayload.getDefaultInstance();
       }
 
       @java.lang.Override
-      public pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload build() {
-        pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload result = buildPartial();
+      public CoreMessages.ErrorPayload build() {
+        CoreMessages.ErrorPayload result = buildPartial();
         if (!result.isInitialized()) {
           throw newUninitializedMessageException(result);
         }
@@ -2179,14 +2179,14 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
       }
 
       @java.lang.Override
-      public pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload buildPartial() {
-        pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload result = new pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload(this);
+      public CoreMessages.ErrorPayload buildPartial() {
+        CoreMessages.ErrorPayload result = new CoreMessages.ErrorPayload(this);
         if (bitField0_ != 0) { buildPartial0(result); }
         onBuilt();
         return result;
       }
 
-      private void buildPartial0(pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload result) {
+      private void buildPartial0(CoreMessages.ErrorPayload result) {
         int from_bitField0_ = bitField0_;
         if (((from_bitField0_ & 0x00000001) != 0)) {
           result.code_ = code_;
@@ -2198,16 +2198,16 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
 
       @java.lang.Override
       public Builder mergeFrom(com.google.protobuf.Message other) {
-        if (other instanceof pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload) {
-          return mergeFrom((pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload)other);
+        if (other instanceof CoreMessages.ErrorPayload) {
+          return mergeFrom((CoreMessages.ErrorPayload)other);
         } else {
           super.mergeFrom(other);
           return this;
         }
       }
 
-      public Builder mergeFrom(pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload other) {
-        if (other == pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload.getDefaultInstance()) return this;
+      public Builder mergeFrom(CoreMessages.ErrorPayload other) {
+        if (other == CoreMessages.ErrorPayload.getDefaultInstance()) return this;
         if (other.getCode() != com.google.protobuf.ByteString.EMPTY) {
           setCode(other.getCode());
         }
@@ -2377,12 +2377,12 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
     }
 
     // @@protoc_insertion_point(class_scope:pt.uminho.di.a3m.core.messaging.ErrorPayload)
-    private static final pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload DEFAULT_INSTANCE;
+    private static final CoreMessages.ErrorPayload DEFAULT_INSTANCE;
     static {
-      DEFAULT_INSTANCE = new pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload();
+      DEFAULT_INSTANCE = new CoreMessages.ErrorPayload();
     }
 
-    public static pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload getDefaultInstance() {
+    public static CoreMessages.ErrorPayload getDefaultInstance() {
       return DEFAULT_INSTANCE;
     }
 
@@ -2418,7 +2418,7 @@ pt.uminho.di.a3m.core.messaging.CoreMessages.PValue defaultValue) {
     }
 
     @java.lang.Override
-    public pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload getDefaultInstanceForType() {
+    public CoreMessages.ErrorPayload getDefaultInstanceForType() {
       return DEFAULT_INSTANCE;
     }
 

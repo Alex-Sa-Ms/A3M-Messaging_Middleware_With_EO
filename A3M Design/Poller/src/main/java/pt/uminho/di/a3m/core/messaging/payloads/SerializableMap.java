@@ -1,8 +1,8 @@
-package pt.uminho.di.a3m.core.messaging;
+package pt.uminho.di.a3m.core.messaging.payloads;
 
 import com.google.gson.Gson;
 import com.google.protobuf.InvalidProtocolBufferException;
-import pt.uminho.di.a3m.core.messaging.CoreMessages.*;
+import pt.uminho.di.a3m.core.messaging.payloads.CoreMessages.*;
 
 import java.util.*;
 
