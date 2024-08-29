@@ -2,13 +2,11 @@ package pt.uminho.di.a3m.core;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import pt.uminho.di.a3m.core.messaging.CoreMessages;
-import pt.uminho.di.a3m.core.messaging.MsgType;
-import pt.uminho.di.a3m.core.messaging.SerializableMap;
-import pt.uminho.di.a3m.core.messaging.SocketMsg;
+import pt.uminho.di.a3m.core.messaging.*;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -25,6 +23,45 @@ class LinkManagerTest {
     LinkManager lm1, lm2;
     ScheduledExecutorService scheduler = new ScheduledThreadPoolExecutor(1);
 
+    private void dispatch(LinkManager destLm, SocketMsg msg){
+        scheduler.execute(() -> destLm.handleMsg(msg));
+        String type = "";
+        String payload = "";
+
+        try {
+            switch (msg.getType()) {
+                case MsgType.ERROR -> {
+                    type = "ERROR";
+                    payload = String.valueOf(CoreMessages.ErrorPayload.parseFrom(msg.getPayload()).getCode());
+                }
+                case MsgType.LINK -> {
+                    type = "LINK";
+                    payload = SerializableMap.deserialize(msg.getPayload()).toString();
+                }
+                case MsgType.LINKACK -> {
+                    type = "LINKACK";
+                    payload = SerializableMap.deserialize(msg.getPayload()).toString();
+                }
+                case MsgType.UNLINK -> {
+                    type = "UNLINK";
+                    payload = String.valueOf(ByteBuffer.wrap(msg.getPayload()).getInt());
+                }
+                case MsgType.DATA -> {
+                    type = "DATA";
+                    payload = String.valueOf(StandardCharsets.UTF_8.decode(ByteBuffer.wrap(msg.getPayload())));
+                }
+                default -> {
+                    type = String.valueOf(msg.getType());
+                    payload = String.valueOf(StandardCharsets.UTF_8.decode(ByteBuffer.wrap(msg.getPayload())));
+                }
+            };
+        }catch (Exception ignored){}
+        String print = "Dispatched: src=" + msg.getSrcId() + ", dest=" + msg.getDestId()
+                + ", type=" + type + ", payload=" + payload;
+        System.out.println(print);
+        System.out.flush();
+    }
+
 
     private class DirectDispatcherToLinkManager implements MessageDispatcher{
         private final LinkManager destLm; // link manager that is the destination
@@ -34,41 +71,7 @@ class LinkManagerTest {
 
         @Override
         public void dispatch(SocketMsg msg) {
-            scheduler.execute(() -> destLm.handleMsg(msg));
-            String type = "";
-            String payload = "";
-
-            try {
-                switch (msg.getType()) {
-                    case MsgType.ERROR -> {
-                        type = "ERROR";
-                        payload = String.valueOf(CoreMessages.ErrorPayload.parseFrom(msg.getPayload()).getCode());
-                    }
-                    case MsgType.LINK -> {
-                        type = "LINK";
-                        payload = SerializableMap.deserialize(msg.getPayload()).toString();
-                    }
-                    case MsgType.LINKACK -> {
-                        type = "LINKACK";
-                        payload = SerializableMap.deserialize(msg.getPayload()).toString();
-                    }
-                    case MsgType.UNLINK -> {
-                        type = "UNLINK";
-                        payload = String.valueOf(ByteBuffer.wrap(msg.getPayload()).getInt());
-                    }
-                    case MsgType.DATA -> {
-                        type = "DATA";
-                        payload = String.valueOf(StandardCharsets.UTF_8.decode(ByteBuffer.wrap(msg.getPayload())));
-                    }
-                    default -> {
-                        type = String.valueOf(msg.getType());
-                        payload = String.valueOf(StandardCharsets.UTF_8.decode(ByteBuffer.wrap(msg.getPayload())));
-                    }
-                };
-            }catch (Exception ignored){}
-            String print = "Dispatched: src=" + msg.getSrcId() + ", dest=" + msg.getDestId()
-                    + ", type=" + type + ", payload=" + payload;
-            System.out.println(print);
+            LinkManagerTest.this.dispatch(destLm, msg);
         }
 
         @Override
@@ -150,6 +153,22 @@ class LinkManagerTest {
         // waits for the sockets to link
         waitUntil(()->lm2.isLinked(sid1));
         assert lm1.isLinked(sid2);
+    }
+
+    @Test
+    void closeLinkDueToFatalReasonAfterRejectingNonFatal() throws InterruptedException {
+        // let socket2 perceive socket1 has compatible,
+        // but make socket1 perceive socket2 as incompatible to
+        // simulate fatal refusal
+        socket1.setCompatProtocols(Collections.singleton(incompatibleProtocol));
+        // set socket2's max links to 0, so that the socket1
+        // link request can be refused with a non-fatal reason
+        socket2.setOption("maxLinks",0);
+        // make socket1 send link request to socket2
+        lm1.link(sid2);
+        // check that sockets do not link
+        waitUntil(()->lm1.isUnlinked(sid2));
+        assert lm2.isUnlinked(sid1);
     }
 
     @Test
@@ -385,9 +404,9 @@ class LinkManagerTest {
                 if(msg.getType() == MsgType.UNLINK)
                     unlinkMsg.set(msg);
                 else {
+                    super.dispatch(msg);
                     if (msg.getType() == MsgType.LINK)
                         linkMsgsSent.incrementAndGet();
-                    super.dispatch(msg);
                 }
             }
         }, null);
@@ -506,9 +525,9 @@ class LinkManagerTest {
                 if(msg.getType() == MsgType.LINKACK)
                     linkackMsg.set(msg);
                 else {
+                    super.dispatch(msg);
                     if (msg.getType() == MsgType.UNLINK)
                         unlinkMsgsSent.incrementAndGet();
-                    super.dispatch(msg);
                 }
             }
         }, null);
@@ -549,9 +568,9 @@ class LinkManagerTest {
                 if(msg.getType() == MsgType.LINKACK)
                     linkackMsg.set(msg);
                 else {
+                    super.dispatch(msg);
                     if (msg.getType() == MsgType.UNLINK)
                         unlinkMsgsSent.incrementAndGet();
-                    super.dispatch(msg);
                 }
             }
         }, null);
@@ -596,9 +615,9 @@ class LinkManagerTest {
                 if(msg.getType() == MsgType.LINKACK)
                     linkackMsg.set(msg);
                 else {
+                    super.dispatch(msg);
                     if (msg.getType() == MsgType.UNLINK)
                         unlinkMsgsSent.incrementAndGet();
-                    super.dispatch(msg);
                 }
             }
         }, null);
@@ -634,19 +653,320 @@ class LinkManagerTest {
         assert lm2.isUnlinked(sid1);
     }
 
-    /*
-    TODO - missing tests:
-        1. receive LinkAck without metadata when cancelling and waiting for peer's metadata
-        2. schedule link request when receiving linkack message when LINKING and not waiting for metadata
-        3. receive linkack without metadata when waiting for metadata
-        4. receive link msg after linkack msg without metadata and with successful code
-        5. receive link msg after linkack msg without metadata and with fatal code
-        6. receive link msg after linkack msg without metadata and with non-fatal code
-        7. receive data/control msg to establish link
-        8. scheduled related methods
-            - send linkack msg with metadata and success code when peer is compatible and link request was scheduled
-            - send linkack msg with metadata and fatal code when peer is not compatible and link request was scheduled
+
+    @Test
+    void receiveLinkAckMsgWhenWaitingMetadata() throws InterruptedException {
+        // change socket1 dispatcher to catch the LINK message,
+        // and inform when a LINKACK message has been sent
+        AtomicReference<SocketMsg> linkMsg = new AtomicReference<>(null);
+        AtomicInteger linkAckMsgsSent = new AtomicInteger(0);
+        socket1.setCoreComponents(new DirectDispatcherToLinkManager(lm2){
+            @Override
+            public void dispatch(SocketMsg msg) {
+                if(msg.getType() == MsgType.LINK)
+                    linkMsg.set(msg);
+                else {
+                    super.dispatch(msg);
+                    if (msg.getType() == MsgType.LINKACK)
+                        linkAckMsgsSent.incrementAndGet();
+                }
+            }
+        }, null);
+        // acquire socket1 lock to prevent immediate handling of socket2's LINK msg
+        socket1.getLock().lock();
+        // make sockets send link request to each other
+        lm1.link(sid2);
+        lm2.link(sid1);
+        // assert both sockets are LINKING
+        assert lm1.isLinking(sid2);
+        assert lm2.isLinking(sid1);
+        // acquire socket2's lock to prevent immediate handling of socket1's LINKACK msg
+        socket2.getLock().lock();
+        // release socket1 lock to let it answer socket2's link request
+        socket1.getLock().unlock();
+        // wait until socket1 has sent the LINKACK msg (without metadata)
+        waitUntil(() -> linkAckMsgsSent.get() > 0);
+        // assert socket1 is still LINKING
+        assert lm1.isLinking(sid2);
+        // release socket2's lock, and check that
+        // both sockets are still LINKING
+        socket2.getLock().unlock();
+        Thread.sleep(50);
+        assert lm1.isLinking(sid2);
+        assert lm2.isLinking(sid1);
+        // Feed the socket1's LINK msg to socket2
+        // and check that the sockets eventually link
+        scheduler.schedule(() -> lm1.handleMsg(linkMsg.getAndSet(null)),0,TimeUnit.MILLISECONDS);
+        waitUntil(() -> lm1.isLinked(sid2));
+        assert lm2.isLinked(sid1);
+    }
+
+    @Test
+    void receiveLinkAckMsgWhenCancellingAndWaitingMetadata() throws InterruptedException {
+        // change socket1 dispatcher to catch the LINK message,
+        // and inform when a LINKACK message has been sent
+        AtomicReference<SocketMsg> linkMsg = new AtomicReference<>(null);
+        AtomicInteger linkAckMsgsSent = new AtomicInteger(0);
+        socket1.setCoreComponents(new DirectDispatcherToLinkManager(lm2){
+            @Override
+            public void dispatch(SocketMsg msg) {
+                if(msg.getType() == MsgType.LINK)
+                    linkMsg.set(msg);
+                else {
+                    super.dispatch(msg);
+                    if (msg.getType() == MsgType.LINKACK)
+                        linkAckMsgsSent.incrementAndGet();
+                }
+            }
+        }, null);
+        // acquire socket1 lock to prevent immediate handling of socket2's LINK msg
+        socket1.getLock().lock();
+        // make sockets send link request to each other
+        lm1.link(sid2);
+        lm2.link(sid1);
+        // invoke unlink() on socket2 to make it go into CANCELLING state
+        lm2.unlink(sid1);
+        // assert socket1 is LINKING and socket2 is CANCELLING
+        assert lm1.isLinking(sid2);
+        assert lm2.isLinkState(sid1, ls -> ls == LinkNew.LinkState.CANCELLING);
+        // acquire socket2's lock to prevent immediate handling of socket1's LINKACK msg
+        socket2.getLock().lock();
+        // release socket1 lock to let it answer socket2's link request
+        socket1.getLock().unlock();
+        // wait until socket1 has sent the LINKACK msg (without metadata)
+        waitUntil(() -> linkAckMsgsSent.get() > 0);
+        // assert socket1 is still LINKING
+        assert lm1.isLinking(sid2);
+        // release socket2's lock, wait a bit and check that
+        // socket is still LINKING and socket2 is still CANCELLING.
+        // socket1 requires a LINKACK message, and socket2 requires
+        // a LINK message to send the LINKACK message that socket1 requires.
+        socket2.getLock().unlock();
+        Thread.sleep(50);
+        assert lm1.isLinking(sid2);
+        assert lm2.isLinkState(sid1, ls -> ls == LinkNew.LinkState.CANCELLING);
+        // Feed the socket1's LINK msg to socket2
+        // and check that the link is eventually
+        // closed on both sides.
+        scheduler.schedule(() -> lm1.handleMsg(linkMsg.getAndSet(null)),0,TimeUnit.MILLISECONDS);
+        waitUntil(() -> lm1.isUnlinked(sid2));
+        assert lm2.isUnlinked(sid1);
+    }
+    
+    /** Receive link msg after linkack msg with successful code and without metadata. */
+    @Test
+    void receiveLinkMsgAfterLinkackWithSuccessCode() throws InterruptedException {
+        // change socket2 dispatcher to catch the LINK message,
+        // and inform when a LINKACK message has been sent
+        AtomicReference<SocketMsg> linkMsg = new AtomicReference<>(null);
+        AtomicInteger linkAckMsgsSent = new AtomicInteger(0);
+        socket2.setCoreComponents(new DirectDispatcherToLinkManager(lm1){
+            @Override
+            public void dispatch(SocketMsg msg) {
+                if(msg.getType() == MsgType.LINK)
+                    linkMsg.set(msg);
+                else {
+                    super.dispatch(msg);
+                    if (msg.getType() == MsgType.LINKACK)
+                        linkAckMsgsSent.incrementAndGet();
+                }
+            }
+        }, null);
+        // make both sockets send link requests
+        lm2.link(sid1);
+        lm1.link(sid2);
+        // since socket2's link request is intercepted,
+        // socket1 will receive a LINKACK with a positive
+        // answer and without metadata, before receiving
+        // a LINK message.
+        waitUntil(() -> linkAckMsgsSent.get() > 0);
+        // after the LINKACK msg is sent by socket2
+        // the LINK msg can be sent
+        var task = scheduler.schedule(() -> dispatch(lm1,linkMsg.get()),0,TimeUnit.MILLISECONDS);
+        waitUntil(task::isDone);
+        // check the link is eventually established
+        waitUntil(() -> lm2.isLinked(sid1));
+        waitUntil(() -> lm1.isLinked(sid2));
+    }
+
+    /** Receive link msg after linkack msg with fatal code and without metadata. */
+    @Test
+    void receiveLinkMsgAfterLinkackWithFatalCode() throws InterruptedException {
+        // make socket2 perceive socket1 as incompatible
+        socket2.setCompatProtocols(Set.of(incompatibleProtocol));
+        // change socket2 dispatcher to catch the LINK message,
+        // and inform when a LINKACK message has been sent
+        AtomicReference<SocketMsg> linkMsg = new AtomicReference<>(null);
+        AtomicInteger linkAckMsgsSent = new AtomicInteger(0);
+        socket2.setCoreComponents(new DirectDispatcherToLinkManager(lm1){
+            @Override
+            public void dispatch(SocketMsg msg) {
+                if(msg.getType() == MsgType.LINK)
+                    linkMsg.set(msg);
+                else {
+                    super.dispatch(msg);
+                    if (msg.getType() == MsgType.LINKACK)
+                        linkAckMsgsSent.incrementAndGet();
+                }
+            }
+        }, null);
+        // make both sockets send link requests
+        lm2.link(sid1);
+        lm1.link(sid2);
+        // since socket2's link request is intercepted,
+        // socket1 will receive a LINKACK with a positive
+        // answer and without metadata, before receiving
+        // a LINK message.
+        waitUntil(() -> linkAckMsgsSent.get() > 0);
+        // after the LINKACK msg is sent by socket2
+        // the LINK msg can be sent
+        scheduler.schedule(() -> lm1.handleMsg(linkMsg.get()),0,TimeUnit.MILLISECONDS);
+        // check the link is not established
+        waitUntil(() -> lm2.isUnlinked(sid1));
+        waitUntil(() -> lm1.isUnlinked(sid2));
+    }
+
+    /** 
+     * Receive link msg after linkack msg with non-fatal code and without metadata. 
+     * This test requires simultaneous link requests because for a LINKACK message
+     * to not carry metadata, the socket must have sent metadata already.
+     * Because the only non-fatal answer currently implemented is related to reaching
+     * the maximum number of links, this test cannot be performed as this condition
+     * does not matter when the link has already been created.
+     *
+     * So, if a new non-fatal condition arises that enables this test, then set
+     * the conditions in the proper spaces below.
      */
+    /*@Test
+    void receiveLinkMsgAfterLinkackWithNonFatalCode() throws InterruptedException {
+        // change socket2 dispatcher to catch the LINK message,
+        // and inform when a LINKACK message has been sent
+        AtomicReference<SocketMsg> linkMsg = new AtomicReference<>(null);
+        AtomicInteger linkAckMsgsSent = new AtomicInteger(0);
+        socket2.setCoreComponents(new DirectDispatcherToLinkManager(lm1){
+            @Override
+            public void dispatch(SocketMsg msg) {
+                if(msg.getType() == MsgType.LINK)
+                    linkMsg.set(msg);
+                else {
+                    super.dispatch(msg);
+                    if (msg.getType() == MsgType.LINKACK)
+                        linkAckMsgsSent.incrementAndGet();
+                }
+            }
+        }, null);
+
+        // SET CONDITION TO RESULT IN NON-FATAL REFUSAL HERE
+
+        // make both sockets send link requests
+        lm2.link(sid1);
+        lm1.link(sid2);
+        // since socket2's link request is intercepted,
+        // socket1 will receive a LINKACK with a positive
+        // answer and without metadata, before receiving
+        // a LINK message.
+        waitUntil(() -> linkAckMsgsSent.get() > 0);
+        // after the LINKACK msg is sent by socket2
+        // the LINK msg can be sent
+        scheduler.schedule(() -> lm1.handleMsg(linkMsg.get()),0,TimeUnit.MILLISECONDS);
+
+        // SET THE CONDITION BACK TO ENABLE LINKING
+
+        // check the link is not established
+        waitUntil(() -> lm2.isUnlinked(sid1));
+        waitUntil(() -> lm1.isUnlinked(sid2));
+    }*/
+
+    /**
+     * Simultaneous scheduling is not currently possible. It is not possible
+     * because the only non-fatal answer is related to reaching the maximum
+     * number of links, and this condition does not matter when the link
+     * has already been created.
+     * If a new non-fatal condition arises that enables this test, then set
+     * the conditions in the proper spaces below.
+     */
+    /*@Test
+    void simultaneousScheduleLinkRequest() throws InterruptedException {
+        // acquire socket locks
+        socket1.getLock().lock();
+        socket2.getLock().lock();
+        // send link requests and then change maxLinks to 0
+        // to emulate the effect of not reaching maximum number
+        // of links. This will make the sockets reject link requests
+        // with a non-fatal reason, therefore resulting in link requests
+        // being scheduled.
+        lm1.link(sid2);
+        lm2.link(sid1);
+
+        // SET CONDITION TO RESULT IN NON-FATAL REFUSAL HERE
+
+        assert lm1.isLinking(sid2);
+        assert lm2.isLinking(sid1);
+        // release locks to let the sockets schedule link requests,
+        // and wait until the requests are scheduled
+        socket1.getLock().unlock();
+        socket2.getLock().unlock();
+        LinkNew link1 = lm1.links.get(sid2), // link in socket1
+                link2 = lm2.links.get(sid1); // link in socket2
+        waitUntil(() -> link1 != null && link1.getScheduled() != null && link1.getScheduled().get() != null);
+        waitUntil(() -> link2 != null && link2.getScheduled() != null && link2.getScheduled().get() != null);
+
+        // change the conditions back to enable the establishment of the link
+
+        // SET THE CONDITION BACK TO ENABLE LINKING
+
+        // check the sockets are eventually linked
+        waitUntil(() -> lm1.isLinked(sid2));
+        waitUntil(() -> lm2.isLinked(sid1));
+    }
+     */
+
+     /*
+    TODO - missing tests:
+        7. receive data/control msg to establish link
+     */
+
+    void dataOrControlMsgConfirmingLinkEstablishment(byte msgType) throws InterruptedException {
+        // change socket1 dispatcher to catch the LINKACK message
+        AtomicReference<SocketMsg> linkMsg = new AtomicReference<>(null);
+        socket1.setCoreComponents(new DirectDispatcherToLinkManager(lm2){
+            @Override
+            public void dispatch(SocketMsg msg) {
+                if(msg.getType() == MsgType.LINKACK)
+                    linkMsg.set(msg);
+                else {
+                    super.dispatch(msg);
+                }
+            }
+        }, null);
+        // make socket1 send a link request to socket2
+        lm1.link(sid2);
+        // wait until socket1 is linked,
+        // and assert socket2 is linking
+        waitUntil(() -> lm1.isLinked(sid2));
+        assert lm2.isLinking(sid1);
+        // send a data/control msg to socket2 before the
+        // LINKACK message that would make socket2 establish the link.
+        SocketMsg msg = new SocketMsg(socket1.getId(), socket2.getId(), msgType, new byte[]{});
+        scheduler.schedule(() -> dispatch(lm2,msg), 0, TimeUnit.MILLISECONDS);
+        // assert the link gets established with the data/control msg
+        waitUntil(()->lm2.isLinked(sid1));
+        // assert the LINK msg has no effect
+        scheduler.schedule(() -> dispatch(lm2, linkMsg.get()), 0, TimeUnit.MILLISECONDS);
+        Thread.sleep(25);
+        assert lm1.isLinked(sid2);
+        assert lm2.isLinked(sid1);
+    }
+
+    @Test
+    void dataMsgConfirmingLinkEstablishment() throws InterruptedException {
+        dataOrControlMsgConfirmingLinkEstablishment(MsgType.DATA);
+    }
+
+    @Test
+    void controlMsgConfirmingLinkEstablishment() throws InterruptedException {
+        dataOrControlMsgConfirmingLinkEstablishment((byte) 0xff);
+    }
 
     @Test
     void maxLinksDoesNotAllowLinking(){

@@ -9,7 +9,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Predicate;
 import java.util.logging.Logger;
 
@@ -19,7 +18,7 @@ import pt.uminho.di.a3m.poller.PollFlags;
 public class LinkManager {
     private final Socket socket;
     final Map<SocketIdentifier, LinkNew> links = new HashMap<>();
-    private int clock = 0; // TODO - starting at 0 to simplify debugging, but then change to Integer.MIN_VALUE
+    private int clock = 0;
     public LinkManager(Socket socket) {
         this.socket = socket;
     }
@@ -134,9 +133,6 @@ public class LinkManager {
     }
 
     // ********* Creation & Parsing of Link-related messages ********* //
-
-    // TODO - delete after debugging
-    final static Lock printLock = new ReentrantLock();
     
     /**
      * Creates link request payload.
@@ -234,42 +230,6 @@ public class LinkManager {
 
     // TODO 0 - make restrictions on the clock identifiers where they are required
 
-    // TODO 0 - check where the waitingLinkMsg/waitingUnlinkMsg should be reset.
-    //  These variables should be reset right after receiving the required message.
-
-    /* TODO 1 - what happens when a DATA/CONTROL message is received before the link is established?
-          Accumulate messages in the incoming queue and when the link is established, feed them
-          again to the socket's handle custom msg?
-          - Solution 1:
-              1. Link queue should only be initialized using the socket's getInQueueSupplier when
-              the link passes to established.
-              2. When a message is received before the link is established, the inQueue is initialized
-              to a LinkedList<> so that the messages can be stored until the link establishment.
-              Problem: Introduces vulnerability. Messages can be bombarded before the arrival of the
-              message that accepts the link. Since the exactly-once semantic means not discarding messages,
-              the memory could be easily exhausted using this exploit. However, for other solution to
-              not be an exploit, we need to have an "abuser detector" on the messages received using the discussed
-              "acceptable range" when a change in the window for a lower value is performed.
-              Problem 2: Even with such detector mechanism, the control messages could still be used for this purpose,
-              as they are not influenced by flow control. To prevent control messages from being used for such purposes,
-              these must not be queued and by being handled immediately, one could detect contabilize faulty messages
-              and add the socket or link in question to a blacklist. The best solution would actually be adding the socket
-              to a firewall to block its traffic.
-          - Solution 2:
-            1. Do SYN -> SYN/ACK -> ACK, i.e., LINK -> LINKACK -> LINKACK (the last one may carry the clockId and success code only).
-                    - Currently, when a socket receives a LINK msg from a compatible socket, it creates a
-                    link and immediately sets it to established. This means, that data and control messages
-                    can be sent right after, potentially reaching the destination before the LINKACK message
-                    that would make the requester establish the link on its side as well. If a data/control
-                    message reaches the requester before the link is established, the requester does not know
-                    what kind of socket it is talking to, so it can't possibly process the message. Queuing
-                    the messages could be a solution until the establishment of the link, but taht would create
-                    the exploit mentioned above, so, the most appropriate solution is in fact queuing the messages
-                    on the sender (in a outgoing queue) and dispatch them only after receiving a LINKACK message
-                    from the other peer.
-    */
-
-
     // TODO 2 - see where notifying waiters and creating socket events is required
     //  - set credits to zero when unlinking to prevent sending of data messages?
 
@@ -363,16 +323,17 @@ public class LinkManager {
         if(!allowIncomingLinkRequests)
             payload = createLinkAckMsgWithMetadata(0, AC_INCOMING_NOT_ALLOWED).serialize();
 
+        // If the peer's protocol is not compatible with the socket's protocol,
+        // send a fatal refusal reason informing the incompatibility
+        if(!isPeerCompatible(peerProtocolId))
+            payload = createLinkAckMsgWithMetadata(0, AC_INCOMPATIBLE).serialize();
+
         // If max links limit has been reached. The link cannot be established
         // at the moment, but may be established in the future.
         int maxLinks = socket.getOption("maxLinks", Integer.class);
         if(links.size() >= maxLinks) {
             payload = createLinkAckMsgWithMetadata(0, AC_TMP_NAVAIL).serialize();
         }
-        // If the peer's protocol is not compatible with the socket's protocol,
-        // send a fatal refusal reason informing the incompatibility
-        if(!isPeerCompatible(peerProtocolId))
-            payload = createLinkAckMsgWithMetadata(0, AC_INCOMPATIBLE).serialize();
 
         // if all linking conditions are met
         if(payload == null) {
@@ -594,6 +555,11 @@ public class LinkManager {
                         //  2. The socket has received a LINK msg with the peer's metadata
                         // and is only waiting for the confirmation (LINKACK) to establish the link.
 
+                        // To establish a LINK, both the LINK and LINKACK messages need
+                        // to be received. If the LINK message was the first to arrive,
+                        // we cannot establish the link since we are missing the LINKACK msg.
+                        boolean establish = false;
+
                         if(link.isLinkAckMsgReceived() != null){
                             // ignore link messages that have a clock identifier
                             // that does not match the wanted clock identifier
@@ -602,16 +568,22 @@ public class LinkManager {
                             // save and then reset the waiting variable
                             int peerAckCode = link.isLinkAckMsgReceived();
                             link.setLinkAckMsgReceived(null);
+
+                            // LINK and LINKACK have been received,
+                            // so the socket can establish the link
+                            // if compatible
+                            if(isPositiveLinkingCode(peerAckCode))
+                                establish = true;
                             // if the received code is fatal, we need
                             // to set in progress an unlinking process
-                            if(isFatalLinkingCode(peerAckCode)) {
+                            else if(isFatalLinkingCode(peerAckCode)) {
                                 closeLink(link);
                                 return;
                             }
                             // if a non-fatal ack code was received and
                             // the peer is compatible, we can schedule a
                             // new link request. Otherwise, close the link.
-                            else if(isNonFatalLinkingCode(peerAckCode)) {
+                            else { // if(isNonFatalLinkingCode(peerAckCode))
                                 if (isPeerCompatible(peerProtocolId)) {
                                     scheduleLinkRequest(link);
                                 } else {
@@ -619,18 +591,16 @@ public class LinkManager {
                                 }
                                 return;
                             }
-                            // Else, if received a positive ack code,
-                            // the socket must accept or reject the link request.
-                            // else if (isPositiveLinkingCode(link.isWaitingLinkMsg()) == 0)
                         }
 
                         if(isWaitingPeerMetadata(link)){
                             // Peer has invoked link() and is waiting for metadata (in a LINK or LINKACK msg).
                             setPeerInformation(link, peerProtocolId, peerClockId, outCredits);
                             // Send LINKACK message and close link if incompatible.
-                            // If compatible, wait for the peer's LINKACK message to decide
-                            // if the establishment should be done or not.
-                            checkCompatibilityThenAcceptOrReject(link, false);
+                            // If compatible and a LINKACK message has not been received,
+                            // then wait for it before reaching the final decision regarding
+                            // the establishment of the link.
+                            checkCompatibilityThenAcceptOrReject(link, establish);
                         }
                     }
                     // Ignore message when ESTABLISHED. This cannot happen, as
@@ -828,9 +798,6 @@ public class LinkManager {
             lock().unlock();
         }
     }
-
-    // TODO - check where WAITING_TO_UNLINK needs to be reformulated to CANCELLING;
-    //      + change "waitingLink" to "linkAckReceived" (search comments too)
 
     private void handleUnlinkMsg(SocketMsg msg) {
         SocketIdentifier peerId = msg.getSrcId();

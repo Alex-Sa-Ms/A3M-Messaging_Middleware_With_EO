@@ -77,6 +77,43 @@ A *Cookie* can be used to determine when a message has arrived at the destinatio
 	**Note:** While this may seem like a non-symmetric procedure due to each side consulting their options such as max limits and block incoming requests, the algorithm is still symmetric. The reason being that this verification (apart from the compatibility one which is always done) is only done when initiating a linking process or when receiving a LINK message. If both sides send a LINK message, then both have agreed on linking if the compatibility is verified. The compatibility check is a symmetric process, so, is symmetry makes the linking process symmetric as well.  If only one side sends a LINK message, than it will receive the answer regarding the compatibility from a LINKACK message that carries the a code informing if the link was accepted or denied. If denied the reason may be fatal or non-fatal, with a fatal reason meaning that retrying must not be performed as it will yield the same result.
 
 ### Three-way handshake
+#### Rationale 
+- Enabling options such as "max links" and "block incoming requests" makes the linking process not symmetric, meaning both sockets need to accept the link establishment.
+- This linking protocol has a small additional overhead, of one extra-step, in comparison with the symmetric linking protocol, but enables more complex messaging protocols to be designed. The LINK and LINKACK messages could be used to carry custom metadata providing a way to specify more restrictions for a link to be established or simply for piggybacking information relevant for the links.
+- Extract more reasons from following text (related to exploit):
+  ```
+  what happens when a DATA/CONTROL message is received before the link is established?
+          Accumulate messages in the incoming queue and when the link is established, feed them
+          again to the socket's handle custom msg?
+          - Solution 1:
+              1. Link queue should only be initialized using the socket's getInQueueSupplier when
+              the link passes to established.
+              2. When a message is received before the link is established, the inQueue is initialized
+              to a LinkedList<> so that the messages can be stored until the link establishment.
+              Problem: Introduces vulnerability. Messages can be bombarded before the arrival of the
+              message that accepts the link. Since the exactly-once semantic means not discarding messages,
+              the memory could be easily exhausted using this exploit. However, for other solution to
+              not be an exploit, we need to have an "abuser detector" on the messages received using the discussed
+              "acceptable range" when a change in the window for a lower value is performed.
+              Problem 2: Even with such detector mechanism, the control messages could still be used for this purpose,
+              as they are not influenced by flow control. To prevent control messages from being used for such purposes,
+              these must not be queued and by being handled immediately, one could detect contabilize faulty messages
+              and add the socket or link in question to a blacklist. The best solution would actually be adding the socket
+              to a firewall to block its traffic.
+          - Solution 2:
+            1. Do SYN -> SYN/ACK -> ACK, i.e., LINK -> LINKACK -> LINKACK (the last one may carry the clockId and success code only).
+                    - Currently, when a socket receives a LINK msg from a compatible socket, it creates a
+                    link and immediately sets it to established. This means, that data and control messages
+                    can be sent right after, potentially reaching the destination before the LINKACK message
+                    that would make the requester establish the link on its side as well. If a data/control
+                    message reaches the requester before the link is established, the requester does not know
+                    what kind of socket it is talking to, so it can't possibly process the message. Queuing
+                    the messages could be a solution until the establishment of the link, but taht would create
+                    the exploit mentioned above, so, the most appropriate solution is in fact queuing the messages
+                    on the sender (in a outgoing queue) and dispatch them only after receiving a LINKACK message
+                    from the other peer.
+  ```
+#### Solution
 **Note:** Well, a three-way handshake, like the TCP's SYN->SYN/ACK->ACK, is required before closing the link is allowed. This handshake is required to prevent data/control messages from arriving before the link is marked as established.
 
 - First, `unlink()` is only allowed after the link establishment process is terminated, i.e., all the required LINK and LINKACK messages are received. This means, that when unlinking is wanted, the link must change to a `WAITING_TO_UNLINK` state, and wait for the required messages before deciding which unlinking behavior is required. 
@@ -86,8 +123,8 @@ A *Cookie* can be used to determine when a message has arrived at the destinatio
 		3. Just close, when a negative linking response is received in a `LINKACK` msg.
 - After sending metadata, the next message (`LINKACK`) that is required to be delivered to the peer, must not contain metadata. This allows determining if the a `LINK` message has been sent before the `LINKACK` message, which means the `LINK` message must be caught, regardless of the success indicated by the `LINKACK` code, as we don't want unwanted links to occur but also we need to wait for the metadata before establishing the link, otherwise we can't verify the compatibility and we won't know how to handle the incoming data/control messages.
 - Old `LINKACK` and `UNLINK` messages do not influence behavior, so this might help simply logic. The crucial message that must be caught is the `LINK` message.
-
-```
+### Initial 2-way handshake algorithm:
+ ```
 /*
 
         *** Linking algorithm ***
@@ -223,7 +260,7 @@ A *Cookie* can be used to determine when a message has arrived at the destinatio
      */
 ```
 
-## Failed ideas to search for problems to write in the thesis
+### Failed ideas to search for problems to write in the thesis
 ```
  /*
     TODO - Linking/Unlink algorithm:
