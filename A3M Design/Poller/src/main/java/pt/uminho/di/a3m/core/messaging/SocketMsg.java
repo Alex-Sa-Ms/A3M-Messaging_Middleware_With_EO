@@ -2,6 +2,8 @@ package pt.uminho.di.a3m.core.messaging;
 
 import pt.uminho.di.a3m.core.SocketIdentifier;
 
+import java.util.Arrays;
+
 public class SocketMsg extends Msg{
     private final String srcTagId;
     private final String destTagId;
@@ -40,5 +42,16 @@ public class SocketMsg extends Msg{
 
     public SocketIdentifier getDestId(){
         return new SocketIdentifier(getDestNodeId(),getDestTagId());
+    }
+
+
+    @Override
+    public String toString() {
+        return "SockMsg{" +
+                "srcId=" + getSrcId() +
+                ", destId=" + getDestId() +
+                ", type=" + getType() +
+                ", payload=" + Arrays.toString(getPayload())
+                + '}';
     }
 }

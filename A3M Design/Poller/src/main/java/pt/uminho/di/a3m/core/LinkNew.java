@@ -20,7 +20,19 @@ public class LinkNew {
     final WaitQueue waitQ = new WaitQueue();
     private Queue<SocketMsg> inMsgQ = null;
     private AtomicReference<SocketMsg> scheduled = null; // To keep track of scheduled LINK message
-    private boolean unlinkReceived = false; // Used when in WAITING_TO_UNLINK state.
+
+    // TODO - remove unused variables
+    private Queue<SocketMsg> outMsgQ = null; // TODO - is the outqueue still required?
+
+    // For the linking/unlinking process. Holds the value present in
+    // the peer's LINKACK msg that was received before the peer's LINK msg.
+    // When a LINK msg is received, this variable is verified.
+    // If 'null' the socket is not waiting for a link msg.
+    // If holding a positive acknowledgement code, then the link can be established.
+    // If holding a negative non-fatal acknowledgement code, then a link request may be scheduled.
+    // If holding a negative fatal acknowledgement code, then the link may be closed.
+    private Integer linkAckMsgReceived = null;
+
     /**
      * Link constructor
      * @param id identifier of the link
@@ -36,14 +48,19 @@ public class LinkNew {
     }
 
     public enum LinkState {
-        LINKING, // when waiting for the peer's answer regarding the link establishment
-        UNLINKING, // when waiting for an unlink message to close the link
-        WAITING_TO_UNLINK, // when waiting for a link/link acknowledgment message to change to unlinking
+        // When waiting for the peer's answer regarding the link establishment.
+        // If a LINK message from the peer has been received, then any data/control
+        // message can make the link progress to established.
+        LINKING,
+        // when waiting for an unlink message to close the link
+        UNLINKING,
+        // when wanting to cancel a linking process
+        CANCELLING,
         ESTABLISHED,
         CLOSED;
     }
 
-    public Integer getPeerProtocol() {
+    public Integer getPeerProtocolId() {
         return peerProtocolId;
     }
 
@@ -60,8 +77,8 @@ public class LinkNew {
         return scheduled;
     }
 
-    public boolean isUnlinkReceived() {
-        return unlinkReceived;
+    public Integer isLinkAckMsgReceived() {
+        return linkAckMsgReceived;
     }
 
     /**
@@ -115,11 +132,12 @@ public class LinkNew {
         return msg;
     }
 
-    public void setUnlinkReceived(boolean unlinkReceived) {
-        this.unlinkReceived = unlinkReceived;
+    public void setLinkAckMsgReceived(Integer linkAckMsgReceived) {
+        this.linkAckMsgReceived = linkAckMsgReceived;
     }
 
     public void close() {
+        if(scheduled != null) scheduled.set(null); // remove a possibly scheduled message
         state.set(LinkState.CLOSED);
         // Wake up all waiters with POLLHUP and
         // POLLFREE to inform the closure.

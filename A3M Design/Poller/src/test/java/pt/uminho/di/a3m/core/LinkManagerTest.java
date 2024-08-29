@@ -9,7 +9,6 @@ import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -32,7 +31,7 @@ class LinkManagerTest {
         @Override
         public void dispatch(SocketMsg msg) {
             scheduler.execute(() -> destLm.handleMsg(msg));
-            System.out.println("Dispatched: type=" + msg.getType() + "; src=" + msg.getSrcId() + "; dest=" + msg.getDestId());
+            System.out.println("Dispatched: " + msg);
         }
 
         @Override
@@ -212,7 +211,7 @@ class LinkManagerTest {
             lm1.link(sid2);
             assert lm1.isLinking(sid2);
             lm1.unlink(sid2);
-            assert lm1.isLinkState(sid2,ls -> ls == LinkNew.LinkState.WAITING_TO_UNLINK);
+            assert lm1.isLinkState(sid2,ls -> ls == LinkNew.LinkState.CANCELLING);
         } finally {
             socket2.getLock().unlock();
         }
@@ -394,13 +393,13 @@ class LinkManagerTest {
         // assert that socket2 is in a LINKING state
         assert lm2.isLinking(sid1);
         // assert that socket1 is in WAITING_TO_UNLINK state
-        assert lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.WAITING_TO_UNLINK);
+        assert lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.CANCELLING);
         // release socket2 to enable the handling of the LINK msg
         socket2.getLock().unlock();
         // wait until socket2 establishes the link
         waitUntil(() -> lm2.isLinked(sid1));
         // assert socket1 is still in WAITING_TO_UNLINK state
-        assert lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.WAITING_TO_UNLINK);
+        assert lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.CANCELLING);
         // release socket1 lock and check that eventually
         // the link is closed
         socket1.getLock().unlock();
@@ -417,7 +416,7 @@ class LinkManagerTest {
         // socket1 is in WAITING_TO_UNLINK state
         lm1.link(sid2);
         lm1.unlink(sid2);
-        assert lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.WAITING_TO_UNLINK);
+        assert lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.CANCELLING);
         // acquire socket1 lock
         socket1.getLock().lock();
         // release socket2 to enable the handling of the LINK msg
@@ -425,7 +424,7 @@ class LinkManagerTest {
         // wait until socket2 establishes the link
         waitUntil(() -> lm2.isLinked(sid1));
         // assert socket1 is still in WAITING_TO_UNLINK state
-        assert lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.WAITING_TO_UNLINK);
+        assert lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.CANCELLING);
         // release socket1 lock and check that eventually
         // the link is closed
         socket1.getLock().unlock();
@@ -445,7 +444,7 @@ class LinkManagerTest {
         // socket1 is in WAITING_TO_UNLINK state
         lm1.link(sid2);
         lm1.unlink(sid2);
-        assert lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.WAITING_TO_UNLINK);
+        assert lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.CANCELLING);
         // acquire socket1 lock
         socket1.getLock().lock();
         // release socket2 to enable teh handling of the LINK msg
@@ -453,7 +452,7 @@ class LinkManagerTest {
         // wait a bit for the negative LINKACK message to be sent to socket1
         Thread.sleep(50);
         // assert socket1 is still in WAITING_TO_UNLINK state
-        assert lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.WAITING_TO_UNLINK);
+        assert lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.CANCELLING);
         // release socket1 lock and check that eventually
         // the link is closed
         socket1.getLock().unlock();
@@ -516,7 +515,7 @@ class LinkManagerTest {
         socket1.getLock().unlock();
         // If an UNLINK message is received when in LINKING state,
         // then the socket must change to WAITING_TO_UNLINK state.
-        waitUntil(() -> lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.WAITING_TO_UNLINK));
+        waitUntil(() -> lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.CANCELLING));
         // Feed the LINKACK msg so that the link can be closed
         scheduler.execute(() -> lm1.handleMsg(linkackMsg.getAndSet(null)));
         // wait until the link is closed on both sides
@@ -563,7 +562,7 @@ class LinkManagerTest {
         socket1.getLock().unlock();
         // If an UNLINK message is received when in LINKING state,
         // then the socket must change to WAITING_TO_UNLINK state.
-        waitUntil(() -> lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.WAITING_TO_UNLINK));
+        waitUntil(() -> lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.CANCELLING));
         // Feed the LINK msg so that the link can be closed
         scheduler.execute(() -> lm1.handleMsg(linkMsg.getAndSet(null)));
         // wait until the link is closed on both sides
@@ -597,7 +596,7 @@ class LinkManagerTest {
         lm2.link(sid1);
         // make socket1 invoke unlink() to change to WAITING_TO_UNLINK state
         lm1.unlink(sid2);
-        assert lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.WAITING_TO_UNLINK);
+        assert lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.CANCELLING);
         // wait until the LINK message is sent by socket2
         waitUntil(() -> linkMsg.get() != null);
         // release socket2's lock so that it can establish
@@ -615,7 +614,7 @@ class LinkManagerTest {
         // then the socket must continue in that state but set a flag "unlink received",
         // so that when the LINK (or LINKACK) msg is received it can remove the link immediately
         // after sending the UNLINK msg to conclude the unlinking process.
-        assert lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.WAITING_TO_UNLINK);
+        assert lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.CANCELLING);
         // Feed the LINK msg so that the link can be closed
         scheduler.execute(() -> lm1.handleMsg(linkMsg.getAndSet(null)));
         // wait until the link is closed on both sides
@@ -648,7 +647,7 @@ class LinkManagerTest {
         lm1.link(sid2);
         // make socket1 invoke unlink() to change to WAITING_TO_UNLINK state
         lm1.unlink(sid2);
-        assert lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.WAITING_TO_UNLINK);
+        assert lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.CANCELLING);
         // release socket2's lock so that it can establish
         // the link, then unlink it
         socket2.getLock().unlock();
@@ -667,7 +666,7 @@ class LinkManagerTest {
         // then the socket must continue in that state but set a flag "unlink received",
         // so that when the LINKACK (or LINK) msg is received it can remove the link immediately
         // after sending the UNLINK msg to conclude the unlinking process.
-        assert lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.WAITING_TO_UNLINK);
+        assert lm1.isLinkState(sid2, ls -> ls == LinkNew.LinkState.CANCELLING);
         // Feed the LINK msg so that the link can be closed
         scheduler.execute(() -> lm1.handleMsg(linkAckMsg.getAndSet(null)));
         // wait until the link is closed on both sides

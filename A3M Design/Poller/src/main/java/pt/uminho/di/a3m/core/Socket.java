@@ -450,7 +450,8 @@ public abstract class Socket{
      * that uses a Comparator to order messages on insertion.
      * @implSpec The supplied queue should not have size restrictions, as the exactly-once
      * semantics do not tolerate the discarding of messages, therefore, we assume the message
-     * is added to the queue without any problem.
+     * is added to the queue without any problem. Also, when overriding the method, it must
+     * be taken into consideration the mode of the socket, i.e., if it is in COOKED or RAW mode.
      * @param link link which may include peer's relevant information for the election
      *             of a queue.
      * @return supplier of an incoming queue for the given link

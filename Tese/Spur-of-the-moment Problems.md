@@ -72,8 +72,20 @@ A *Cookie* can be used to determine when a message has arrived at the destinatio
 
 # Linking algorithm reformulated
 ## Final Solution
-<h6 style="color:limegreen">Note: The algorithm here is incomplete, so look at the code to confirm the final and tested algorithm.</h6>
-**Note:** While this may seem like a non-symmetric procedure due to each side consulting their options such as max limits and block incoming requests, the algorithm is still symmetric. The reason being that this verification (apart from the compatibility one which is always done) is only done when initiating a linking process or when receiving a LINK message. If both sides send a LINK message, then both have agreed on linking if the compatibility is verified. The compatibility check is a symmetric process, so, is symmetry makes the linking process symmetric as well.  If only one side sends a LINK message, than it will receive the answer regarding the compatibility from a LINKACK message that carries the a code informing if the link was accepted or denied. If denied the reason may be fatal or non-fatal, with a fatal reason meaning that retrying must not be performed as it will yield the same result.
+<h6 style="color:limegreen">Note: The code algorithm here is incomplete, so look at the code to confirm the final and tested algorithm.</h6>
+- I think the note below is not valid when a three-way handshake, that makes compatibility checks, is being used.
+	**Note:** While this may seem like a non-symmetric procedure due to each side consulting their options such as max limits and block incoming requests, the algorithm is still symmetric. The reason being that this verification (apart from the compatibility one which is always done) is only done when initiating a linking process or when receiving a LINK message. If both sides send a LINK message, then both have agreed on linking if the compatibility is verified. The compatibility check is a symmetric process, so, is symmetry makes the linking process symmetric as well.  If only one side sends a LINK message, than it will receive the answer regarding the compatibility from a LINKACK message that carries the a code informing if the link was accepted or denied. If denied the reason may be fatal or non-fatal, with a fatal reason meaning that retrying must not be performed as it will yield the same result.
+
+### Three-way handshake
+**Note:** Well, a three-way handshake, like the TCP's SYN->SYN/ACK->ACK, is required before closing the link is allowed. This handshake is required to prevent data/control messages from arriving before the link is marked as established.
+
+- First, `unlink()` is only allowed after the link establishment process is terminated, i.e., all the required LINK and LINKACK messages are received. This means, that when unlinking is wanted, the link must change to a `WAITING_TO_UNLINK` state, and wait for the required messages before deciding which unlinking behavior is required. 
+	- The unlinking behavior may be:
+		1. Change to `UNLINKING` and send `UNLINK` message when the link is established.
+		2. Send `UNLINK` message and close, when an `UNLINK` message is received before the message containing the metadata that would establish the link.
+		3. Just close, when a negative linking response is received in a `LINKACK` msg.
+- After sending metadata, the next message (`LINKACK`) that is required to be delivered to the peer, must not contain metadata. This allows determining if the a `LINK` message has been sent before the `LINKACK` message, which means the `LINK` message must be caught, regardless of the success indicated by the `LINKACK` code, as we don't want unwanted links to occur but also we need to wait for the metadata before establishing the link, otherwise we can't verify the compatibility and we won't know how to handle the incoming data/control messages.
+- Old `LINKACK` and `UNLINK` messages do not influence behavior, so this might help simply logic. The crucial message that must be caught is the `LINK` message.
 
 ```
 /*
@@ -210,6 +222,7 @@ A *Cookie* can be used to determine when a message has arrived at the destinatio
                 instead of passing to the UNLINKING state.
      */
 ```
+
 ## Failed ideas to search for problems to write in the thesis
 ```
  /*

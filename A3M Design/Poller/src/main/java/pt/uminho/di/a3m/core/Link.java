@@ -9,7 +9,7 @@ import pt.uminho.di.a3m.core.flowcontrol.OutFlowControlState;
 import pt.uminho.di.a3m.core.linking.LinkClosedEvent;
 import pt.uminho.di.a3m.core.linking.LinkEstablishedEvent;
 import pt.uminho.di.a3m.core.messaging.*;
-import pt.uminho.di.a3m.core.messaging.CoreMessages.*;
+import pt.uminho.di.a3m.core.messaging.CoreMessages.ErrorPayload;
 import pt.uminho.di.a3m.poller.PollFlags;
 import pt.uminho.di.a3m.poller.PollTable;
 import pt.uminho.di.a3m.poller.Pollable;
