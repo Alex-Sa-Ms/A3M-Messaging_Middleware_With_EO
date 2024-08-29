@@ -142,4 +142,9 @@ public class SerializableMap {
                 new SerializableMap(PMap.parseFrom(array).getItemsMap())
                 : null;
     }
+
+    @Override
+    public String toString() {
+        return "SMap{" + map + '}';
+    }
 }

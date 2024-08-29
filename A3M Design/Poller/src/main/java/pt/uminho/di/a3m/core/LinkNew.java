@@ -87,8 +87,7 @@ public class LinkNew {
      * @param peerProtocolId peer's protocol id
      */
     public void setPeerProtocolId(Integer peerProtocolId) {
-        if(this.peerProtocolId == null)
-            this.peerProtocolId = peerProtocolId;
+        this.peerProtocolId = peerProtocolId;
     }
 
     /**

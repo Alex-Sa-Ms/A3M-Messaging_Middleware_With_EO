@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Predicate;
 import java.util.logging.Logger;
 
@@ -134,6 +135,9 @@ public class LinkManager {
 
     // ********* Creation & Parsing of Link-related messages ********* //
 
+    // TODO - delete after debugging
+    final static Lock printLock = new ReentrantLock();
+    
     /**
      * Creates link request payload.
      * @param clockId link's clock identifier
@@ -296,32 +300,36 @@ public class LinkManager {
      * by sending an imcompatible refusal code in a LINKACK, then closes the link.
      * If compatible, sends success code in a LINKACK and establishes the link.
      * @param link link to be checked
+     * @param establish flag should be set when, in addition to sending the LINKACK message,
+     *                 establishing the link is desirable. If not set, then the LINKACK message
+     *                  is sent, but the link is not established, meaning it remains in the same
+     *                  state (which should be LINKING) until the peer's LINKACK message is received
+     *                  and the decision about the establishment can be made.
      * @return true if compatible. false, otherwise.
      */
-    private boolean checkCompatibilityThenAcceptOrReject(LinkNew link) {
+    private boolean checkCompatibilityThenAcceptOrReject(LinkNew link, boolean establish) {
         boolean compatible;
         byte[] payload;
         // if a link request is scheduled, cancel it immediately
         SocketMsg scheduled = link.cancelScheduledMessage();
 
         if(isPeerCompatible(link.getPeerProtocolId())){
-            // if a link request was not scheduled,
-            // we send a LINKACK with a success code
-            // but without metadata as it
-            // was already received by the peer,
-            // and establish the link.
+            // if a link request was not scheduled, the socket sends a LINKACK with a success code
+            // but without metadata since a LINK msg was already sent to the peer
+            // containing the metadata. The socket also establishes the link.
             if (scheduled == null) {
                 payload = createLinkAckMsgWithoutMetadata(link.getClockId(),AC_SUCCESS).serialize();
-                establishLink(link);
+                if (establish) establishLink(link);
             }
-            // Else, if there is a scheduled link request, we remain in
+            // Else, if there was a scheduled link request, we remain in
             // a LINKING state, send a LINKACK message with metadata
             // and a success code, and wait for the peer to confirm the establishment.
             else payload = createLinkAckMsgWithMetadata(link.getClockId(),AC_SUCCESS).serialize();
             compatible = true;
         }else{
             // if incompatible, create LINKACK message with incompatible (fatal) refusal code,
-            // and add metadata depending on whether a LINK msg is considered in "flight" or not.
+            // and add metadata depending on whether a LINK msg is considered in "flight" or not,
+            // as done above when the peer is compatible.
             if(scheduled == null)
                 // not scheduled, so considered "in flight"
                 payload = createLinkAckMsgWithoutMetadata(link.getClockId(),AC_INCOMPATIBLE).serialize();
@@ -358,9 +366,9 @@ public class LinkManager {
         // If max links limit has been reached. The link cannot be established
         // at the moment, but may be established in the future.
         int maxLinks = socket.getOption("maxLinks", Integer.class);
-        if(links.size() >= maxLinks)
+        if(links.size() >= maxLinks) {
             payload = createLinkAckMsgWithMetadata(0, AC_TMP_NAVAIL).serialize();
-
+        }
         // If the peer's protocol is not compatible with the socket's protocol,
         // send a fatal refusal reason informing the incompatibility
         if(!isPeerCompatible(peerProtocolId))
@@ -381,6 +389,11 @@ public class LinkManager {
     }
 
     private void scheduleLinkRequest(LinkNew link){
+        // make sure peer information is reset
+        link.setPeerProtocolId(null);
+        link.setPeerClockId(Integer.MIN_VALUE);
+        link.outFCS.applyCreditVariation(-link.outFCS.getCredits());
+
         byte[] linkReqPayload =
                 createLinkRequestMsg(link.getClockId()).serialize();
         long retryInterval = socket.getOption("retryInterval", Long.class);
@@ -388,37 +401,6 @@ public class LinkManager {
         AtomicReference<SocketMsg> scheduled =
                 scheduleDispatch(link.id.destId(), MsgType.LINK, linkReqPayload, dispatchTime);
         link.setScheduled(scheduled);
-    }
-
-    /**
-     * @param link link state
-     * @return true if link was rejected
-     */
-    private boolean rejectLinkIfNotCompatible(LinkNew link){
-        if(isPeerCompatible(link.getPeerProtocolId()))
-            return false;
-        else{
-            byte[] payload = createLinkAckMsgWithoutMetadata(link.getClockId(),AC_INCOMPATIBLE).serialize();
-            dispatch(link.id.destId(), MsgType.LINKACK, payload);
-            closeLink(link);
-            return true;
-        }
-    }
-
-    /**
-     * Confirms peer compatibility. If the peer is not compatible,
-     * sets in motion an unlinking process.
-     * @return true if peer is compatible. false, otherwise.
-     */
-    private boolean confirmCompatibilityOrUnlink(LinkNew link, int peerProtocolId){
-        if(isPeerCompatible(peerProtocolId))
-            return true;
-        else{
-            // in the absence of malicious nodes, this does not happen.
-            link.state.set(LinkState.UNLINKING);
-            dispatch(link.id.destId(), MsgType.UNLINK, createUnlinkMsg(link.getClockId()));
-            return false;
-        }
     }
     
     /**
@@ -631,7 +613,6 @@ public class LinkManager {
                             // new link request. Otherwise, close the link.
                             else if(isNonFatalLinkingCode(peerAckCode)) {
                                 if (isPeerCompatible(peerProtocolId)) {
-                                    setPeerInformation(link, peerProtocolId, peerClockId, outCredits);
                                     scheduleLinkRequest(link);
                                 } else {
                                     closeLink(link);
@@ -646,8 +627,10 @@ public class LinkManager {
                         if(isWaitingPeerMetadata(link)){
                             // Peer has invoked link() and is waiting for metadata (in a LINK or LINKACK msg).
                             setPeerInformation(link, peerProtocolId, peerClockId, outCredits);
-                            // Establish or reject the link depending on the compatibility.
-                            checkCompatibilityThenAcceptOrReject(link);
+                            // Send LINKACK message and close link if incompatible.
+                            // If compatible, wait for the peer's LINKACK message to decide
+                            // if the establishment should be done or not.
+                            checkCompatibilityThenAcceptOrReject(link, false);
                         }
                     }
                     // Ignore message when ESTABLISHED. This cannot happen, as
@@ -733,7 +716,7 @@ public class LinkManager {
                         if(isWaitingPeerMetadata(link)){
                             // if the LINKACK contains the peer's metadata,
                             // then, the peer is not a linking process initiator
-                            if(payload.hasInt("peerProtocolId")){
+                            if(payload.hasInt("protocolId")){
                                 int peerProtocolId = payload.getInt("protocolId");
                                 setPeerInformation(link, peerProtocolId, peerClockId, outCredits);
                                 // success linking code
@@ -743,7 +726,7 @@ public class LinkManager {
                                     // compatibility and act accordingly, i.e.,
                                     // establish the link, or send a rejecting
                                     // LINKACK and close the link
-                                    checkCompatibilityThenAcceptOrReject(link);
+                                    checkCompatibilityThenAcceptOrReject(link, true);
                                 } else if (isFatalLinkingCode(ackCode)) {
                                     // if the LINKACK message contains a fatal
                                     // refusal code, then remove the link
