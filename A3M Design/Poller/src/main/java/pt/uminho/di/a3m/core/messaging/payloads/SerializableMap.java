@@ -20,6 +20,10 @@ public class SerializableMap {
         return map.entrySet();
     }
 
+    public int size() {
+        return map.size();
+    }
+
     public boolean hasInt(String option){
         PValue value = map.get(option);
         return value != null && value.hasIntValue();

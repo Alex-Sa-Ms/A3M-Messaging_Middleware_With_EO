@@ -170,7 +170,7 @@ public class Link implements Pollable {
         try {
             owner.getLock().lock();
             if (state.get() != LinkState.CLOSED) {
-                int batch = inFCS.adjustPeerCapacity(credits);
+                int batch = inFCS.adjustCapacity(credits);
                 sendCredits(batch);
             }
         }finally {
@@ -187,7 +187,7 @@ public class Link implements Pollable {
         try {
             owner.getLock().lock();
             if(state.get() != LinkState.CLOSED) {
-                int batch = inFCS.setPeerCapacity(newCapacity);
+                int batch = inFCS.setCapacity(newCapacity);
                 sendCredits(batch);
             }
         } finally {
@@ -357,7 +357,7 @@ public class Link implements Pollable {
      */
     void handleFlowControlMessage(SocketMsg msg){
         assert msg != null;
-        FlowCreditsPayload fcp = FlowCreditsPayload.convertFrom(msg.getType(), msg.getPayload());
+        FlowCreditsPayload fcp = FlowCreditsPayload.convertFrom(msg.getPayload());
         assert fcp != null;
         adjustOutgoingCredits(fcp.getCredits());
     }

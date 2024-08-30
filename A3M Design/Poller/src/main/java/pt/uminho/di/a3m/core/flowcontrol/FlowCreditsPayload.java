@@ -25,13 +25,12 @@ public class FlowCreditsPayload implements Payload {
     /**
      * Checks if payload type matches and converts the payload array
      * to a FlowCreditsPayload payload.
-     * @param type type of the payload
      * @param payload payload array
      * @return a FlowCreditsPayload if the source payload is a legit
      * flow control credits payload. Otherwise, returns null.
      */
-    public static FlowCreditsPayload convertFrom(byte type, byte[] payload){
-        if(type != MsgType.FLOW || payload.length != 4)
+    public static FlowCreditsPayload convertFrom(byte[] payload){
+        if(payload.length != 4)
             return null;
         else
             return new FlowCreditsPayload(
@@ -49,6 +48,6 @@ public class FlowCreditsPayload implements Payload {
         if(payload == null)
             return null;
         else
-            return convertFrom(payload.getType(), payload.getPayload());
+            return convertFrom(payload.getPayload());
     }
 }

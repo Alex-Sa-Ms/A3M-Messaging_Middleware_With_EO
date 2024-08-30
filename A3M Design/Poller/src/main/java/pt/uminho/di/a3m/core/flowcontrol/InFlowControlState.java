@@ -1,26 +1,26 @@
 package pt.uminho.di.a3m.core.flowcontrol;
 
 public class InFlowControlState {
-    private int peerCapacity = 0;
+    private int capacity = 0;
     private int batch = 0; // current batch
     private int batchSize = 0; // batch size
-    private float batchSizePercentage = 0.05f; // percentage of the peer's capacity that makes the batch size
+    private float batchSizePercentage = 0.05f; // percentage of the capacity that makes the batch size
 
     /**
      * Create an instance that holds incoming flow control state,
-     * with the provided initial peer's capacity.
-     * @param initialCapacity initial amount of credits a peer must start with
+     * with the provided initial capacity.
+     * @param initialCapacity amount of messages willing to be queued at the same time
      */
     public InFlowControlState(int initialCapacity) {
-        this.peerCapacity = initialCapacity;
+        this.capacity = initialCapacity;
     }
 
     /**
      * Create an instance that holds incoming flow control state,
-     * with the provided initial peer's capacity and with batch size
+     * with the provided initial capacity and with batch size
      * adjusted using the given batch size percentage.
-     * @param initialCapacity initial amount of credits a peer must start with
-     * @param batchSizePercentage percentage of the peer's capacity that
+     * @param initialCapacity amount of messages willing to be queued at the same time
+     * @param batchSizePercentage percentage of the capacity that
      *                            should make the batch size. When the capacity
      *                            is positive, the minimum batch size is of 1 credit.
      * @throws IllegalArgumentException If the provided batch size percentage is not a
@@ -28,7 +28,7 @@ public class InFlowControlState {
      */
     public InFlowControlState(int initialCapacity, float batchSizePercentage) {
         checkBatchSizePercentage(batchSizePercentage);
-        this.peerCapacity = initialCapacity;
+        this.capacity = initialCapacity;
         this.batchSizePercentage = batchSizePercentage;
         batchSize = calculateBatchSize(initialCapacity, batchSizePercentage);
     }
@@ -44,7 +44,7 @@ public class InFlowControlState {
      * When the capacity is positive, the minimum size for a batch is 1. If the capacity
      * is 0 or negative, then the peer must not be able to send more messages, so credits,
      * should not be provided until the capacity changes to a positive value.
-     * @param capacity peer's current capacity
+     * @param capacity amount of messages willing to be queued at the same time
      * @param percentage batch size percentage
      * @return size of batch
      */
@@ -57,7 +57,7 @@ public class InFlowControlState {
 
     /**
      * Updates the batch size using the provided percentage.
-     * @param newPercentage percentage of the peer's capacity that
+     * @param newPercentage percentage of the capacity that
      *                            should make the batch size. When the capacity
      *                            is positive, the minimum batch size is of 1 credit.
      * @return amount of credits to be sent to the peer
@@ -66,7 +66,7 @@ public class InFlowControlState {
      */
     public int setBatchSizePercentage(float newPercentage) {
         checkBatchSizePercentage(newPercentage);
-        batchSize = calculateBatchSize(peerCapacity, newPercentage);
+        batchSize = calculateBatchSize(capacity, newPercentage);
         batchSizePercentage = newPercentage;
         // If the current batch equals or surpasses the new batch size,
         // credits must be sent to the peer
@@ -85,34 +85,34 @@ public class InFlowControlState {
     }
 
     /**
-     * Set peer capacity to the provided value and returns
+     * Set capacity to the provided value and returns
      * the credits variation that needs to be sent to the
      * peer. The current batch is cleared.
-     * @param newCapacity new peer capacity
+     * @param newCapacity new capacity
      * @return amount of credits to be sent to the peer
      */
-    public int setPeerCapacity(int newCapacity) {
+    public int setCapacity(int newCapacity) {
         // Calculate difference between old and new capacity.
         // The difference must be sent as credits to the sender,
         // so it can adjust them to match the new capacity.
-        int diff = newCapacity - peerCapacity;
+        int diff = newCapacity - capacity;
         // updates capacity and gets the amount of credits to be sent
-        return adjustPeerCapacity(diff);
+        return adjustCapacity(diff);
     }
 
     /**
-     * Adjusts the peer's capacity using the provided credit
+     * Adjusts the capacity using the provided credit
      * variation and returns the credits variation that needs
      * to be sent to the peer. The current batch is cleared.
      * @param credits variation of credits to apply to the
-     *                peer's current capacity.
+     *                current capacity.
      * @return amount of credits to be sent to the peer
      */
-    public int adjustPeerCapacity(int credits){
+    public int adjustCapacity(int credits){
         // updates capacity
-        this.peerCapacity += credits;
+        this.capacity += credits;
         // updates batch size
-        batchSize = calculateBatchSize(peerCapacity, batchSizePercentage);
+        batchSize = calculateBatchSize(capacity, batchSizePercentage);
         // variation is equal to the difference in capacity plus the current batch
         int toSend = credits + batch;
         batch = 0;

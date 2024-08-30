@@ -101,9 +101,9 @@ public abstract class Socket{
                 super.set(value);
             }
         });
-        // Sets default peer capacity to 100 credits.
-        // Defines the capacity new peers will have as starting point.
-        options.put("peerCapacity", new GenericOptionHandler<>(100, Integer.class));
+        // Sets default capacity to 100 credits.
+        // Defines the amount of outgoing credits that new peers will have as starting point.
+        options.put("capacity", new GenericOptionHandler<>(100, Integer.class));
         // Sets link limit handler. Does not have any effect on currently established or requested links.
         options.put("maxLinks", new GenericOptionHandler<>(Integer.MAX_VALUE, Integer.class));
         // Set flag that allows disabling the acceptance of incoming link requests. Does not affect currently
