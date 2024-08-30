@@ -6,7 +6,6 @@ import java.util.HashSet;
 import java.util.Queue;
 import java.util.Set;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 public class DummySocket extends Socket{
     // NOTE: The protocol must be static and final, however, for 

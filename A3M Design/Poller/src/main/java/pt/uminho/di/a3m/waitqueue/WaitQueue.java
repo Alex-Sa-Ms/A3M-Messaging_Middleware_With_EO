@@ -9,8 +9,6 @@ public class WaitQueue{
     private final Lock lock = new ReentrantLock();
     private final ListNode<WaitQueueEntry> head = ListNode.init();
     private int size = 0;
-    // TODO - A closed state variable could be required to avoid unwanted add operations,
-    //  when the owner of the queue is closing or closed.
 
     // ***** package methods ***** //
 

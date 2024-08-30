@@ -1,6 +1,8 @@
 package pt.uminho.di.a3m.core;
 
 import com.google.protobuf.InvalidProtocolBufferException;
+import pt.uminho.di.a3m.auxiliary.Timeout;
+import pt.uminho.di.a3m.core.exceptions.LinkClosedException;
 import pt.uminho.di.a3m.core.flowcontrol.FlowCreditsPayload;
 import pt.uminho.di.a3m.core.messaging.*;
 
@@ -14,13 +16,17 @@ import java.util.concurrent.locks.Lock;
 import java.util.function.Predicate;
 import java.util.logging.Logger;
 
-import pt.uminho.di.a3m.core.LinkNew.LinkState;
+import pt.uminho.di.a3m.core.Link.LinkState;
+import pt.uminho.di.a3m.core.Link.ParkStateWithEvents;
 import pt.uminho.di.a3m.core.messaging.payloads.ErrorPayload;
 import pt.uminho.di.a3m.core.messaging.payloads.SerializableMap;
+import pt.uminho.di.a3m.poller.PollFlags;
+import pt.uminho.di.a3m.poller.PollTable;
+import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;
 
-public class LinkManager implements LinkNew.LinkObserver {
+public class LinkManager implements Link.LinkObserver {
     private final Socket socket;
-    final Map<SocketIdentifier, LinkNew> links = new HashMap<>();
+    final Map<SocketIdentifier, Link> links = new HashMap<>();
     private int clock = 0;
     public LinkManager(Socket socket) {
         this.socket = socket;
@@ -34,6 +40,15 @@ public class LinkManager implements LinkNew.LinkObserver {
     /** @return (socket) state */
     private AtomicReference<SocketState> state(){
         return socket.state;
+    }
+
+    private Link getLink(SocketIdentifier peerId) {
+        try{
+            lock().lock();
+            return links.get(peerId);
+        } finally {
+            lock().unlock();
+        }
     }
 
     /**
@@ -313,7 +328,7 @@ public class LinkManager implements LinkNew.LinkObserver {
      *                  and the decision about the establishment can be made.
      * @return true if compatible. false, otherwise.
      */
-    private boolean checkCompatibilityThenAcceptOrReject(LinkNew link, boolean establish) {
+    private boolean checkCompatibilityThenAcceptOrReject(Link link, boolean establish) {
         boolean compatible;
         byte[] payload;
         // if a link request is scheduled, cancel it immediately
@@ -325,7 +340,7 @@ public class LinkManager implements LinkNew.LinkObserver {
             // containing the metadata. The socket also establishes the link.
             if (scheduled == null) {
                 payload = createLinkAckMsgWithoutMetadata(link.getClockId(),AC_SUCCESS).serialize();
-                if (establish) link.establishLink();
+                if (establish) establishLink(link);
             }
             // Else, if there was a scheduled link request, we remain in
             // a LINKING state, send a LINKACK message with metadata
@@ -355,8 +370,8 @@ public class LinkManager implements LinkNew.LinkObserver {
      * If all linking conditions are met, sends success code in a LINKACK and establishes the link.
      * @return link state, if link was accepted. null, if rejected.
      */
-    private LinkNew checkLinkingConditionsThenAcceptOrReject(SocketIdentifier peerId, int peerProtocolId, int peerClockId, int outCredits) {
-        LinkNew link = null;
+    private Link checkLinkingConditionsThenAcceptOrReject(SocketIdentifier peerId, int peerProtocolId, int peerClockId, int outCredits) {
+        Link link = null;
         byte[] payload = null;
 
         // if socket is closing or is closed, send fatal refusal
@@ -395,7 +410,7 @@ public class LinkManager implements LinkNew.LinkObserver {
         return link;
     }
 
-    private void scheduleLinkRequest(LinkNew link){
+    private void scheduleLinkRequest(Link link){
         link.resetPeerMetadata(); // make sure peer information is reset
         byte[] linkReqPayload =
                 createLinkRequestMsg(link.getClockId()).serialize();
@@ -412,9 +427,9 @@ public class LinkManager implements LinkNew.LinkObserver {
      * @param peerId peer's socket identifier
      * @return link with 'null' state
      */
-    private LinkNew createLink(SocketIdentifier peerId){
+    private Link createLink(SocketIdentifier peerId){
         int capacity = socket.getOption("capacity", Integer.class);
-        LinkNew link = new LinkNew(socket.getId(), peerId, clock, capacity, this);
+        Link link = new Link(socket.getId(), peerId, clock, capacity, this);
         links.put(peerId, link);
         // The clock identifiers are provided in an increasing order,
         // as a form of causal consistency.
@@ -429,8 +444,8 @@ public class LinkManager implements LinkNew.LinkObserver {
      * @param peerId peer's socket identifier
      * @return link in LINKING state
      */
-    private LinkNew createLinkingLink(SocketIdentifier peerId){
-        LinkNew link = createLink(peerId);
+    private Link createLinkingLink(SocketIdentifier peerId){
+        Link link = createLink(peerId);
         // set state to LINKING
         link.setState(LinkState.LINKING);
         return link;
@@ -445,8 +460,8 @@ public class LinkManager implements LinkNew.LinkObserver {
      * @param sid peer's socket identifier
      * @return link in LINKING state
      */
-    private LinkNew createLinkingLink(SocketIdentifier sid, int peerProtocolId, int peerClockId, int outCredits){
-        LinkNew link = createLink(sid);
+    private Link createLinkingLink(SocketIdentifier sid, int peerProtocolId, int peerClockId, int outCredits){
+        Link link = createLink(sid);
         link.setState(LinkState.LINKING);
         link.setPeerMetadata(peerProtocolId, peerClockId, outCredits);
         return link;
@@ -456,11 +471,24 @@ public class LinkManager implements LinkNew.LinkObserver {
      * Closes link and removes it from the links collection
      * @param link link to be closed and removed
      */
-    private void closeLink(LinkNew link){
+    private void closeLink(Link link){
         link.close();
         links.remove(link.getDestId());
+        // TODO - Inform link closure to the custom socket logic
+        //  socket.customHandleEvent(new LinkClosedEvent(link));
         // TODO - if socket is closing and "links" is empty,
         //     then, invoke socket internal close. Use events instead (observer pattern).
+        linkSockets.remove(link.getDestId()); // remove link socket in cache if there is one
+    }
+
+    /**
+     * Establishes link.
+     * @param link link to be established
+     */
+    private void establishLink(Link link){
+        link.establish();
+        // TODO - create link established event
+        //  socket.customHandleEvent(new LinkEstablishedEvent(link));
     }
 
     private void handleLinkMsg(SocketMsg msg) {
@@ -472,7 +500,7 @@ public class LinkManager implements LinkNew.LinkObserver {
         int peerClockId = payload.getInt("clockId");
         try {
             lock().lock();
-            LinkNew link = links.get(peerId);
+            Link link = links.get(peerId);
             // If link exists
             if(link != null){
                 // Discard messages without an identifier that is not
@@ -605,7 +633,7 @@ public class LinkManager implements LinkNew.LinkObserver {
         //int peerProtocolId = payload.getInt("protocolId");
         try {
             lock().lock();
-            LinkNew link = links.get(peerId);
+            Link link = links.get(peerId);
             // If link exists
             if(link != null) {
                 // discard messages with old clock identifiers
@@ -676,7 +704,7 @@ public class LinkManager implements LinkNew.LinkObserver {
                             if(peerClockId == link.getPeerClockId()){
                                 // if the answer is positive, then establish the link
                                 if(isPositiveLinkingCode(ackCode))
-                                    link.establishLink();
+                                    establishLink(link);
                                 // if answer is fatal, then close link.
                                 // We can close the link, because it has already
                                 // been close by the peer on its side.
@@ -736,7 +764,7 @@ public class LinkManager implements LinkNew.LinkObserver {
         if(peerClockId == null) return; // ignore if payload is invalid
         try {
             lock().lock();
-            LinkNew link = links.get(peerId);
+            Link link = links.get(peerId);
             // if link exists
             if(link != null){
                 // To accept an unlink request, the peer's clock identifier
@@ -785,7 +813,7 @@ public class LinkManager implements LinkNew.LinkObserver {
             throw new IllegalArgumentException("Socket identifier cannot be null.");
         try{
             lock().lock();
-            LinkNew link = links.get(peerId);
+            Link link = links.get(peerId);
             if(link != null){
                 // if link is established or attempting to link, there is nothing to do.
                 // If link is in a state that unlinking will follow, then throw an exception
@@ -822,7 +850,7 @@ public class LinkManager implements LinkNew.LinkObserver {
             throw new IllegalArgumentException("Socket identifier cannot be null.");
         try {
             lock().lock();
-            LinkNew link = links.get(peerId);
+            Link link = links.get(peerId);
             if(link != null){
                 switch (link.getState()){
                     case LINKING -> {
@@ -856,7 +884,7 @@ public class LinkManager implements LinkNew.LinkObserver {
     public boolean isLinkState(SocketIdentifier peerId, Predicate<LinkState> predicate){
         try{
             lock().lock();
-            LinkNew link = links.get(peerId);
+            Link link = links.get(peerId);
             LinkState state = link != null ? link.getState() : null;
             return predicate.test(state);
         } finally {
@@ -882,7 +910,7 @@ public class LinkManager implements LinkNew.LinkObserver {
                                              || linkState == LinkState.CLOSED);
     }
 
-    // ********* Data & Control Messages Related Methods ********* //
+    // ********* Handle Data & Control Messages ********* //
 
     // TODO - all socket messages should carry the clock identifier. Put it as part of the SocketMsg?
     //          If applied, don't forget to verify that messages that do not have a matching identifier
@@ -892,7 +920,7 @@ public class LinkManager implements LinkNew.LinkObserver {
         SocketIdentifier peerId = msg.getSrcId();
         try {
             lock().lock();
-            LinkNew link = links.get(peerId);
+            Link link = links.get(peerId);
             if (link != null) {
                 switch (link.getState()){
                     case ESTABLISHED -> handled = false;
@@ -900,7 +928,7 @@ public class LinkManager implements LinkNew.LinkObserver {
                         // If in a LINKING state and if the peer's metadata has been received, the
                         // reception of a data message can be interpreted as a positive ack code.
                         if(!link.isWaitingPeerMetadata()) {
-                            link.establishLink();
+                            establishLink(link);
                             handled = false;
                         }else dispatchNotLinkedErrorMsg(peerId, msg);
                     }
@@ -916,7 +944,7 @@ public class LinkManager implements LinkNew.LinkObserver {
         }
     }
 
-    // ********* Flow-control related methods ********* //
+    // ********* Handle Flow-control Message  ********* //
 
     /**
      * Handles a credits flow control message.
@@ -927,7 +955,7 @@ public class LinkManager implements LinkNew.LinkObserver {
         assert msg != null;
         try{
             lock().lock();
-            LinkNew link = links.get(msg.getSrcId());
+            Link link = links.get(msg.getSrcId());
             if(link != null) {
                 FlowCreditsPayload fcp = FlowCreditsPayload.convertFrom(msg.getPayload());
                 assert fcp != null;
@@ -944,7 +972,7 @@ public class LinkManager implements LinkNew.LinkObserver {
      *              credits from the peer is desirable.
      */
     @Override
-    public void onBatchReadyEvent(LinkNew link, int batch) {
+    public void onBatchReadyEvent(Link link, int batch) {
         FlowCreditsPayload payload = new FlowCreditsPayload(batch);
         dispatch(link.getDestId(), payload.getType(), payload.getPayload());
     }
@@ -998,7 +1026,7 @@ public class LinkManager implements LinkNew.LinkObserver {
     private void handleSocketNotFoundError(SocketMsg msg) {
         try {
             lock().lock();
-            LinkNew link = links.get(msg.getSrcId());
+            Link link = links.get(msg.getSrcId());
             // If link exists and the socket has not received
             // a LINK or LINKACK message from the peer,
             // then schedule a new request if in a LINKING state,
@@ -1016,5 +1044,249 @@ public class LinkManager implements LinkNew.LinkObserver {
         } finally {
             lock().unlock();
         }
+    }
+
+    // ********* Link Socket Methods ********* //
+
+    // TODO - make cache of LinkSocket
+    Map<SocketIdentifier, LinkSocket> linkSockets = new HashMap<>();
+
+    /**
+     * @param peerId identifier of the peer's socket with which a link exists (even if not established)
+     * @return link socket if a link exists, even if not established, with the peer. null, otherwise.
+     */
+    public LinkSocket getLinkSocket(SocketIdentifier peerId){
+        try{
+            lock().lock();
+            LinkSocket linkSocket = linkSockets.get(peerId);
+            if(linkSocket == null){
+                Link link = links.get(peerId);
+                if(link != null) {
+                    linkSocket = new LinkSocket(link, this);
+                    linkSockets.put(peerId, linkSocket);
+                }
+            }
+            return linkSocket;
+        }finally {
+            lock().unlock();
+        }
+    }
+
+    /**
+     * Polls a link for I/O events.
+     * @param link link instance
+     * @param pt poll table
+     * @return available I/O events
+     */
+    int pollLink(Link link, PollTable pt) {
+        try{
+            lock().lock();
+            return link.poll(pt);
+        } finally {
+            lock().unlock();
+        }
+    }
+
+    /**
+     * Polls a link for I/O events.
+     * @param peerId identifier of the peer's socket
+     * @param pt poll table
+     * @return available I/O events
+     */
+    public int pollLink(SocketIdentifier peerId, PollTable pt) {
+        try{
+            lock().lock();
+            Link link = links.get(peerId);
+            if(link == null)
+                throw new IllegalArgumentException("Peer does not have an associated link.");
+            return link.poll(pt);
+        } finally {
+            lock().unlock();
+        }
+    }
+
+    /**
+     * Waits until an incoming message, from the peer associated with this
+     * link, is available or the deadline is reached or the thread is interrupted.
+     * If the socket is in COOKED mode, the returned messages are data messages.
+     * If in RAW mode, the returned messages may also be custom control messages.
+     * @param link link from which the message should be received
+     * @param deadline waiting limit to poll an incoming message
+     * @return available incoming message or "null" if the operation timed out
+     * without a message becoming available.
+     * @apiNote Caller must not hold socket lock as it will result in a deadlock
+     * when a blocking operation with a non-expired deadline is requested.
+     */
+    SocketMsg receive(Link link, Long deadline) throws InterruptedException {
+        SocketMsg msg;
+        WaitQueueEntry wait;
+        ParkStateWithEvents ps;
+        boolean timedOut = Timeout.hasTimedOut(deadline);
+
+        try {
+            lock().lock();
+            // if link is closed and queue is empty, messages cannot be received.
+            if (link.getState() == Link.LinkState.CLOSED && link.hasIncomingMessages())
+                throw new LinkClosedException();
+            // try retrieving a message immediately
+            msg = link.tryPollingMessage();
+            if (msg != null) return msg;
+            // return if timed out
+            if (timedOut) return null;
+            // If a message could not be retrieved, make the caller a waiter
+            wait = link.queueDirectEventWaiter(PollFlags.POLLIN, true);
+            ps = (Link.ParkStateWithEvents) wait.getPriv();
+        } finally {
+            lock().unlock();
+        }
+
+        while (true) {
+            if (timedOut || link.getState() == Link.LinkState.CLOSED)
+                break;
+            if (Thread.currentThread().isInterrupted()) {
+                wait.delete();
+                throw new InterruptedException();
+            }
+            // Wait until woken up
+            WaitQueueEntry.defaultWaitFunction(wait, ps, deadline, true);
+            try {
+                lock().lock();
+                // attempt to poll a message
+                msg = link.tryPollingMessage();
+                if (msg != null) break;
+                // if a message was not available and the operation has not
+                // timed out, sets parked state to true preemptively,
+                // so that a notification is not missed
+                timedOut = Timeout.hasTimedOut(deadline);
+                if (!timedOut) ps.parked.set(true);
+            } finally {
+                lock().unlock();
+            }
+        }
+        // delete entry since a hanging wait queue entry is not desired.
+        wait.delete();
+        return msg;
+    }
+
+    /**
+     * Waits until an incoming message, from the peer associated with this
+     * link, is available or the deadline is reached or the thread is interrupted.
+     * If the socket is in COOKED mode, the returned messages are data messages.
+     * If in RAW mode, the returned messages may also be custom control messages.
+     * @param peerId identifier of the socket peer from which the message should be received
+     * @param deadline waiting limit to poll an incoming message
+     * @return available incoming message or "null" if the operation timed out
+     * without a message becoming available.
+     * @apiNote Caller must not hold socket lock as it will result in a deadlock
+     * when a blocking operation with a non-expired deadline is requested.
+     */
+    SocketMsg receive(SocketIdentifier peerId, Long deadline) throws InterruptedException {
+        Link link = getLink(peerId);
+        return receive(link, deadline);
+    }
+
+    /**
+     * Sends message to the peer associated with this link. This method
+     * is not responsible for verifying if the control message follows
+     * the custom semantics of the socket.
+     * @param link link to which the message should be sent.
+     * @param payload message content
+     * @param deadline timestamp at which the method must return
+     *                 indicating a timeout if sending was not possible
+     *                 due to the lack of permission (i.e. credits).
+     * @return "true" if message was sent. "false" if permission
+     *          was not acquired during the specified timeout.
+     * @throws IllegalArgumentException If the payload is null or if the payload type
+     * corresponds to a reserved type other than DATA.
+     * @throws InterruptedException If thread was interrupted.
+     * @apiNote Caller must not hold socket lock as it will result in a deadlock
+     * when a blocking operation with a non-expired deadline is requested.
+     */
+    boolean send(Link link, Payload payload, Long deadline) throws InterruptedException {
+        boolean ret = false;
+        WaitQueueEntry wait;
+        ParkStateWithEvents ps;
+        boolean timedOut = Timeout.hasTimedOut(deadline);
+
+        if(payload == null)
+            throw new IllegalArgumentException("Invalid payload.");
+
+        // if payload is a reserved type different from DATA,
+        // then the send operation is not allowed.
+        if(MsgType.isReservedType(payload.getType())
+                && payload.getType() != MsgType.DATA)
+            throw new IllegalArgumentException("Invalid payload type.");
+
+        try {
+            lock().lock();
+            // if link is closed, messages cannot be sent.
+            if (link.getState() == Link.LinkState.CLOSED)
+                throw new LinkClosedException();
+            // If message is a control message, then it can be dispatched immediately.
+            // In case of a data message, permission from the flow control is required.
+            if(payload.getType() != MsgType.DATA || link.hasOutgoingCredits()) {
+                dispatch(link.getDestId(), payload);
+                return true;
+            }
+            // return if timed out
+            if (timedOut) return false;
+            // If the message could not be sent, make the caller a waiter
+            wait = link.queueDirectEventWaiter(PollFlags.POLLOUT, true);
+            ps = (ParkStateWithEvents) wait.getPriv();
+        } finally {
+            lock().unlock();
+        }
+
+        while (true) {
+            if (timedOut || link.getState() == Link.LinkState.CLOSED)
+                break;
+            if (Thread.currentThread().isInterrupted()) {
+                wait.delete();
+                throw new InterruptedException();
+            }
+            // Wait until woken up
+            WaitQueueEntry.defaultWaitFunction(wait, ps, deadline, true);
+            try {
+                lock().lock();
+                // attempt to send the message again
+                if(link.hasOutgoingCredits())  {
+                    dispatch(link.getDestId(), payload);
+                    ret = true;
+                    break;
+                }
+                // if permission to send the message was not granted and
+                // the operation has not timed out,sets parked state to
+                // true preemptively, so that a notification is not missed
+                timedOut = Timeout.hasTimedOut(deadline);
+                if (!timedOut) ps.parked.set(true);
+            } finally {
+                lock().unlock();
+            }
+        }
+        // delete entry since a hanging wait queue entry is not desired.
+        wait.delete();
+        return ret;
+    }
+
+    /**
+     * Sends message to linked peer. This method is not responsible for
+     * verifying if the control message follows the custom semantics of the socket.
+     * @param peerId identifier of the peer's socket
+     * @param payload message content
+     * @param deadline timestamp at which the method must return
+     *                 indicating a timeout if sending was not possible
+     *                 due to the lack of permission (i.e. credits).
+     * @return "true" if message was sent. "false" if permission
+     *          was not acquired during the specified timeout.
+     * @throws IllegalStateException If the peer is not linked.
+     * @throws IllegalArgumentException If the payload is null or if the payload type
+     * corresponds to a reserved type other than DATA.
+     * @throws InterruptedException If thread was interrupted
+     * @apiNote Caller must not hold socket lock as it will result in a deadlock
+     * when a blocking operation with a non-expired deadline is requested.
+     */
+    boolean send(SocketIdentifier peerId, Payload payload, Long deadline) throws InterruptedException {
+        Link link = getLink(peerId);
+        return send(link, payload, deadline);
     }
 }

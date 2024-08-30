@@ -405,8 +405,9 @@ public abstract class Socket{
                 // When the socket is closing, if the link is the last link to
                 // be removed, it must invoke this closeInternal() method to
                 // move to the next step of the closing procedure.
-                for (Map.Entry<SocketIdentifier, Link> entry : links.entrySet())
-                    entry.getValue().unlink(); // unlink link
+                for (Map.Entry<SocketIdentifier, Link> entry : links.entrySet()){
+                    // entry.getValue().unlink(); // unlink link
+                }
             }
 
             if (links.isEmpty()) {
