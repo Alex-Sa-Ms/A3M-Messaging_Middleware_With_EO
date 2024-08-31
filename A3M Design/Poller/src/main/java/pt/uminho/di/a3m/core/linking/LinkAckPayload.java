@@ -5,9 +5,11 @@ import pt.uminho.di.a3m.core.messaging.Payload;
 import pt.uminho.di.a3m.core.messaging.payloads.SerializableMap;
 
 public class LinkAckPayload implements Payload {
-    private SerializableMap map = null;
+    private final int clockId;
+    private SerializableMap map;
 
-    public LinkAckPayload(SerializableMap map) {
+    public LinkAckPayload(int clockId, SerializableMap map) {
+        this.clockId = clockId;
         this.map = map;
     }
 
@@ -18,6 +20,10 @@ public class LinkAckPayload implements Payload {
     @Override
     public byte getType() {
         return MsgType.LINKREPLY;
+    }
+
+    public int getClockId() {
+        return clockId;
     }
 
     @Override

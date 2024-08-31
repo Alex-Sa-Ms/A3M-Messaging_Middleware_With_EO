@@ -7,25 +7,28 @@ import java.util.Arrays;
 public class SocketMsg extends Msg{
     private final String srcTagId;
     private final String destTagId;
+    private final int clockId;
 
-    public SocketMsg(String srcNodeId, String srcTagId, String destNodeId, String destTagId, byte type, byte[] payload) {
+    public SocketMsg(String srcNodeId, String srcTagId, String destNodeId, String destTagId, byte type, int clockId, byte[] payload) {
         super(srcNodeId, destNodeId, type, payload);
         this.srcTagId = srcTagId;
         this.destTagId = destTagId;
+        this.clockId = clockId;
     }
 
-    public SocketMsg(SocketIdentifier srcId, SocketIdentifier destId, byte type, byte[] payload){
-        this(srcId.nodeId(), srcId.tagId(), destId.nodeId(), destId.tagId(), type, payload);
+    public SocketMsg(SocketIdentifier srcId, SocketIdentifier destId, byte type, int clockId, byte[] payload){
+        this(srcId.nodeId(), srcId.tagId(), destId.nodeId(), destId.tagId(), type, clockId, payload);
     }
 
-    public SocketMsg(String srcNodeId, String srcTagId, String destNodeId, String destTagId, Payload payload) {
+    public SocketMsg(String srcNodeId, String srcTagId, String destNodeId, String destTagId, int clockId, Payload payload) {
         super(srcNodeId, destNodeId, payload);
         this.srcTagId = srcTagId;
         this.destTagId = destTagId;
+        this.clockId = clockId;
     }
 
-    public SocketMsg(SocketIdentifier srcId, SocketIdentifier destId, Payload payload){
-        this(srcId.nodeId(), srcId.tagId(), destId.nodeId(), destId.tagId(), payload.getType(), payload.getPayload());
+    public SocketMsg(SocketIdentifier srcId, SocketIdentifier destId, int clockId, Payload payload){
+        this(srcId.nodeId(), srcId.tagId(), destId.nodeId(), destId.tagId(), payload.getType(), clockId, payload.getPayload());
     }
 
     public String getSrcTagId() {
@@ -44,6 +47,9 @@ public class SocketMsg extends Msg{
         return new SocketIdentifier(getDestNodeId(),getDestTagId());
     }
 
+    public int getClockId() {
+        return clockId;
+    }
 
     @Override
     public String toString() {
@@ -51,6 +57,7 @@ public class SocketMsg extends Msg{
                 "srcId=" + getSrcId() +
                 ", destId=" + getDestId() +
                 ", type=" + getType() +
+                ", clockId=" + getClockId() +
                 ", payload=" + Arrays.toString(getPayload())
                 + '}';
     }

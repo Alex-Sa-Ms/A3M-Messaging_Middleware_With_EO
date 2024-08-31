@@ -72,14 +72,282 @@ A *Cookie* can be used to determine when a message has arrived at the destinatio
 
 # Linking algorithm reformulated
 ## Final Solution
-<h6 style="color:limegreen">Note: The code algorithm here is incomplete, so look at the code to confirm the final and tested algorithm.</h6>
-- I think the note below is not valid when a three-way handshake, that makes compatibility checks, is being used.
-	**Note:** While this may seem like a non-symmetric procedure due to each side consulting their options such as max limits and block incoming requests, the algorithm is still symmetric. The reason being that this verification (apart from the compatibility one which is always done) is only done when initiating a linking process or when receiving a LINK message. If both sides send a LINK message, then both have agreed on linking if the compatibility is verified. The compatibility check is a symmetric process, so, is symmetry makes the linking process symmetric as well.  If only one side sends a LINK message, than it will receive the answer regarding the compatibility from a LINKACK message that carries the a code informing if the link was accepted or denied. If denied the reason may be fatal or non-fatal, with a fatal reason meaning that retrying must not be performed as it will yield the same result.
+- To establish the link, both sockets must exchange their metadata (such as protocol) and their answer regarding the establishment of link. When a socket receives from the other socket's metadata, it formulates a decision and sends it. This decision can also be influenced by the other socket's decision if it was already received.
+- The most common scenario should be a 3-way handshake:
+	- `LINK` -> `LINKREPLY` w/metadata -> `LINKREPLY` w/out metadata.
+- A predicted less common scenario is a concurrent initiation of the linking process by both sockets, i.e., both sockets send a `LINK` message concurrently.
+### Key ideas
+- To establish a link, a socket must receive compatible metadata and a positive answer from the peer.
+- If a socket detects the peer sent a link request, the socket must catch such link request before establishing or closing the link to prevent unwanted behavior, such as initiating a new linking process after deciding to cancel the linking process.
+	- The socket detects the peer sent a link request when it receives a link reply to its own linking request but the link reply does not carry any metadata as it was already sent in a link request.
+- `LINK` messages correspond to link requests. These initiate the linking process. The presence of the metadata is mandatory in this messages.
+- `LINKREPLY` messages are replies to link requests. The primary goal of these messages is to carry the reply, whether accepting (positive reply) or rejecting (negative reply, which can be fatal or non-fatal). However, since the peer must also receive the socket's metadata, if the metadata has not already been sent during the current linking process, then these messages must also carry the metadata of the socket.
+	- Replies can be:
+		- *positive*, meaning the socket accepted the establishment of the link on its end.
+		- *(negative) non-fatal*, meaning the socket could not accept the establishment of the link at the moment, but may accept in the future. An example is when the defined limit of active links is reached, so until a link is closed, a new link will not be accepted.
+		- *(negative) fatal*, meaning the socket cannot accept the establishment of the link due to a condition that most likely will not change, regardless of how many link requests are made. For instance, if the sockets engaging in the linking process talk using incompatible protocols, or if the socket has defined an option to not accept incoming requests.
+			- Note, that changing the limit of active links enables preventing new links to be created if such condition is required temporarily. The option to reject incoming link request should only be set if such decision is permanent. 
+- `UNLINK` messages are used for the unlinking process. A socket can only begin the unlinking process after the link becomes established.
+- *Clock identifiers* are required to prevent messages from different linking processes to interfere with the current linking/unlinking process. 
+	- Sockets attribute a new clock identifier to each new linking process. The attribution is done in an ascending order, enabling sockets to distinguish when a message refers to an old process, the current process or a new process. Old messages are discarded. Current messages are handled. And new messages, which should be link requests, are replied with a non-fatal response so that the peer can schedule a link retry and hopefully this link retry arrives after the current linking process is finished.
+	- Since messages do not propagate instantaneously and may arrived in an unordered manner, all socket messages carry the clock identifier of the linking process to enable determining which messages correspond to the current linking process and which do not. Determining which messages do not correspond to the current linking process is crucial to prevent unwanted behavior. For instance, receiving a DATA message from a previously established and then closed link is not desirable as it would affect the flow control mechanism.
+### Clock identifier
+\<explain here>
+### Link states
+- `LINKING` - When waiting for both the metadata and answer from the other socket to arrive. An exception is when the metadata is enough to determine that linking is not possible, so after sending a negative response to the other peer, the link is closed.
+- `ESTABLISHED` - When compatible metadata and a positive answer was received from the other socket. 
+- `CANCELLING` - When during the linking process, the establishment of the link is no longer desired. 
+- `UNLINKING` - When the closure of the link is desired after the link has been established.
+- `CLOSED` - When the link is effectively closed.
+### Algorithm
+**Note:** Currently, the metadata is very small, so fatal `LINKREPLY` messages carry the metadata. However, in the future, to avoid unnecessary resource consumption, carrying the protocol identifier or a flag informing that the metadata was not sent in a `LINK` message should be implemented.    
+#### `link()` method invocation:
+- If link exists:
+	- If state equals:
+		- `UNLINKING`/`CANCELLING`: throw exception informing an unlinking procedure is in progress.
+		- Other state: ignore.
 
+- If link does not exist:
+	- Throw exception if max number of links has been reached.
+	- Create link with a new clock identifier
+	- Set link to `LINKING`
+	- Send `LINK` message with the socket's metadata, such as protocol identifier and incoming capacity.
+#### Received `LINK` message:
+- If link exists:
+	- Ignore if carrying an old clock identifier. 
+	- If state equals:
+		- `LINKING`:
+			- If waiting metadata:
+				- Check if there is a scheduled link request and cancel it.
+					- *If there was a scheduled request, any sent LINKACK must carry the socket's metadata. If there wasn't, the metadata was already sent.*
+				- If peer's answer has not yet been received:
+					- set peer's metadata and clock identifier
+					- Check compatibility.
+						- If compatible:
+							- Send positive `LINKREPLY`.
+						- If not compatible:
+							- Send fatal `LINKREPLY`.
+							- Close link.
+				- If peer's answer has already been received:
+					- Assert peer's clock identifier matches.
+					- If peer's answer was:
+						- Positive:
+							- Check compatibility.
+								- If compatible:
+									- Send positive `LINKREPLY` without metadata
+									- Establish link
+								- Else:
+									- Send fatal `LINKREPLY` without metadata
+									- Close link.
+						- Non-fatal:
+							- Check compatibility:
+								- If compatible:
+									- Reset peer metadata.
+									- Schedule new link request.
+								- Else:
+									- Close link.
+						- Fatal:
+							- Close link.
+			- If not waiting metadata (new linking process):
+				- Assert clock identifier is higher.
+				- Send non-fatal `LINKREPLY` w/ metadata (for the peer to schedule a retry)
+		- `ESTABLISHED`:
+			- Ignore. `LINK` cannot be received in this state, because for the peer to send this message, it must not have a link established. Since the link is established, the peer must received an `UNLINK` message before, sending a `LINK` message. 
+		- `CANCELLING`:
+			- If waiting for peer's metadata:
+				- If peer's `LINKREPLY` has not been received:
+					- Send fatal `LINKREPLY`
+					- Close link.
+				- If peer's `LINKREPLY` has been received:
+					- Assert peer's clock identifier matches.
+					- If peer's `LINKREPLY` answer was:
+						- positive:
+							- Send fatal `LINKREPLY`.
+							- Close link.
+						- fatal / non-fatal:
+							- Close link.
+			- If not waiting for peer's metadata (new linking process):
+				- Assert clock identifier is higher.
+				- Send non-fatal `LINKREPLY` w/ metadata (for the peer to schedule a retry)
+		- `UNLINKING`:
+			- Assert clock identifier is higher.
+			- Send non-fatal `LINKREPLY` w/ metadata (for the peer to schedule a retry)
+
+- If link does not exist:
+	- Check linking conditions not related to the peer.
+		- Is socket closed? 
+			- Send *fatal* `LINKREPLY` w/ metadata back and return.
+		- Maximum amount of links reached? 
+			- Send *non-fatal* `LINKREPLY` w/ metadata back and return.
+		- Are incoming linking requests not allowed? 
+			- Send *fatal* `LINKREPLY` w/ metadata back and return.
+	- Check compatibility with the peer by using the metadata present in the message.
+		- If compatible:
+			- Create link in `LINKING` state.
+			- Set peer's metadata and clock identifier.
+			- Send positive `LINKREPLY` w/ metadata.
+		- Else:
+			- Send fatal `LINKREPLY` w/ metadata.
+#### Received `LINKREPLY` message:
+- if link exists:
+	- Ignore if carrying an old clock identifier. 
+	- if state is:
+		- `LINKING`:
+			- if waiting peer's metadata:
+				- if `LINKREPLY` carries metadata (if contains protocol identifier):
+					- **Note:** If carrying metadata, then the peer has not sent a `LINK` message.
+					- If answer is:
+						- positive:
+							- check compatibility:
+								- if compatible:
+									- set peer's metadata
+									- send positive `LINKREPLY` w/ out metadata.
+									- establish link.
+								- if not compatible:
+									- send fatal `LINKREPLY` w/ out metadata.
+									- close link.
+						- fatal:
+							- close link.
+						- non-fatal:
+							-  if compatible:
+								- schedule a retry, i.e. schedule the sending of a new `LINK` message
+							- else:
+								- close link
+				- if `LINKREPLY` does not carry metadata:
+					- set peer's clock identifier
+					- save the peer's answer for processing once the `LINK` message is received
+			- if not waiting peer's metadata (`LINK` message has been received):
+				- Assert peer's clock identifier matches.
+				- If answer is:
+					- positive:
+						- establish link
+					- fatal:
+						- close link
+					- non-fatal:
+						- reset peer's metadata
+						- schedule link retry
+		- `ESTABLISHED`:
+			- ignore
+		- `CANCELLING`:
+			- if link exists:
+				- if waiting peer's metadata:
+					- if `LINKREPLY` carries metadata:
+						- if answer is:
+							- positive:
+								- send fatal `LINKREPLY`
+								- close link
+							- fatal/non-fatal:
+								- close link
+					- if `LINKREPLY` does not carry metadata:
+						- set peer's clock identifier
+						- save the peer's answer for processing once the `LINK` message is received
+				- if not waiting peer's metadata:
+					- **Note**: If not waiting for peer's metadata, this means a positive answer was sent to the peer and only after that did the state of the link progress to `CANCELLING`. This means that if the peer's answer is positive, the peer assumes the link is established.
+					- assert peer's clock identifier matches
+					- If answer is:
+						- positive (peer assumes link as established):
+							- set state to `UNLINKING`
+							- send `UNLINK` msg
+						- fatal/non-fatal:
+							- close link
+			- if link does not exist:
+				- ignore
+		- `UNLINKING`:
+			- ignore message (not possible)
+- if link does not exist:
+	- ignore message (The `LINK` message must have been received and resulted in a fatal closure.)
+#### Received `DATA` or custom control message:
+- **Note:** There is always a socket that perceives the link as established or closed first. In this case, the moment a socket perceives the link as established, it may send a data or control message. Since exactly-once does not tolerate discarding of messages, if the socket's link state is `LINKING`, the peer's metadata has been received and is compatible, and only the peer's positive answer is missing for the link to be established, then, the arrival of a data or control message can be assumed to have arrived before the positive `LINKREPLY` message.
+- Check if message is a data or custom control message.
+- If link exists:
+	- Assert clock identifier matches.
+	- If link state is:
+		- `LINKING`:
+			- if waiting peer's metadata:
+				- Not possible. Peer cannot be in the `ESTABLISHED` state since the socket has not yet received the peer's metadata which is required to send an answer regarding the establishment of the link.
+			- if not waiting peer's metadata:
+				- establish link.
+		- `ESTABLISHED`:
+			- accept message
+		- `CANCELLING`:
+			- if waiting peer's metadata:
+				- Not possible, for the same reason explained above.
+			- If not waiting peer's metadata:
+				- **Note:** Same process as when receiving a positive `LINKREPLY` message under this same circumstances (`CANCELLING` state and not waiting peer's metadata).
+				- set state to `UNLINKING`
+				- send `UNLINK` message
+		- `UNLINKING`:
+			- Let the message be handled by the socket since the link has not yet been closed.
+- If link does not exist:
+	- ignore.
+#### Received `ERROR` message:
+- if link exists:
+	- if link state is:
+		- `LINKING`
+			- if error is:
+				- `NFOUND` - socket not found:
+					- schedule a new retry
+- else:
+	- ignore
+
+#### `unlink()` method invocation:
+-Note:  Cancel any scheduled requests must have been cancelled.
+- if link exists:
+	- if link state is:
+		- `LINKING`:
+			- Has scheduled request:
+				- Cancel request.
+				- Close link.
+			- Does not have scheduled request:
+				- Set state to `CANCELLING`
+		- `ESTABLISHED`:
+			- set state to `UNLINKING`
+			- send `UNLINK` message
+		- `UNLINKING`/`CANCELLING`:
+			- ignore
+- if link does not exist:
+	- ignore
+#### Received `UNLINK` message:
+- if link exists:
+	- if link state is:
+		- `LINKING`:
+			- **Note:** Sender of `UNLINK` established the link and sent an `UNLINK` message, right after.
+			- if waiting for peer's metadata:
+				- ignore. not possible.
+			- if not waiting peer's metadata (is waiting for answer only):
+				- assert peer's clock identifier matches
+				- send `UNLINK` message
+				- close link.
+		- `ESTABLISHED`
+			- assert peer's clock identifier matches
+			- sent `UNLINK` message
+			- close link
+		- `CANCELLING`:
+			- if waiting peer's metadata:
+				- ignore. not possible.
+			- if not waiting peer's metadata (is waiting for answer only):
+				- assert peer's clock identifier matches
+				- send `UNLINK` message
+				- close link
+		- `UNLINKING`:
+			- assert peer's clock identifier matches
+			- close link
+- if link does not exist:
+	- ignore. Not possible under the correct functioning of the algorithm.
+
+
+### Why is a 3-way handshake required?
+- Although the assumptions of this thesis is for the employment in a safe environment, ensuring some security is desirable. It also enables the project to roam to a new phase  of exploring how to make the middleware deployable on the currently called unsafe environments.
+- Where is the safety in using 3-way handshake? Well, 3-way handshake was designed to prevent a socket from receiving messages from other socket while not knowing if the other socket is compatible or not.
+	- The 2-way handshake allowed data/custom control messages to reach the destination before the `LINK` message. Without receiving the `LINK` message, which contains the sender's metadata, the peer cannot determine if the messages being received can be accepted or not. The messages cannot be discarded since the exactly-once semantics do not allow it. So, when using the 2-way handshake, the only solution was to queue the messages. Data messages could be controlled by the flow control, with abusers being detected if they trespassed the boundaries set by the capacity sent on the `LINK` message. However, since custom control messages are not limited by the flow control mechanism, malicious sockets could use this as an exploit and flood the socket that has not yet received the `LINK` message. 
+		- Passing such custom control messages to be verified by the socket's custom logic could be an option, however, that would not work for socket's that talk multiple protocols, nor would it work when the verification require the presence of state which may require the identification of the peer's protocol. 
+### Symmetry
+- The three-way handshake is a non-symmetric procedure, as it requires both sockets to manifest there final decision regarding the establishment of the link. While not symmetric, it sets a base for more elaborate linking processes.
+- The two-way handshake, on the other hand, is symmetric. While it may seem like a non-symmetric procedure due to each side having their own conditions such as max limits and block incoming requests, the algorithm is still symmetric. The reason being that this verification (apart from the compatibility one which is always done) is only done when initiating a linking process or when receiving a LINK message. If both sides send a LINK message, then both have agreed on linking if the compatibility is verified. The compatibility check is a symmetric process, so, is symmetry makes the linking process symmetric as well.  If only one side sends a LINK message, than it will receive the answer regarding the compatibility from a LINKREPLY message that carries the a code informing if the link was accepted or denied. If denied the reason may be fatal or non-fatal, with a fatal reason meaning that retrying must not be performed as it will yield the same result.
 ### Three-way handshake
 #### Rationale 
 - Enabling options such as "max links" and "block incoming requests" makes the linking process not symmetric, meaning both sockets need to accept the link establishment.
-- This linking protocol has a small additional overhead, of one extra-step, in comparison with the symmetric linking protocol, but enables more complex messaging protocols to be designed. The LINK and LINKACK messages could be used to carry custom metadata providing a way to specify more restrictions for a link to be established or simply for piggybacking information relevant for the links.
+- This linking protocol has a small additional overhead, of one extra-step, in comparison with the symmetric linking protocol, but enables more complex linking processes to be designed. The LINK and LINKREPLY messages could be used to carry custom metadata providing a way to specify more restrictions for a link to be established or simply for piggybacking information relevant for the links.
 - Extract more reasons from following text (related to exploit):
   ```
   what happens when a DATA/CONTROL message is received before the link is established?
@@ -116,13 +384,12 @@ A *Cookie* can be used to determine when a message has arrived at the destinatio
 #### Solution
 **Note:** Well, a three-way handshake, like the TCP's SYN->SYN/ACK->ACK, is required before closing the link is allowed. This handshake is required to prevent data/control messages from arriving before the link is marked as established.
 
-- First, `unlink()` is only allowed after the link establishment process is terminated, i.e., all the required LINK and LINKACK messages are received. This means, that when unlinking is wanted, the link must change to a `WAITING_TO_UNLINK` state, and wait for the required messages before deciding which unlinking behavior is required. 
+- First, `unlink()` is only allowed after the link establishment process is terminated, i.e., all the required `LINK` and `LINKREPLY` messages are received. This means, that when unlinking is wanted, the link must change to a `CANCELLING` state, and wait for the required messages before deciding which unlinking behavior is required. 
 	- The unlinking behavior may be:
-		1. Change to `UNLINKING` and send `UNLINK` message when the link is established.
-		2. Send `UNLINK` message and close, when an `UNLINK` message is received before the message containing the metadata that would establish the link.
-		3. Just close, when a negative linking response is received in a `LINKACK` msg.
-- After sending metadata, the next message (`LINKACK`) that is required to be delivered to the peer, must not contain metadata. This allows determining if the a `LINK` message has been sent before the `LINKACK` message, which means the `LINK` message must be caught, regardless of the success indicated by the `LINKACK` code, as we don't want unwanted links to occur but also we need to wait for the metadata before establishing the link, otherwise we can't verify the compatibility and we won't know how to handle the incoming data/control messages.
-- Old `LINKACK` and `UNLINK` messages do not influence behavior, so this might help simply logic. The crucial message that must be caught is the `LINK` message.
+		1. When the link is established, change to `UNLINKING` and send `UNLINK` message.
+		2. When a negative linking response is received in a `LINKREPLY` msg, just close.
+- After sending metadata, the next message (`LINKREPLY`) that is required to be delivered to the peer, must not contain metadata. This allows determining if the a `LINK` message has been sent before the `LINKREPLY` message, which means the `LINK` message must be caught, regardless of the success indicated by the `LINKREPLY` code, as we don't want unwanted links to occur but also we need to wait for the metadata before establishing the link, otherwise we can't verify the compatibility and we won't know how to handle the incoming data/control messages.
+- Old `LINKREPLY` and `UNLINK` messages do not influence behavior, so this might help simply logic. The crucial message that must be caught is the `LINK` message.
 ### Initial 2-way handshake algorithm:
  ```
 /*

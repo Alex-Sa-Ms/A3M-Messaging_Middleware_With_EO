@@ -18,6 +18,7 @@ import java.util.logging.Logger;
 
 import pt.uminho.di.a3m.core.Link.LinkState;
 import pt.uminho.di.a3m.core.Link.ParkStateWithEvents;
+import pt.uminho.di.a3m.core.messaging.payloads.CoreMessages;
 import pt.uminho.di.a3m.core.messaging.payloads.ErrorPayload;
 import pt.uminho.di.a3m.core.messaging.payloads.SerializableMap;
 import pt.uminho.di.a3m.poller.PollFlags;
@@ -55,33 +56,36 @@ public class LinkManager implements Link.LinkObserver {
      * Create message to the mentioned peer.
      * @param dest identifier of the destination
      * @param type type of the message
+     * @param clockId clock identifier
      * @param payload content of the message
      * @return created message
      */
-    private SocketMsg createMsg(SocketIdentifier dest, byte type, byte[] payload){
+    private SocketMsg createMsg(SocketIdentifier dest, byte type, int clockId, byte[] payload){
         assert dest != null;
-        return new SocketMsg(socket.getId(), dest, type, payload);
+        return new SocketMsg(socket.getId(), dest, type, clockId, payload);
     }
 
     /**
      * Create and dispatch message to the peer
      * @param dest identifier of the destination
      * @param type type of the message
+     * @param clockId clock identifier
      * @param payload content of the message
      */
-    private void dispatch(SocketIdentifier dest, byte type, byte[] payload){
-        SocketMsg msg = createMsg(dest, type, payload);
+    private void dispatch(SocketIdentifier dest, byte type, int clockId, byte[] payload){
+        SocketMsg msg = createMsg(dest, type, clockId, payload);
         socket.dispatch(msg);
     }
 
     /**
      * Create and dispatch message to the peer
      * @param dest identifier of the destination
+     * @param clockId clock identifier
      * @param payload content of the message
      */
-    private void dispatch(SocketIdentifier dest, Payload payload){
+    private void dispatch(SocketIdentifier dest, int clockId, Payload payload){
         assert payload != null;
-        SocketMsg msg = createMsg(dest, payload.getType(), payload.getPayload());
+        SocketMsg msg = createMsg(dest, payload.getType(), clockId, payload.getPayload());
         socket.dispatch(msg);
     }
 
@@ -101,8 +105,8 @@ public class LinkManager implements Link.LinkObserver {
      * @param dispatchTime time at which the dispatch should be executed. 
      *                     Must be obtained using System.currentTimeMillis()               
      */
-    private AtomicReference<SocketMsg> scheduleDispatch(SocketIdentifier dest, byte type, byte[] payload, long dispatchTime){
-        SocketMsg msg = createMsg(dest, type, payload);
+    private AtomicReference<SocketMsg> scheduleDispatch(SocketIdentifier dest, byte type, int clockId, byte[] payload, long dispatchTime){
+        SocketMsg msg = createMsg(dest, type, clockId, payload);
         return socket.scheduleDispatch(msg, dispatchTime);
     }
 
@@ -113,9 +117,9 @@ public class LinkManager implements Link.LinkObserver {
      * @param dispatchTime time at which the dispatch should be executed.
      *                     Must be obtained using System.currentTimeMillis()
      */
-    private AtomicReference<SocketMsg> scheduleDispatch(SocketIdentifier dest, Payload payload, long dispatchTime){
+    private AtomicReference<SocketMsg> scheduleDispatch(SocketIdentifier dest, int clockId, Payload payload, long dispatchTime){
         assert payload != null;
-        SocketMsg msg = createMsg(dest, payload.getType(), payload.getPayload());
+        SocketMsg msg = createMsg(dest, payload.getType(), clockId, payload.getPayload());
         return socket.scheduleDispatch(msg, dispatchTime);
     }
 
@@ -129,10 +133,17 @@ public class LinkManager implements Link.LinkObserver {
         return socket.scheduleDispatch(msg, dispatchTime);
     }
 
+    /**
+     * Dispatches an error message informing that the rejection
+     * of the message due to the peer not being linked.
+     * The error message carries the clock identifier of the discarded message.
+     * @param peerId identifier of the peer
+     * @param msg message received from a not linked peer
+     */
     private void dispatchNotLinkedErrorMsg(SocketIdentifier peerId, SocketMsg msg){
         byte[] errorPayload = new ErrorPayload(ErrorType.SOCK_NLINKED).getPayload();
-        dispatch(peerId, MsgType.ERROR, errorPayload);
-        Logger.getLogger(socket.getId().toString()).warning("Not linked peer (" + peerId + ") sent: " + msg.toString());
+        dispatch(peerId, MsgType.ERROR, msg.getClockId(), errorPayload);
+        Logger.getLogger(socket.getId().toString()).warning("Received message from not linked peer (" + peerId + "): " + msg.toString());
     }
 
     // ********* Linking Reply Codes ********* //
@@ -179,16 +190,14 @@ public class LinkManager implements Link.LinkObserver {
 
     /**
      * Creates link request payload.
-     * @param clockId link's clock identifier
      * @return serializable map which corresponds to the link request payload.
      */
-    private SerializableMap createLinkRequestMsg(int clockId){
+    private SerializableMap createLinkRequestMsg(){
         SerializableMap map = new SerializableMap();
         int protocolId = socket.getProtocol().id();
         int credits = socket.getOption("capacity", Integer.class);
         map.putInt("protocolId", protocolId);
         map.putInt("credits", credits);
-        map.putInt("clockId", clockId);
         return map;
     }
 
@@ -208,7 +217,7 @@ public class LinkManager implements Link.LinkObserver {
     private SerializableMap parseLinkRequestMsg(SocketMsg msg){
         try {
             SerializableMap map = SerializableMap.deserialize(msg.getPayload());
-            if(!map.hasInt("protocolId") || !map.hasInt("clockId") || !map.hasInt("credits"));
+            if(!map.hasInt("protocolId") || !map.hasInt("credits"));
             else return map;
         } catch (InvalidProtocolBufferException ignored) {}
         // if invalid payload, log it, and return null
@@ -217,21 +226,14 @@ public class LinkManager implements Link.LinkObserver {
     }
 
     /**
-     * Creates link reply payload. Identical to the link request
-     * payload but enables a reply code to be provided.
-     * @param clockId link's clock identifier
+     * Creates link reply message.
      * @param replyCode reply code
+     * @param withMetadata if "true" the message is created with metadata. if "false", metadata is not included.
      * @return serializable map which corresponds to the link request payload.
      */
-    private SerializableMap createLinkReplyMsgWithMetadata(int clockId, int replyCode) {
-        SerializableMap map = createLinkRequestMsg(clockId);
-        map.putInt("replyCode", replyCode);
-        return map;
-    }
-
-    private SerializableMap createLinkReplyMsgWithoutMetadata(int clockId, int replyCode) {
-        SerializableMap map = new SerializableMap();
-        map.putInt("clockId", clockId);
+    private SerializableMap createLinkReplyMsg(int replyCode, boolean withMetadata) {
+        SerializableMap map =
+            withMetadata ? createLinkRequestMsg() : new SerializableMap();
         map.putInt("replyCode", replyCode);
         return map;
     }
@@ -239,37 +241,16 @@ public class LinkManager implements Link.LinkObserver {
     private SerializableMap parseLinkReplyMsg(SocketMsg msg) {
         try {
             SerializableMap map = SerializableMap.deserialize(msg.getPayload());
-            if(!map.hasInt("clockId") || !map.hasInt("replyCode"));
-            else return map;
+            if(map.hasInt("replyCode")) return map;
         } catch (InvalidProtocolBufferException ignored) {}
         // if invalid payload, log it, and return null
         logParseErrorOnLinkReqOrReplyMsg(msg);
         return null;
     }
 
-    /**
-     * @param clockId link's clock identifier
-     * @return payload of unlink message
-     */
-    private byte[] createUnlinkMsg(int clockId) {
-        return ByteBuffer.allocate(4).putInt(clockId).array();
-    }
-
-    /**
-     * Extracts the clock identifier of the peer from the unlink message.
-     * @param msg unlink message
-     * @return the clock identifier if the message's payload is valid. Otherwise, returns null.
-     */
-    private static Integer parseUnlinkMsg(SocketMsg msg){
-        if(msg.getPayload() != null && msg.getPayload().length == 4)
-            return ByteBuffer.wrap(msg.getPayload()).getInt();
-        else
-            return null;
-    }
-
     public static String linkRelatedMsgToString(SocketMsg msg) throws InvalidProtocolBufferException {
         StringBuilder sb = new StringBuilder();
-        String type = "<not link-related>", payload = "";
+        String type = "(not link-related) ", payload = "";
         if(msg == null) return null;
 
         switch (msg.getType()) {
@@ -283,13 +264,30 @@ public class LinkManager implements Link.LinkObserver {
             }
             case MsgType.UNLINK -> {
                 type = "UNLINK";
-                payload = String.valueOf(parseUnlinkMsg(msg));
+            }
+            case MsgType.FLOW -> {
+                type = "FLOW";
+                payload = "{credits=" + FlowCreditsPayload.convertFrom(msg.getPayload()).getCredits() + "}";
+            }
+            case MsgType.DATA -> {
+                type = "DATA";
+                payload = String.valueOf(StandardCharsets.UTF_8.decode(ByteBuffer.wrap(msg.getPayload())));
+            }
+            case MsgType.ERROR -> {
+                type = "ERROR";
+                CoreMessages.ErrorPayload p = CoreMessages.ErrorPayload.parseFrom(msg.getPayload());
+                payload = "{code=" + p.getCode() + ", text=" + p.getText() +"}";
+            }
+            default -> {
+                type += String.valueOf(Byte.toUnsignedInt(msg.getType()));
+                payload = String.valueOf(StandardCharsets.UTF_8.decode(ByteBuffer.wrap(msg.getPayload())));
             }
         }
 
         return sb.append("msg{src=").append(msg.getSrcId())
                  .append(", dest=").append(msg.getDestId())
                  .append(", type=").append(type)
+                 .append(", clockId=").append(msg.getClockId())
                  .append(", payload=").append(payload)
                  .append("}").toString();
     }
@@ -339,13 +337,13 @@ public class LinkManager implements Link.LinkObserver {
             // but without metadata since a LINK msg was already sent to the peer
             // containing the metadata. The socket also establishes the link.
             if (scheduled == null) {
-                payload = createLinkReplyMsgWithoutMetadata(link.getClockId(),AC_SUCCESS).serialize();
+                payload = createLinkReplyMsg(AC_SUCCESS, false).serialize();
                 if (establish) establishLink(link);
             }
             // Else, if there was a scheduled link request, we remain in
             // a LINKING state, send a LINKREPLY message with metadata
             // and a success code, and wait for the peer to confirm the establishment.
-            else payload = createLinkReplyMsgWithMetadata(link.getClockId(),AC_SUCCESS).serialize();
+            else payload = createLinkReplyMsg(AC_SUCCESS, true).serialize();
             compatible = true;
         }else{
             // if incompatible, create LINKREPLY message with incompatible (fatal) refusal code,
@@ -353,13 +351,13 @@ public class LinkManager implements Link.LinkObserver {
             // as done above when the peer is compatible.
             if(scheduled == null)
                 // not scheduled, so considered "in flight"
-                payload = createLinkReplyMsgWithoutMetadata(link.getClockId(),AC_INCOMPATIBLE).serialize();
+                payload = createLinkReplyMsg(AC_INCOMPATIBLE, false).serialize();
             else
-                payload = createLinkReplyMsgWithMetadata(link.getClockId(),AC_INCOMPATIBLE).serialize();
+                payload = createLinkReplyMsg(AC_INCOMPATIBLE, true).serialize();
             closeLink(link);
             compatible = false;
         }
-        dispatch(link.getDestId(), MsgType.LINKREPLY, payload);
+        dispatch(link.getDestId(), MsgType.LINKREPLY, link.getClockId(), payload);
         return compatible;
     }
 
@@ -394,30 +392,33 @@ public class LinkManager implements Link.LinkObserver {
         int maxLinks = socket.getOption("maxLinks", Integer.class);
         if(links.size() >= maxLinks)
             replyCode = AC_TMP_NAVAIL;
-        
+
+        int clockId;
         if(replyCode != 0){
-            payload = createLinkReplyMsgWithMetadata(0, replyCode).serialize();
+            payload = createLinkReplyMsg(replyCode, true).serialize();
+            clockId = clock;
         } else { 
             // All requirements have been passed, so create link and set it to "linking".
             // A LINKREPLY message is sent to inform willingness to establish the link,
             // and a LINKREPLY message is expected to be returned to confirm the establishment.
             link = createLinkingLink(peerId, peerProtocolId, peerClockId, outCredits);
-            payload = createLinkReplyMsgWithMetadata(link.getClockId(), AC_SUCCESS).serialize();
+            payload = createLinkReplyMsg(AC_SUCCESS, true).serialize();
+            clockId = link.getClockId();
         }
 
         // dispatch LINKREPLY message
-        dispatch(peerId, MsgType.LINKREPLY, payload);
+        dispatch(peerId, MsgType.LINKREPLY, clockId, payload);
         return link;
     }
 
     private void scheduleLinkRequest(Link link){
         link.resetPeerMetadata(); // make sure peer information is reset
-        byte[] linkReqPayload =
-                createLinkRequestMsg(link.getClockId()).serialize();
+        byte[] linkReqPayload = createLinkRequestMsg().serialize();
         long retryInterval = socket.getOption("retryInterval", Long.class);
         long dispatchTime = retryInterval + System.currentTimeMillis();
         AtomicReference<SocketMsg> scheduled =
-                scheduleDispatch(link.getDestId(), MsgType.LINK, linkReqPayload, dispatchTime);
+                scheduleDispatch(link.getDestId(), MsgType.LINK,
+                        link.getClockId(), linkReqPayload, dispatchTime);
         link.setScheduled(scheduled);
     }
 
@@ -497,7 +498,7 @@ public class LinkManager implements Link.LinkObserver {
         if(payload == null) return; // if payload is invalid
         int peerProtocolId = payload.getInt("protocolId");
         int outCredits = payload.getInt("credits");
-        int peerClockId = payload.getInt("clockId");
+        int peerClockId = msg.getClockId();
         try {
             lock().lock();
             Link link = links.get(peerId);
@@ -562,8 +563,8 @@ public class LinkManager implements Link.LinkObserver {
                             checkCompatibilityThenAcceptOrReject(link, establish);
                         }
                         else if(peerClockId > link.getPeerClockId()){
-                            SerializableMap linkreplyPayload = createLinkReplyMsgWithMetadata(0, AC_LINK_EXISTS);
-                            dispatch(peerId, MsgType.LINKREPLY, linkreplyPayload.serialize());
+                            SerializableMap linkreplyPayload = createLinkReplyMsg(AC_LINK_EXISTS, true);
+                            dispatch(peerId, MsgType.LINKREPLY, clock, linkreplyPayload.serialize());
                         }
                     }
                     // Ignore message when ESTABLISHED. This cannot happen, as
@@ -587,8 +588,8 @@ public class LinkManager implements Link.LinkObserver {
                             // finish the current unlinking process.
                             // Closing the current link and creating a new one could also
                             // be an approach, however, we'll stick with this solution for now.
-                            byte[] replyPayload = createLinkReplyMsgWithMetadata(link.getClockId(), AC_LINK_EXISTS).serialize();
-                            dispatch(peerId, MsgType.LINKREPLY, replyPayload);
+                            byte[] replyPayload = createLinkReplyMsg(AC_LINK_EXISTS, true).serialize();
+                            dispatch(peerId, MsgType.LINKREPLY, link.getClockId(), replyPayload);
                         }
                     }
                     case CANCELLING -> {
@@ -608,8 +609,8 @@ public class LinkManager implements Link.LinkObserver {
                             // the LINKREPLY message is simply discarded.
                             // After sending the LINKREPLY message, the link can be closed.
                             if (peerReplyCode == null || isPositiveLinkingCode(peerReplyCode)) {
-                                byte[] replyPayload = createLinkReplyMsgWithoutMetadata(link.getClockId(), AC_CANCELED).serialize();
-                                dispatch(peerId, MsgType.LINKREPLY, replyPayload);
+                                byte[] replyPayload = createLinkReplyMsg(AC_CANCELED, false).serialize();
+                                dispatch(peerId, MsgType.LINKREPLY, link.getClockId(), replyPayload);
                             }
                             // If the peer has sent a negative reply code, meaning it refused to link,
                             // the socket can simply close the link.
@@ -618,8 +619,8 @@ public class LinkManager implements Link.LinkObserver {
                         else{
                             // link request after peer closed link on its side
                             if(peerClockId > link.getPeerClockId()) {
-                                byte[] replyPayload = createLinkReplyMsgWithMetadata(link.getClockId(), AC_LINK_EXISTS).serialize();
-                                dispatch(peerId, MsgType.LINKREPLY, replyPayload);
+                                byte[] replyPayload = createLinkReplyMsg(AC_LINK_EXISTS, true).serialize();
+                                dispatch(peerId, MsgType.LINKREPLY, link.getClockId(), replyPayload);
                             }
                         }
                     }
@@ -640,9 +641,8 @@ public class LinkManager implements Link.LinkObserver {
         SerializableMap payload = parseLinkReplyMsg(msg);
         if(payload == null) return; // if payload is invalid
         int replyCode = payload.getInt("replyCode");
-        int peerClockId = payload.getInt("clockId");
         int outCredits = payload.getInt("credits");
-        //int peerProtocolId = payload.getInt("protocolId");
+        int peerClockId = msg.getClockId();
         try {
             lock().lock();
             Link link = links.get(peerId);
@@ -758,9 +758,8 @@ public class LinkManager implements Link.LinkObserver {
                                 // so the socket can answer with a "fatal" LINKREPLY msg if the
                                 // peer is in a LINKING state, i.e., if its answer was positive.
                                 if(isPositiveLinkingCode(replyCode)) {
-                                    byte[] respPayload =
-                                            createLinkReplyMsgWithoutMetadata(link.getClockId(), AC_CANCELED).serialize();
-                                    dispatch(peerId, MsgType.LINKREPLY, respPayload);
+                                    byte[] respPayload = createLinkReplyMsg(AC_CANCELED, false).serialize();
+                                    dispatch(peerId, MsgType.LINKREPLY, link.getClockId(), respPayload);
                                 }
                                 closeLink(link);
                             }
@@ -776,7 +775,7 @@ public class LinkManager implements Link.LinkObserver {
                             if(peerClockId == link.getPeerClockId()){
                                 if(isPositiveLinkingCode(replyCode)) {
                                     link.setState(LinkState.UNLINKING);
-                                    dispatch(peerId, MsgType.UNLINK, createUnlinkMsg(link.getClockId()));
+                                    dispatch(peerId, MsgType.UNLINK, link.getClockId(), null);
                                 }else {
                                     closeLink(link);
                                 }
@@ -793,8 +792,7 @@ public class LinkManager implements Link.LinkObserver {
 
     private void handleUnlinkMsg(SocketMsg msg) {
         SocketIdentifier peerId = msg.getSrcId();
-        Integer peerClockId = parseUnlinkMsg(msg);
-        if(peerClockId == null) return; // ignore if payload is invalid
+        int peerClockId = msg.getClockId();
         try {
             lock().lock();
             Link link = links.get(peerId);
@@ -822,7 +820,7 @@ public class LinkManager implements Link.LinkObserver {
                 }
                 // If not in UNLINKING state, send an UNLINK message
                 if(sendUnlinkMsg)
-                    dispatch(peerId, MsgType.UNLINK, createUnlinkMsg(link.getClockId()));
+                    dispatch(peerId, MsgType.UNLINK, link.getClockId(), null);
                 // Link closure occurs for all states as long as the peer's
                 // UNLINK message matches the registered peer's clock identifier
                 closeLink(link);
@@ -862,8 +860,8 @@ public class LinkManager implements Link.LinkObserver {
                     // Each link created is given a different clock identifier.
                     link = createLinkingLink(peerId);
                     // send a LINK message to the peer
-                    SerializableMap map = createLinkRequestMsg(link.getClockId());
-                    dispatch(peerId, MsgType.LINK, map.serialize());
+                    SerializableMap map = createLinkRequestMsg();
+                    dispatch(peerId, MsgType.LINK, link.getClockId(), map.serialize());
                 }else{
                     throw new IllegalStateException("Maximum amount of links has been reached.");
                 }
@@ -902,7 +900,7 @@ public class LinkManager implements Link.LinkObserver {
                         // and initiate the unlinking process by sending
                         // an unlink message.
                         link.setState(LinkState.UNLINKING);
-                        dispatch(peerId, MsgType.UNLINK, createUnlinkMsg(link.getClockId()));
+                        dispatch(peerId, MsgType.UNLINK, link.getClockId(), null);
                     }
                     // If state is UNLINKING or CANCELLING, then
                     // the "unlinking" process is already in progress.
@@ -955,6 +953,10 @@ public class LinkManager implements Link.LinkObserver {
             lock().lock();
             Link link = links.get(peerId);
             if (link != null) {
+                // confirm the clock identifier in the message matches the
+                // peer's clock identifier associated with the link.
+                if(link.getPeerClockId() != msg.getClockId())
+                    return true;
                 switch (link.getState()){
                     case ESTABLISHED -> handled = false;
                     case LINKING -> {
@@ -965,9 +967,17 @@ public class LinkManager implements Link.LinkObserver {
                             handled = false;
                         }else dispatchNotLinkedErrorMsg(peerId, msg);
                     }
-                    // data/control messages received while in UNLINKING, CANCELLING
-                    // or CLOSED state, will not be processed, so mark it as handled,
-                    // and ignore the message.
+                    case CANCELLING -> {
+                        // Similar thought process as when in LINKING state.
+                        // But here we skip the establishment and pass to UNLINKING.
+                        if(!link.isWaitingPeerMetadata()) {
+                            link.setState(LinkState.UNLINKING);
+                            dispatch(peerId, MsgType.UNLINK, link.getClockId(), null);
+                            handled = false;
+                        }else dispatchNotLinkedErrorMsg(peerId, msg);
+                    }
+                    // data/control messages received while in UNLINKING or CLOSED state,
+                    // will not be processed, so mark it as handled, and ignore the message.
                     // default -> {}
                 }
             }else dispatchNotLinkedErrorMsg(peerId, msg);
@@ -990,6 +1000,9 @@ public class LinkManager implements Link.LinkObserver {
             lock().lock();
             Link link = links.get(msg.getSrcId());
             if(link != null) {
+                // ignore flow control messages that do not match
+                // the registered clock identifier.
+                if(msg.getClockId() != link.getPeerClockId()) return;
                 FlowCreditsPayload fcp = FlowCreditsPayload.convertFrom(msg.getPayload());
                 assert fcp != null;
                 link.adjustOutgoingCredits(fcp.getCredits());
@@ -1007,7 +1020,7 @@ public class LinkManager implements Link.LinkObserver {
     @Override
     public void onBatchReadyEvent(Link link, int batch) {
         FlowCreditsPayload payload = new FlowCreditsPayload(batch);
-        dispatch(link.getDestId(), payload.getType(), payload.getPayload());
+        dispatch(link.getDestId(), payload.getType(), link.getClockId(), payload.getPayload());
     }
 
     // ********* Main Handle Msg and Handle Error Msg Methods ********* //
@@ -1066,6 +1079,10 @@ public class LinkManager implements Link.LinkObserver {
             // or close the LINK if in a CANCELLING state.
             // Otherwise, ignore the message.
             if(link != null){
+                // assert the clock identifier present in the message,
+                // refers to the current link.
+                if(msg.getClockId() != link.getClockId())
+                    return;
                 if(link.isWaitingPeerMetadata()
                         && link.isLinkReplyMsgReceived() == null){
                     switch (link.getState()){
@@ -1256,7 +1273,7 @@ public class LinkManager implements Link.LinkObserver {
             // If message is a control message, then it can be dispatched immediately.
             // In case of a data message, permission from the flow control is required.
             if(payload.getType() != MsgType.DATA || link.hasOutgoingCredits()) {
-                dispatch(link.getDestId(), payload);
+                dispatch(link.getDestId(), link.getClockId(), payload);
                 return true;
             }
             // return if timed out
@@ -1281,7 +1298,7 @@ public class LinkManager implements Link.LinkObserver {
                 lock().lock();
                 // attempt to send the message again
                 if(link.hasOutgoingCredits())  {
-                    dispatch(link.getDestId(), payload);
+                    dispatch(link.getDestId(), link.getClockId(), payload);
                     ret = true;
                     break;
                 }

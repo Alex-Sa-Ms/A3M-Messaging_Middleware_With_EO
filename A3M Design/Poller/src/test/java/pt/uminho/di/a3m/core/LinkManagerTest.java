@@ -1,8 +1,10 @@
 package pt.uminho.di.a3m.core;
 
+import com.google.protobuf.InvalidProtocolBufferException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import pt.uminho.di.a3m.core.messaging.*;
+import pt.uminho.di.a3m.core.messaging.payloads.BytePayload;
 import pt.uminho.di.a3m.core.messaging.payloads.CoreMessages;
 
 import java.nio.ByteBuffer;
@@ -26,32 +28,14 @@ class LinkManagerTest {
 
     private void dispatch(LinkManager destLm, SocketMsg msg){
         scheduler.execute(() -> destLm.handleMsg(msg));
-        String type = "";
-        String payload = "";
-
         try {
-            switch (msg.getType()) {
-                case MsgType.LINK, MsgType.LINKREPLY, MsgType.UNLINK -> {
-                    System.out.println(LinkManager.linkRelatedMsgToString(msg));
-                    return;
-                }
-                case MsgType.ERROR -> {
-                    type = "ERROR";
-                    payload = String.valueOf(CoreMessages.ErrorPayload.parseFrom(msg.getPayload()).getCode());
-                }
-                case MsgType.DATA -> {
-                    type = "DATA";
-                    payload = String.valueOf(StandardCharsets.UTF_8.decode(ByteBuffer.wrap(msg.getPayload())));
-                }
-                default -> {
-                    type = String.valueOf(msg.getType());
-                    payload = String.valueOf(StandardCharsets.UTF_8.decode(ByteBuffer.wrap(msg.getPayload())));
-                }
-            };
-        }catch (Exception ignored){}
-        String print = "msg{src=" + msg.getSrcId() + ", dest=" + msg.getDestId()
-                + ", type=" + type + ", payload=" + payload + "}";
-        System.out.println(print);
+            System.out.println(LinkManager.linkRelatedMsgToString(msg));
+        } catch (InvalidProtocolBufferException e) {
+            System.out.println("Exception parsing msg{" +
+                    "src=" + msg.getSrcId() + ", dest=" + msg.getDestId()
+                    + ", type=" + Byte.toUnsignedInt(msg.getType()) + ", clockId=" + msg.getClockId() +
+                    ", payload=" + StandardCharsets.UTF_8.decode(ByteBuffer.wrap(msg.getPayload())) + "}");
+        }
         System.out.flush();
     }
 
@@ -935,10 +919,10 @@ class LinkManagerTest {
         assert lm2.isLinking(sid1);
         // send a data/control msg to socket2 before the
         // LINKREPLY message that would make socket2 establish the link.
-        SocketMsg msg = new SocketMsg(socket1.getId(), socket2.getId(), msgType, new byte[]{});
-        scheduler.schedule(() -> dispatch(lm2,msg), 0, TimeUnit.MILLISECONDS);
+        Payload payload = new BytePayload(msgType, "Hello".getBytes());
+        scheduler.schedule(() -> lm1.send(sid2, payload, 0L), 0, TimeUnit.MILLISECONDS);
         // assert the link gets established with the data/control msg
-        waitUntil(()->lm2.isLinked(sid1));
+         waitUntil(()->lm2.isLinked(sid1));
         // assert the LINK msg has no effect
         scheduler.schedule(() -> dispatch(lm2, linkMsg.get()), 0, TimeUnit.MILLISECONDS);
         Thread.sleep(25);

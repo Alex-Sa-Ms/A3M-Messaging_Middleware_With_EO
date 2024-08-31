@@ -14,6 +14,6 @@ public class MsgType {
     // public static final byte CONTROL = 0x07; // Control message
 
     public static boolean isReservedType(byte type){
-        return type < 0x34;
+        return Byte.compareUnsigned(type, (byte) 0x33) < 0;
     }
 }
