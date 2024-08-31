@@ -15,7 +15,9 @@ import pt.uminho.di.a3m.waitqueue.WaitQueueFunc;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicReference;
 
-// TODO - adjust methods visibility
+// TODO 1 - adjust methods visibility
+// TODO 2 - create method that enables retrieving the queue when the link is closed.
+//  That should a public method.
 
 public class Link implements Pollable {
     public enum LinkState {
@@ -113,13 +115,13 @@ public class Link implements Pollable {
     private int peerClockId = Integer.MIN_VALUE;
     private AtomicReference<SocketMsg> scheduled = null; // To keep track of scheduled LINK message
     // For the linking/unlinking process. Holds the value present in
-    // the peer's LINKACK msg that was received before the peer's LINK msg.
+    // the peer's LINKREPLY msg that was received before the peer's LINK msg.
     // When a LINK msg is received, this variable is verified.
     // If 'null' the socket is not waiting for a link msg.
-    // If holding a positive acknowledgement code, then the link can be established.
-    // If holding a negative non-fatal acknowledgement code, then a link request may be scheduled.
-    // If holding a negative fatal acknowledgement code, then the link may be closed.
-    private Integer linkAckMsgReceived = null;
+    // If holding a positive reply code, then the link can be established.
+    // If holding a negative non-fatal reply code, then a link request may be scheduled.
+    // If holding a negative fatal reply code, then the link may be closed.
+    private Integer linkReplyMsgReceived = null;
 
     int getClockId() {
         return clockId;
@@ -165,12 +167,12 @@ public class Link implements Pollable {
         return msg;
     }
 
-    Integer isLinkAckMsgReceived() {
-        return linkAckMsgReceived;
+    Integer isLinkReplyMsgReceived() {
+        return linkReplyMsgReceived;
     }
 
-    void setLinkAckMsgReceived(Integer linkAckMsgReceived) {
-        this.linkAckMsgReceived = linkAckMsgReceived;
+    void setLinkReplyMsgReceived(Integer linkReplyMsgReceived) {
+        this.linkReplyMsgReceived = linkReplyMsgReceived;
     }
 
 
@@ -182,7 +184,7 @@ public class Link implements Pollable {
     }
 
     /**
-     * Sets peer's information received on a LINK/LINKACK message.
+     * Sets peer's information received on a LINK/LINKREPLY message.
      * This method limits itself to setting the values. It does not
      * do any special procedures, such as waking up waiters.
      * @param protocolId peer's protocol identifier
@@ -245,7 +247,7 @@ public class Link implements Pollable {
      *            queued is a data message. Else, if the socket is in RAW mode,
      *            then the queue can also have custom control messages queued.       
      */
-    public void queueIncomingMessage(SocketMsg msg){
+    void queueIncomingMessage(SocketMsg msg){
         // do not add if closed
         if(state.get() == LinkState.CLOSED)
             throw new IllegalStateException("Link is closed.");

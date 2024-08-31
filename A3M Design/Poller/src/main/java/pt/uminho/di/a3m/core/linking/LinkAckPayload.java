@@ -17,7 +17,7 @@ public class LinkAckPayload implements Payload {
 
     @Override
     public byte getType() {
-        return MsgType.LINKACK;
+        return MsgType.LINKREPLY;
     }
 
     @Override
@@ -27,7 +27,7 @@ public class LinkAckPayload implements Payload {
 
     public boolean parseFrom(byte type, byte[] payload) {
         boolean ret = false;
-        if(type != MsgType.LINKACK){
+        if(type != MsgType.LINKREPLY){
             try{
                 map = SerializableMap.deserialize(payload);
                 ret = check();

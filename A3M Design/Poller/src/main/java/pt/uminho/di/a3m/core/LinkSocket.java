@@ -27,6 +27,8 @@ public class LinkSocket implements Pollable {
         return manager.pollLink(link, pt);
     }
 
+    // TODO - what happens when the link is closed?
+
     /**
      * Waits until an incoming message, from the peer associated with this
      * link, is available or the deadline is reached or the thread is interrupted.
@@ -60,6 +62,10 @@ public class LinkSocket implements Pollable {
      */
     public boolean send(Payload payload, Long deadline) throws InterruptedException {
         return manager.send(link, payload, deadline);
+    }
+
+    public void unlink(){
+        manager.unlink(link.getId().destId());
     }
 
     // TODO - add other methods related to link that can be exposed,
