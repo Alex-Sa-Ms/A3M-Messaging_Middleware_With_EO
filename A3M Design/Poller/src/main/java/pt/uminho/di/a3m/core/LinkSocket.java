@@ -22,9 +22,21 @@ public class LinkSocket implements Pollable {
         return link.getId();
     }
 
+    public int getPeerProtocolId(){
+        return link.getPeerProtocolId();
+    }
+
+    public SocketIdentifier getPeerId(){
+        return link.getDestId();
+    }
+
+    public Link.LinkState getState(){
+        return link.getState();
+    }
+
     @Override
     public int poll(PollTable pt) {
-        return manager.pollLink(link, pt);
+        return link.poll(pt);
     }
 
     // TODO - what happens when the link is closed?
@@ -41,7 +53,7 @@ public class LinkSocket implements Pollable {
      * when a blocking operation with a non-expired deadline is requested.
      */
     SocketMsg receive(Long deadline) throws InterruptedException {
-        return manager.receive(link, deadline);
+        return link.receive(deadline);
     }
 
     /**
@@ -61,7 +73,7 @@ public class LinkSocket implements Pollable {
      * when a blocking operation with a non-expired deadline is requested.
      */
     public boolean send(Payload payload, Long deadline) throws InterruptedException {
-        return manager.send(link, payload, deadline);
+        return link.send(payload, deadline);
     }
 
     public void unlink(){

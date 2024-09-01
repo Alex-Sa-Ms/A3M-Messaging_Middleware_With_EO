@@ -8,7 +8,9 @@ import pt.uminho.di.a3m.core.options.OptionHandler;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Supplier;
 
 public abstract class Socket{
@@ -26,9 +28,9 @@ public abstract class Socket{
     private SocketManager socketManager = null;
     private MessageDispatcher dispatcher = null;
     final AtomicReference<SocketState> state = new AtomicReference<>(SocketState.CREATED);
-    final Lock lock = new ReentrantLock(); // TODO - a more efficient locking mechanism may be required in the future
-    private final Map<String, OptionHandler<?>> options = defaultSocketOptions(); // Map of option handlers. Handlers are required to prevent changing options to unacceptable values.
-    private final Map<SocketIdentifier, Link> links = new HashMap<>(); // maps link objects to the peer's socket identifier
+    final ReadWriteLock lock = new ReentrantReadWriteLock();
+    private final LinkManager linkManager = new LinkManager(this);
+    private final Map<SocketIdentifier, LinkSocket> linkSockets = new HashMap<>(); // maps peer socket identifiers to link sockets
     private Exception error = null;
 
     protected Socket(SocketIdentifier sid) {
@@ -46,7 +48,7 @@ public abstract class Socket{
      * logic to use.
      * @return socket lock
      */
-    protected final Lock getLock(){
+    protected final ReadWriteLock getLock(){
         return lock;
     }
 
@@ -83,6 +85,9 @@ public abstract class Socket{
     }
 
     // ******** Socket Options ******** //
+
+    // Map of option handlers. Handlers are required to prevent changing options to unacceptable values.
+    private final Map<String, OptionHandler<?>> options = defaultSocketOptions();
 
     /**
      * To initialize the default options of a socket.
@@ -130,14 +135,14 @@ public abstract class Socket{
         if(optionClass == null)
             throw new IllegalArgumentException("Option class must not be null.");
         try {
-            lock.lock();
+            lock.readLock().lock();
             OptionHandler<?> handler = options.get(option);
             if(handler != null)
                 return optionClass.cast(handler.get());
             else
                 throw new IllegalArgumentException("Option does not exist.");
         } finally {
-            lock.unlock();
+            lock.readLock().unlock();
         }
     }
 
@@ -152,14 +157,14 @@ public abstract class Socket{
      */
     public final <Option> void setOption(String option, Option value){
         try {
-            lock.lock();
+            lock.writeLock().lock();
             OptionHandler<?> handler = options.get(option);
             if(handler != null)
                 handler.set(value);
             else
                 throw new IllegalArgumentException("Option does not exist.");
         } finally {
-            lock.unlock();
+            lock.writeLock().unlock();
         }
     }
 
@@ -171,10 +176,10 @@ public abstract class Socket{
      */
     protected final void registerOption(String option, OptionHandler<?> handler){
         try {
-            lock.lock();
+            lock.writeLock().lock();
             options.put(option, handler);
         } finally {
-            lock.unlock();
+            lock.writeLock().unlock();
         }
     }
 
@@ -233,6 +238,10 @@ public abstract class Socket{
      * @param msg socket message to be handled
      */
     final void feedMsg(SocketMsg msg) {
+        assert msg != null;
+
+        SocketIdentifier peerId = msg.getSrcId();
+        //LinkSocket socket = linkSockets.get()
         // TODO - feedMsg()
     }
 
@@ -291,41 +300,30 @@ public abstract class Socket{
         return null;
     }
 
-    public final void link(SocketIdentifier sid){
-        try {
-            lock.lock();
-            if (state.get() == SocketState.READY) {
-                // 1. If link already exists, do nothing,
-                //      since it will either be pending or established.
-                // 2. Link does not exist, so, create a link using default
-                // values present in the socket options.
-                // 3. Send a link request.
+    public final void link(SocketIdentifier peerId){
+        linkManager.link(peerId);
+    }
 
-            }
-        }finally {
-            lock.unlock();
+    public final void unlink(SocketIdentifier peerId){
+        linkManager.unlink(peerId);
+    }
+
+    public final LinkSocket getLinkSocket(SocketIdentifier peerId){
+        lock.readLock().lock();
+        try {
+            return linkSockets.get(peerId);
+        } finally {
+            lock.readLock().unlock();
         }
     }
 
-    public final void unlink(SocketIdentifier sid){
-        /* TODO - unlink()
-        //  1. If link does not exist, do not do anything.
-        //  2. If link does exist and its state is:
-        //      - ESTABLISHED:
-        //          - send UNLINK and close link
-        //      - PENDING:
-        //          1. Change state to UNLINKING
-        //              -> Note: Required because if a LINK request is coming it
-        //                       would result in the establishment of the link once again.
-        //
-        //
-
-         */
-    }
-
-    public final boolean isLinked(SocketIdentifier sid){
-        // TODO - isLinked()
-        return false;
+    public final boolean isLinked(SocketIdentifier peerId){
+        lock.readLock().lock();
+        try {
+            return linkSockets.containsKey(peerId);
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     public final int waitForLink(SocketIdentifier sid){
@@ -340,38 +338,15 @@ public abstract class Socket{
 
     public final void start() {
         try {
-            lock.lock();
+            lock.writeLock().lock();
             if (state.get() != SocketState.CREATED)
                 throw new IllegalArgumentException("Socket has already been started once.");
             // performs custom initializing procedure
             init();
-            // sets state to ready if socket's state is "CREATED"
-            state.compareAndSet(SocketState.CREATED, SocketState.READY);
+            // sets state to ready
+            state.set(SocketState.READY);
         }finally {
-            lock.unlock();
-        }
-    }
-
-    /**
-     * Method used to confirm the custom closing procedures have
-     * been performed, enabling the socket to proceed from the
-     * CLOSING state to CLOSED, and effectively be removed from the
-     * middleware.
-     */
-    protected final void destroyCompleted(){
-        try {
-            lock.lock();
-            // sets state to CLOSED if the current state is CLOSING,
-            // and performs last closing procedures.
-            if(state.compareAndSet(SocketState.CLOSING, SocketState.CLOSED)){
-                // Calls the socket manager close() method to perform
-                // the clean-up procedures such as removing the socket.
-                if(socketManager != null)
-                    socketManager.closeSocket(this);
-                // TODO - wake up waiters with POLLFREE | POLLHUP
-            }
-        } finally {
-            lock.unlock();
+            lock.writeLock().unlock();
         }
     }
 
@@ -379,7 +354,7 @@ public abstract class Socket{
     //
     public final void close() {
         try {
-            lock.lock();
+            lock.writeLock().lock();
             SocketState tmpState = state.get();
             if (tmpState == SocketState.CLOSED)
                 return;
@@ -388,7 +363,7 @@ public abstract class Socket{
                 throw new IllegalArgumentException("Socket is closing or has already closed.");
             closeInternal();
         } finally {
-            lock.unlock();
+            lock.writeLock().unlock();
         }
     }
 
@@ -402,21 +377,55 @@ public abstract class Socket{
                 // set state to CLOSING
                 state.set(SocketState.CLOSING);
                 // Unlinking all links is required before closing the socket.
-                // When the socket is closing, if the link is the last link to
-                // be removed, it must invoke this closeInternal() method to
-                // move to the next step of the closing procedure.
-                for (Map.Entry<SocketIdentifier, Link> entry : links.entrySet()){
-                    // entry.getValue().unlink(); // unlink link
-                }
+                for (LinkSocket linkSocket : linkSockets.values())
+                    linkSocket.unlink();
             }
 
-            if (links.isEmpty()) {
-                // calls custom closing procedure and expects destroyCompleted()
-                // to be called in order for the state to proceed to CLOSE and
-                // for the middleware to perform the required socket clean-up
-                // procedures.
+            if (linkSockets.isEmpty()) {
                 destroy();
+                state.set(SocketState.CLOSED);
+                socketManager.closeSocket(this);
+                // TODO - wake up waiters with POLLFREE | POLLHUP
             }
+        }
+    }
+
+    public void onLinkClosed(Link link) {
+        try {
+            lock.writeLock().lock();
+            linkSockets.remove(link.getDestId());
+            // TODO - Inform link closure to the custom socket logic
+            //  socket.customHandleEvent(new LinkClosedEvent(link));
+            if (state.get() == SocketState.CLOSING && linkSockets.isEmpty())
+                closeInternal();
+        }finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    private static Queue<SocketMsg> getDefaultInQueue(){
+        return new LinkedList<>();
+    }
+
+    public void onLinkEstablished(Link link) {
+        try {
+            lock.writeLock().lock();
+            // create link socket
+            LinkSocket linkSocket = new LinkSocket(link, linkManager);
+            // set incoming queue
+            Supplier<Queue<SocketMsg>> supplier = getInQueueSupplier(linkSocket);
+            Queue<SocketMsg> queue = null;
+            if (supplier != null)
+                queue = supplier.get();
+            if (queue == null)
+                queue = getDefaultInQueue();
+            link.setInMsgQ(queue);
+            // register link socket
+            linkSockets.put(link.getDestId(), linkSocket);
+            // TODO - create link established event
+            //  socket.customHandleEvent(new LinkEstablishedEvent(link));
+        }finally {
+            lock.writeLock().unlock();
         }
     }
 
@@ -424,9 +433,8 @@ public abstract class Socket{
     protected abstract void init();
 
     /**
-     * To implement custom closing procedures,
-     * such as destroying and closing any resources initialized
-     * by the custom socket logic.
+     * To implement custom closing procedures, such as destroying and
+     * closing any resources initialized by the custom socket logic.
      * @implSpec implementation must avoid - more like "not include" - any blocking operations.
      */
     protected abstract void destroy();
@@ -453,13 +461,14 @@ public abstract class Socket{
      * semantics do not tolerate the discarding of messages, therefore, we assume the message
      * is added to the queue without any problem. Also, when overriding the method, it must
      * be taken into consideration the mode of the socket, i.e., if it is in COOKED or RAW mode.
-     * @param link link which may include peer's relevant information for the election
-     *             of a queue.
+     * @param linkSocket link socket which may include peer's relevant information, such as the protocol identifier,
+     *                  for the election of a queue.
      * @return supplier of an incoming queue for the given link
      */
-    protected Supplier<Queue<SocketMsg>> getInQueueSupplier(Link link){
-        return LinkedList::new;
+    protected Supplier<Queue<SocketMsg>> getInQueueSupplier(LinkSocket linkSocket){
+        return Socket::getDefaultInQueue;
     }
+
     public abstract Protocol getProtocol();
     public abstract Set<Protocol> getCompatibleProtocols();
     public abstract byte[] receive(Long timeout, boolean notifyIfNone);

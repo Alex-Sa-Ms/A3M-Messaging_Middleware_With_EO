@@ -661,3 +661,12 @@ A *Cookie* can be used to determine when a message has arrived at the destinatio
 
      */
 ```
+
+# Think about optimizing contention areas later
+- Search lock-free algorithms
+- Use atomic operations where they are possible
+- Add finer-grained locks if necessary.
+- Use read-write-locks.
+	- For instance, try acquiring write lock instantaneously, if not possible use read lock with combination of atomic operations.
+		- When the middleware thread wants to queue a message in a socket, if it can acquire the lock immediately, then handle the message queuing until it is finished. If not possible, then add it in a temporary queue. Queuing in this temporary queue is assumed to be only done by the middleware thread, so, if we initiate two of these queues initially, the thread that acquires the write lock, can swap this queues atomically. 
+			- Is this idea correct?

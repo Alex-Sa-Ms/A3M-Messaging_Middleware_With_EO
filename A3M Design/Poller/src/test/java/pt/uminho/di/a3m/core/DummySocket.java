@@ -77,7 +77,7 @@ public class DummySocket extends Socket{
 
     @Override
     protected void destroy() {
-        destroyCompleted();
+
     }
 
     @Override
@@ -91,7 +91,7 @@ public class DummySocket extends Socket{
     }
 
     @Override
-    protected Supplier<Queue<SocketMsg>> getInQueueSupplier(Link link) {
+    protected Supplier<Queue<SocketMsg>> getInQueueSupplier(LinkSocket linkSocket) {
         return null;
     }
 }

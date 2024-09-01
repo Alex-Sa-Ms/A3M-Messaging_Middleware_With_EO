@@ -1,8 +1,11 @@
 package pt.uminho.di.a3m.core;
 
+import pt.uminho.di.a3m.auxiliary.Timeout;
+import pt.uminho.di.a3m.core.exceptions.LinkClosedException;
 import pt.uminho.di.a3m.core.flowcontrol.InFlowControlState;
 import pt.uminho.di.a3m.core.flowcontrol.OutFlowControlState;
 import pt.uminho.di.a3m.core.messaging.MsgType;
+import pt.uminho.di.a3m.core.messaging.Payload;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 import pt.uminho.di.a3m.poller.PollFlags;
 import pt.uminho.di.a3m.poller.PollTable;
@@ -16,9 +19,24 @@ import java.util.Queue;
 import java.util.concurrent.atomic.AtomicReference;
 
 // TODO 1 - adjust methods visibility
-// TODO 2 - create method that enables retrieving the queue when the link is closed.
-//  That should a public method.
 
+/**
+ * <b>Locking mechanisms</b>
+ * <p>There are three locking mechanisms used with Link objects:</p>
+ * <ol>
+ *     <li>socket lock</li>
+ *     <li>synchronized blocks</li>
+ *     <li>wait queue lock</li>
+ * </ol>
+ *  These mechanisms when employed should be acquired in the order above.
+ *  <p>The socket lock is required for state transitions, such as LINKING -> ESTABLISHED,
+ *  and to modify certain variables that can only transition to new values when the socket
+ *  lock is held, which are most of the variables involved in deciding which state transition
+ *  should occur. Examples of these variables are: state, peerProtocolId, clockId, etc.</p>
+ *  <p>Synchronized blocks are used to ensure consistency between actions that do not
+ *  require the socket lock to be held, i.e., when the operations do not involve state transitions.</p>
+ *  <p>Wait queue lock is the lock used to ensure consistency when queuing and waking up waiters.</p>
+ */
 public class Link implements Pollable {
     public enum LinkState {
         // When waiting for the peer's answer regarding the link establishment.
@@ -34,7 +52,7 @@ public class Link implements Pollable {
     }
 
     private final LinkIdentifier id;
-    private final AtomicReference<LinkState> state = new AtomicReference<>(null);
+    private LinkState state = LinkState.LINKING;
     private Integer peerProtocolId = null;
     private final WaitQueue waitQ = new WaitQueue(); // for I/O events on the link
 
@@ -43,15 +61,15 @@ public class Link implements Pollable {
      * @param id identifier of the link
      * @param clockId clock identifier of the link
      * @param initialCapacity initial amount of credits provided to the sender
-     * @param observer link observer
+     * @param dispatcher link observer
      */
-    public Link(LinkIdentifier id, int clockId, int initialCapacity, LinkObserver observer) {
-        this.observer = observer;
+    public Link(LinkIdentifier id, int clockId, int initialCapacity, LinkDispatcher dispatcher) {
         if(!LinkIdentifier.isValid(id))
             throw new IllegalArgumentException("Not a valid link identifier.");
         this.id = id;
         this.clockId = clockId;
         this.inFCS = new InFlowControlState(initialCapacity);
+        this.dispatcher = dispatcher;
     }
 
     /**
@@ -60,10 +78,10 @@ public class Link implements Pollable {
      * @param peerId link's peer identifier
      * @param clockId clock identifier of the link
      * @param initialCapacity initial amount of credits provided to the sender
-     * @param observer link observer
+     * @param dispatcher link observer
      */
-    public Link(SocketIdentifier ownerId, SocketIdentifier peerId, int clockId, int initialCapacity, LinkObserver observer) {
-        this(new LinkIdentifier(ownerId, peerId), clockId, initialCapacity, observer);
+    public Link(SocketIdentifier ownerId, SocketIdentifier peerId, int clockId, int initialCapacity, LinkDispatcher dispatcher) {
+        this(new LinkIdentifier(ownerId, peerId), clockId, initialCapacity, dispatcher);
     }
 
     public LinkIdentifier getId() {
@@ -78,12 +96,12 @@ public class Link implements Pollable {
         return id.destId();
     }
 
-    public LinkState getState() {
-        return state.get();
+    public synchronized LinkState getState() {
+        return state;
     }
 
-    public void setState(LinkState state) {
-        this.state.set(state);
+    public synchronized void setState(LinkState state) {
+        this.state = state;
     }
 
     public Integer getPeerProtocolId() {
@@ -105,7 +123,7 @@ public class Link implements Pollable {
      * value is limited to one time.
      * @param inMsgQ incoming message queue
      */
-    public void setInMsgQ(Queue<SocketMsg> inMsgQ) {
+    public synchronized void setInMsgQ(Queue<SocketMsg> inMsgQ) {
         if(this.inMsgQ == null) this.inMsgQ = inMsgQ;
     }
 
@@ -212,13 +230,26 @@ public class Link implements Pollable {
 
     // ********* Link Observer ********* //
 
-    public interface LinkObserver{
+    public interface LinkDispatcher {
+        /**
+         * Dispatch flow control message with the provided credits batch
+         * to the peer associated with the link.
+         * @param link link that wants to dispatch the batch.
+         * @param batch credits to be dispatched
+         */
         void onBatchReadyEvent(Link link, int batch);
+
+        /**
+         * Dispatch data or control message to the peer associated with the link.
+         * This method does not check if the message is valid under the socket semantics.
+         * @param link link that wants to dispatch a data or control message
+         * @param payload payload
+         * @throws IllegalArgumentException If payload is not valid.
+         */
+        void onOutgoingMessage(Link link, Payload payload) throws IllegalArgumentException;
     }
 
-    private final LinkObserver observer;
-
-
+    private final LinkDispatcher dispatcher;
 
     // ********** Incoming flow Methods ********** //
     private Queue<SocketMsg> inMsgQ = null;
@@ -230,10 +261,10 @@ public class Link implements Pollable {
      * @param batch credits to be sent.
      */
     private void sendCredits(int batch) {
-        if(batch != 0) observer.onBatchReadyEvent(this, batch);
+        if(batch != 0) dispatcher.onBatchReadyEvent(this, batch);
     }
 
-    public boolean hasIncomingMessages(){
+    public synchronized boolean hasIncomingMessages(){
         return !inMsgQ.isEmpty();
     }
 
@@ -247,9 +278,9 @@ public class Link implements Pollable {
      *            queued is a data message. Else, if the socket is in RAW mode,
      *            then the queue can also have custom control messages queued.       
      */
-    void queueIncomingMessage(SocketMsg msg){
+    synchronized void queueIncomingMessage(SocketMsg msg){
         // do not add if closed
-        if(state.get() == LinkState.CLOSED)
+        if(state == LinkState.CLOSED)
             throw new IllegalStateException("Link is closed.");
         // add new message to incoming messages queue
         inMsgQ.add(msg);
@@ -263,14 +294,14 @@ public class Link implements Pollable {
      * credits batch, that batch is sent to the sender.
      * @return socket message or "null" if there wasn't an available message.
      */
-    public SocketMsg tryPollingMessage(){
+    public synchronized SocketMsg tryPollingMessage(){
         SocketMsg msg = inMsgQ.poll();
         if(SocketMsg.isType(msg, MsgType.DATA)) {
             // if a message was polled,
             // "mark" the message as delivered and
             // send a credits batch when required
             int batch = inFCS.deliver();
-            if(state.get() != LinkState.CLOSED)
+            if(state != LinkState.CLOSED)
                 sendCredits(batch);
         }
         return msg;
@@ -281,8 +312,8 @@ public class Link implements Pollable {
      * value, sends current batch and clears the current batch.
      * @param newCapacity new capacity
      */
-    public void setCapacity(int newCapacity) {
-        if (state.get() != LinkState.CLOSED) {
+    public synchronized void setCapacity(int newCapacity) {
+        if (state != LinkState.CLOSED) {
             int batch = inFCS.setCapacity(newCapacity);
             sendCredits(batch);
         }
@@ -294,8 +325,8 @@ public class Link implements Pollable {
      * @param credits variation of credits to apply to the
      *                current capacity.
      */
-    public void adjustCapacity(int credits) {
-        if (state.get() != LinkState.CLOSED) {
+    public synchronized void adjustCapacity(int credits) {
+        if (state != LinkState.CLOSED) {
             int batch = inFCS.adjustCapacity(credits);
             sendCredits(batch);
         }
@@ -308,21 +339,77 @@ public class Link implements Pollable {
      * @throws IllegalArgumentException If the provided batch size percentage is not a
      * value between 0 (exclusive) and 1 (inclusive).
      */
-    public void setCreditsBatchSizePercentage(float newPercentage) {
-        if (state.get() != LinkState.CLOSED) {
+    public synchronized void setCreditsBatchSizePercentage(float newPercentage) {
+        if (state != LinkState.CLOSED) {
             int batch = inFCS.setBatchSizePercentage(newPercentage);
             sendCredits(batch);
         }
+    }
+
+    /**
+     * Waits until an incoming message, from the peer associated with this
+     * link, is available or the deadline is reached or the thread is interrupted.
+     * If the socket is in COOKED mode, the returned messages are data messages.
+     * If in RAW mode, the returned messages may also be custom control messages.
+     * @param deadline waiting limit to poll an incoming message
+     * @return available incoming message or "null" if the operation timed out
+     * without a message becoming available.
+     * @apiNote Caller must not hold socket lock as it will result in a deadlock
+     * when a blocking operation with a non-expired deadline is requested.
+     */
+    SocketMsg receive(Long deadline) throws InterruptedException {
+        SocketMsg msg;
+        WaitQueueEntry wait;
+        ParkStateWithEvents ps;
+        boolean timedOut = Timeout.hasTimedOut(deadline);
+
+        synchronized (this){
+            // if link is closed and queue is empty, messages cannot be received.
+            if (getState() == LinkState.CLOSED && hasIncomingMessages())
+                throw new LinkClosedException();
+            // try retrieving a message immediately
+            msg = tryPollingMessage();
+            if (msg != null) return msg;
+            // return if timed out
+            if (timedOut) return null;
+            // If a message could not be retrieved, make the caller a waiter
+            wait = queueDirectEventWaiter(PollFlags.POLLIN, true);
+            ps = (Link.ParkStateWithEvents) wait.getPriv();
+        }
+
+        while (true) {
+            if (timedOut || getState() == LinkState.CLOSED)
+                break;
+            if (Thread.currentThread().isInterrupted()) {
+                wait.delete();
+                throw new InterruptedException();
+            }
+            // Wait until woken up
+            WaitQueueEntry.defaultWaitFunction(wait, ps, deadline, true);
+            synchronized (this){
+                // attempt to poll a message
+                msg = tryPollingMessage();
+                if (msg != null) break;
+                // if a message was not available and the operation has not
+                // timed out, sets parked state to true preemptively,
+                // so that a notification is not missed
+                timedOut = Timeout.hasTimedOut(deadline);
+                if (!timedOut) ps.parked.set(true);
+            }
+        }
+        // delete entry since a hanging wait queue entry is not desired.
+        wait.delete();
+        return msg;
     }
     
     // ********** Outgoing flow Methods ********** //
     private final OutFlowControlState outFCS = new OutFlowControlState(0);
 
-    boolean hasOutgoingCredits(){
+    synchronized boolean hasOutgoingCredits(){
         return outFCS.hasCredits();
     }
 
-    void adjustOutgoingCredits(int credits){
+    synchronized void adjustOutgoingCredits(int credits){
         outFCS.applyCreditVariation(credits);
         // Waiters can only be notified when there are available
         // credits. Therefore, if current amount of credits is
@@ -343,23 +430,6 @@ public class Link implements Pollable {
         return outFCS.trySend();
     }
 
-    /* TODO [Socket send] - To send a message, the socket must have method that
-        accepts dispatching a message if it is a DATA msg or if it
-        is not inside the reserved space for core messages. Also,
-        it must verify that the destination is linked and for
-        DATA messages it must have a credit to send the message.
-        ```
-        if(payload.getType() == MsgType.DATA){
-            boolean permission = linkManager.consumeCredit(destId, deadline);
-            if(permission)
-                dispatch(msg);
-            else
-                ... do something ... throw exception ... return false ... whatever
-        }else if(!MsgType.isReservedType(payload.getType())){
-            dispatch(destId, payload.getType(), payload.getPayload());
-        } // else, ignore message because the custom logic does not have permission to send core messages.
-        ```
-    */
     // TODO [Socket receive] - When a message is received, the socket passes it to the
     //  link manager. The link manager then attempts to handle the message, if it decides
     //  it is not its duty to handle the message, then it informs so using the boolean return
@@ -374,15 +444,79 @@ public class Link implements Pollable {
     //  was handled on the spot.
 
     /**
-     * Attempt to consume credit until the deadline is reached.
+     * Sends message to the peer associated with this link. This method
+     * is not responsible for verifying if the control message follows
+     * the custom semantics of the socket.
+     * @param payload message content
      * @param deadline timestamp at which the method must return
-     *                 even if a credit was not consumed. A 'null' value
-     *                 means waiting forever.
-     * @return true if a credit was consumed. false, otherwise.
+     *                 indicating a timeout if sending was not possible
+     *                 due to the lack of permission (i.e. credits).
+     * @return "true" if message was sent. "false" if permission
+     *          was not acquired during the specified timeout.
+     * @throws IllegalArgumentException If the payload is null or if the payload type
+     * corresponds to a reserved type other than DATA.
+     * @throws InterruptedException If thread was interrupted.
+     * @apiNote Caller must not hold socket lock as it will result in a deadlock
+     * when a blocking operation with a non-expired deadline is requested.
      */
-    private boolean consumeCredit(Long deadline){
-        // TODO - consumeCredit()
-        return false;
+    boolean send(Payload payload, Long deadline) throws InterruptedException {
+        boolean ret = false;
+        WaitQueueEntry wait;
+        ParkStateWithEvents ps;
+        boolean timedOut = Timeout.hasTimedOut(deadline);
+
+        if(payload == null)
+            throw new IllegalArgumentException("Invalid payload.");
+
+        // if payload is a reserved type different from DATA,
+        // then the send operation is not allowed.
+        if(MsgType.isReservedType(payload.getType())
+                && payload.getType() != MsgType.DATA)
+            throw new IllegalArgumentException("Invalid payload type.");
+
+        synchronized (this){
+            // if link is closed, messages cannot be sent.
+            if (getState() == LinkState.CLOSED)
+                throw new LinkClosedException();
+            // If message is a control message, then it can be dispatched immediately.
+            // In case of a data message, permission from the flow control is required.
+            if(payload.getType() != MsgType.DATA || hasOutgoingCredits()) {
+                dispatcher.onOutgoingMessage(this, payload);
+                return true;
+            }
+            // return if timed out
+            if (timedOut) return false;
+            // If the message could not be sent, make the caller a waiter
+            wait = queueDirectEventWaiter(PollFlags.POLLOUT, true);
+            ps = (ParkStateWithEvents) wait.getPriv();
+        }
+
+        while (true) {
+            if (timedOut || getState() == LinkState.CLOSED)
+                break;
+            if (Thread.currentThread().isInterrupted()) {
+                wait.delete();
+                throw new InterruptedException();
+            }
+            // Wait until woken up
+            WaitQueueEntry.defaultWaitFunction(wait, ps, deadline, true);
+            synchronized (this){
+                // attempt to send the message again
+                if(hasOutgoingCredits())  {
+                    dispatcher.onOutgoingMessage(this, payload);
+                    ret = true;
+                    break;
+                }
+                // if permission to send the message was not granted and
+                // the operation has not timed out,sets parked state to
+                // true preemptively, so that a notification is not missed
+                timedOut = Timeout.hasTimedOut(deadline);
+                if (!timedOut) ps.parked.set(true);
+            }
+        }
+        // delete entry since a hanging wait queue entry is not desired.
+        wait.delete();
+        return ret;
     }
 
     // ********* Polling methods ********* //
@@ -397,16 +531,16 @@ public class Link implements Pollable {
             events |= PollFlags.POLLOUT;
         if(!inMsgQ.isEmpty())
             events |= PollFlags.POLLIN;
-        if(state.get() == LinkState.CLOSED)
+        if(state == LinkState.CLOSED)
             events |= PollFlags.POLLHUP;
         return events;
     }
 
     @Override
-    public int poll(PollTable pt) {
+    public synchronized int poll(PollTable pt) {
         if (!PollTable.pollDoesNotWait(pt)) {
             WaitQueueEntry wait =
-                    state.get() != LinkState.CLOSED ? waitQ.initEntry() : null;
+                    state != LinkState.CLOSED ? waitQ.initEntry() : null;
             pt.pollWait(this, wait);
         }
         return getAvailableEventsMask();
@@ -416,8 +550,8 @@ public class Link implements Pollable {
      * Class that extends the park state to include events of interest,
      * enabling the use of the default wake-up methods.
      */
-    class ParkStateWithEvents extends ParkState{
-        private int events;
+    static class ParkStateWithEvents extends ParkState{
+        private final int events;
 
         public ParkStateWithEvents(boolean parkState, int events) {
             super(parkState);
@@ -456,8 +590,8 @@ public class Link implements Pollable {
      * @implSpec Wait queue has own lock, so the queuing action does not require
      * any other locking mechanism to be secured when the method is called.
      */
-    WaitQueueEntry queueDirectEventWaiter(int events, boolean initialParkState){
-        if(state.get() != LinkState.CLOSED) {
+    private WaitQueueEntry queueDirectEventWaiter(int events, boolean initialParkState){
+        if(state != LinkState.CLOSED) {
             // subscribes hang-up and error events
             events |= PollFlags.POLLHUP | PollFlags.POLLERR;
             // park state is initialized with "true" to be ready for a
@@ -471,8 +605,8 @@ public class Link implements Pollable {
     
     // ********* All-round methods ********* //
 
-    void establish(){
-        state.set(LinkState.ESTABLISHED);
+    synchronized void establish(){
+        state = LinkState.ESTABLISHED;
         // wakes waiters if outgoing credits are positive
         int outCredits = outFCS.getCredits();
         if(!waitQ.isEmpty()) {
@@ -486,10 +620,10 @@ public class Link implements Pollable {
         }
     }
 
-    void close() {
+    synchronized void close() {
         // remove a possibly scheduled message
         if(scheduled != null) scheduled.set(null); 
-        state.set(LinkState.CLOSED);
+        state = LinkState.CLOSED;
         // notify with POLLHUP to inform the closure, and POLLFREE 
         // to make the wake-up callbacks remove the entry regardless 
         // of whether the waiter is waiting or not.
