@@ -11,7 +11,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReadWriteLock;
 import java.util.function.Predicate;
 import java.util.logging.Logger;
 
@@ -23,14 +23,46 @@ import pt.uminho.di.a3m.core.messaging.payloads.SerializableMap;
 public class LinkManager implements Link.LinkDispatcher {
     private final Socket socket;
     final Map<SocketIdentifier, Link> links = new HashMap<>();
-    final Lock lock = new ReentrantLock();
+    final ReadWriteLock lock;
     private int clock = 0;
-    public LinkManager(Socket socket) {
+    public LinkManager(Socket socket, ReadWriteLock lock) {
         this.socket = socket;
+        this.lock = lock;
     }
 
-    Lock getLock() {
-        return lock;
+    Lock writeLock() {
+        return lock.writeLock();
+    }
+
+    /** @return true if there are links regardless of their state. false, otherwise. */
+    public boolean hasLinks(){
+        try {
+            lock.readLock().lock();
+            return !links.isEmpty();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /** @return amount of existing links regardless of their state*/
+    public int countLinks(){
+        try {
+            lock.readLock().lock();
+            return links.size();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /** @return link instance associated with the identifier,
+     * or null such link does not exist. */
+    public Link getLink(SocketIdentifier peerId){
+        try {
+            lock.readLock().lock();
+            return links.get(peerId);
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     /**
@@ -275,12 +307,6 @@ public class LinkManager implements Link.LinkDispatcher {
 
     // ********* Linking/Unlinking logic ********* //
 
-    // TODO 2 - see where notifying waiters and creating socket events is required
-    //  - set credits to zero when unlinking to prevent sending of data messages?
-
-    // TODO 4 - since there are "wait for link" methods which wait for a link
-    //  to be established, then there should be a "wait for link closure" also.
-
     /**
      * Determines if a peer is compatible
      * @param peerProtocolId peer's protocol identifier
@@ -473,7 +499,7 @@ public class LinkManager implements Link.LinkDispatcher {
         int outCredits = payload.getInt("credits");
         int peerClockId = msg.getClockId();
         try {
-            lock.lock();
+            lock.writeLock().lock();
             Link link = links.get(peerId);
             // If link exists
             if(link != null){
@@ -605,7 +631,7 @@ public class LinkManager implements Link.LinkDispatcher {
             // or by receiving a data/control message.
             else checkLinkingConditionsThenAcceptOrReject(peerId, peerProtocolId, peerClockId, outCredits);
         } finally {
-            lock.unlock();
+            lock.writeLock().unlock();
         }
     }
 
@@ -617,7 +643,7 @@ public class LinkManager implements Link.LinkDispatcher {
         int outCredits = payload.getInt("credits");
         int peerClockId = msg.getClockId();
         try {
-            lock.lock();
+            lock.writeLock().lock();
             Link link = links.get(peerId);
             // If link exists
             if(link != null) {
@@ -751,7 +777,7 @@ public class LinkManager implements Link.LinkDispatcher {
             }
             // Else: if link does not exist, ignore the message.
         } finally {
-            lock.unlock();
+            lock.writeLock().unlock();
         }
     }
 
@@ -759,7 +785,7 @@ public class LinkManager implements Link.LinkDispatcher {
         SocketIdentifier peerId = msg.getSrcId();
         int peerClockId = msg.getClockId();
         try {
-            lock.lock();
+            lock.writeLock().lock();
             Link link = links.get(peerId);
             // if link exists
             if(link != null){
@@ -791,7 +817,7 @@ public class LinkManager implements Link.LinkDispatcher {
                 closeLink(link);
             }
         } finally {
-            lock.unlock();
+            lock.writeLock().unlock();
         }
     }
 
@@ -800,6 +826,7 @@ public class LinkManager implements Link.LinkDispatcher {
     /**
      * Initiate a linking process for the provided socket identifier.
      * @param peerId peer's socket identifier
+     * @return link socket to enable waiting operations to be initiated.
      * @throws IllegalArgumentException If socket identifier is null.
      * @throws IllegalStateException If the link is being closed or
      * if the limit of links has been reached.
@@ -808,7 +835,7 @@ public class LinkManager implements Link.LinkDispatcher {
         if(peerId == null)
             throw new IllegalArgumentException("Socket identifier cannot be null.");
         try{
-            lock.lock();
+            lock.writeLock().lock();
             Link link = links.get(peerId);
             if(link != null){
                 // if link is established or attempting to link, there is nothing to do.
@@ -832,7 +859,7 @@ public class LinkManager implements Link.LinkDispatcher {
                 }
             }
         }finally {
-            lock.unlock();
+            lock.writeLock().unlock();
         }
     }
 
@@ -845,7 +872,7 @@ public class LinkManager implements Link.LinkDispatcher {
         if(peerId == null)
             throw new IllegalArgumentException("Socket identifier cannot be null.");
         try {
-            lock.lock();
+            lock.writeLock().lock();
             Link link = links.get(peerId);
             if(link != null){
                 switch (link.getState()){
@@ -873,18 +900,18 @@ public class LinkManager implements Link.LinkDispatcher {
                 }
             }
         } finally {
-            lock.unlock();
+            lock.writeLock().unlock();
         }
     }
 
     public boolean isLinkState(SocketIdentifier peerId, Predicate<LinkState> predicate){
         try{
-            lock.lock();
+            lock.readLock().lock();
             Link link = links.get(peerId);
             LinkState state = link != null ? link.getState() : null;
             return predicate.test(state);
         } finally {
-            lock.unlock();
+            lock.readLock().unlock();
         }
     }
 
@@ -912,7 +939,7 @@ public class LinkManager implements Link.LinkDispatcher {
         boolean valid = false;
         SocketIdentifier peerId = msg.getSrcId();
         try {
-            lock.lock();
+            lock.writeLock().lock();
             Link link = links.get(peerId);
             if (link != null) {
                 // confirm the clock identifier in the message matches the
@@ -944,7 +971,7 @@ public class LinkManager implements Link.LinkDispatcher {
             }else dispatchNotLinkedErrorMsg(peerId, msg);
             return valid;
         }finally {
-            lock.unlock();
+            lock.writeLock().unlock();
         }
     }
 
@@ -957,19 +984,20 @@ public class LinkManager implements Link.LinkDispatcher {
      */
     private void handleFlowControlMsg(SocketMsg msg){
         assert msg != null;
+        FlowCreditsPayload fcp = FlowCreditsPayload.convertFrom(msg.getPayload());
+        if(fcp == null) return; // if payload is invalid
         try{
-            lock.lock();
+            // read lock is needed to prevent change of peer clock identifier
+            lock.readLock().lock();
             Link link = links.get(msg.getSrcId());
             if(link != null) {
                 // ignore flow control messages that do not match
                 // the registered clock identifier.
                 if(msg.getClockId() != link.getPeerClockId()) return;
-                FlowCreditsPayload fcp = FlowCreditsPayload.convertFrom(msg.getPayload());
-                assert fcp != null;
                 link.adjustOutgoingCredits(fcp.getCredits());
             }
         } finally {
-            lock.unlock();
+            lock.readLock().unlock();
         }
     }
 
@@ -1052,7 +1080,7 @@ public class LinkManager implements Link.LinkDispatcher {
 
     private void handleSocketNotFoundError(SocketMsg msg) {
         try {
-            lock.lock();
+            lock.writeLock().lock();
             Link link = links.get(msg.getSrcId());
             // If link exists and the socket has not received
             // a LINK or LINKREPLY message from the peer,
@@ -1073,7 +1101,7 @@ public class LinkManager implements Link.LinkDispatcher {
                 }
             }
         } finally {
-            lock.unlock();
+            lock.writeLock().unlock();
         }
     }
 }

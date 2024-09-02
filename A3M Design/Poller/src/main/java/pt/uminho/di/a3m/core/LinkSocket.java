@@ -102,6 +102,31 @@ public class LinkSocket implements Pollable {
     // ********** Incoming flow Methods ********** //
 
     /**
+     * While this method informs how many elements are in the queue,
+     * it does not inform if there is a message ready to be polled.
+     * To obtain such information, use hasAvailableIncomingMessages().
+     *
+     * @return the amount of messages in the queue */
+    public int countIncomingMessages(){
+        return link.countIncomingMessages();
+    }
+
+    /**
+     * While this method informs if the queue has elements, it is not an
+     * indicator that a message can be polled. To obtain such information,
+     * use hasAvailableIncomingMessages().
+     *
+     * @return true if the queue has elements. false, otherwise. */
+    public boolean hasIncomingMessages(){
+        return link.hasIncomingMessages();
+    }
+
+    /** @return true if the queue has at least one element that can be polled. false, otherwise. */
+    public boolean hasAvailableIncomingMessages(){
+        return link.hasAvailableIncomingMessages();
+    }
+
+    /**
      * @return capacity of the link, i.e., maximum amount
      * of messages that can be queued at a time.
      */

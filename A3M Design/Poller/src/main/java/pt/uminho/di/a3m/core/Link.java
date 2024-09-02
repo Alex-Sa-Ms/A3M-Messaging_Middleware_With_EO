@@ -262,8 +262,29 @@ public class Link implements Pollable {
         if(batch != 0) dispatcher.onBatchReadyEvent(this, batch);
     }
 
+    /**
+     * While this method informs how many elements are in the queue,
+     * it does not inform if there is a message ready to be polled.
+     * To obtain such information, use hasAvailableIncomingMessages().
+     *
+     * @return the amount of messages in the queue */
+    public synchronized int countIncomingMessages(){
+        return inMsgQ.size();
+    }
+
+    /**
+     * While this method informs if the queue has elements, it is not an
+     * indicator that a message can be polled. To obtain such information,
+     * use hasAvailableIncomingMessages().
+     *
+     * @return true if the queue has elements. false, otherwise. */
     public synchronized boolean hasIncomingMessages(){
         return !inMsgQ.isEmpty();
+    }
+
+    /** @return true if the queue has at least one element that can be polled. false, otherwise. */
+    public synchronized boolean hasAvailableIncomingMessages(){
+        return inMsgQ.peek() != null;
     }
 
     /**
@@ -559,7 +580,7 @@ public class Link implements Pollable {
         int events = 0;
         if(outFCS.hasCredits())
             events |= PollFlags.POLLOUT;
-        if(!inMsgQ.isEmpty())
+        if(inMsgQ.peek() != null)
             events |= PollFlags.POLLIN;
         if(state == LinkState.CLOSED)
             events |= PollFlags.POLLHUP;

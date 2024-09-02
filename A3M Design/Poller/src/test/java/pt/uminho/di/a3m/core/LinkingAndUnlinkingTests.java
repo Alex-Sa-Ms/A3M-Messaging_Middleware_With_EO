@@ -17,6 +17,9 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Supplier;
 
 class LinkingAndUnlinkingTests {
@@ -78,11 +81,11 @@ class LinkingAndUnlinkingTests {
         // create socket and link manager 1
         sid1 = new SocketIdentifier("NodeA", "SocketA");
         socket1 = new DummySocket(sid1, protocol);
-        lm1 = new LinkManager(socket1);
+        lm1 = socket1.linkManager;
         // create socket and link manager 2
         sid2 = new SocketIdentifier("NodeB", "SocketB");
         socket2 = new DummySocket(sid2, protocol);
-        lm2 = new LinkManager(socket2);
+        lm2 = socket2.linkManager;
         // create message dispatcher
         DirectDispatcherToLinkManager messageDispatcher = new DirectDispatcherToLinkManager();
         messageDispatcher.registerLinkManager(sid1, lm1);
@@ -196,7 +199,7 @@ class LinkingAndUnlinkingTests {
             // lm2's lock is held here to prevent the handling
             // of the unlink message and therefore ensure the
             // success on throwing the exception
-            lm2.getLock().lock();
+            lm2.writeLock().lock();
             lm1.unlink(sid2);
             try {
                 lm1.link(sid2);
@@ -204,7 +207,7 @@ class LinkingAndUnlinkingTests {
             } catch (Exception ignored) {}
         }
         finally {
-            lm2.getLock().unlock();
+            lm2.writeLock().unlock();
         }
     }
 
@@ -224,11 +227,11 @@ class LinkingAndUnlinkingTests {
             // of the LINK message by socket2 before
             // asserting that the socket1's link state
             // with socket2 is LINKING
-            lm2.getLock().lock();
+            lm2.writeLock().lock();
             lm1.link(sid2);
             assert lm1.isLinking(sid2);
         } finally {
-            lm2.getLock().unlock();
+            lm2.writeLock().unlock();
         }
         // released the lock so that socket2 can handle
         // the link request. After dealing with the
@@ -247,11 +250,11 @@ class LinkingAndUnlinkingTests {
             // acquire lm2's lock to prevent the UNLINK
             // message from being handled until the UNLINK
             // state is asserted
-            lm2.getLock().lock();
+            lm2.writeLock().lock();
             lm1.unlink(sid2);
             assert lm1.isLinkState(sid2,ls -> ls == Link.LinkState.UNLINKING);
         } finally {
-            lm2.getLock().unlock();
+            lm2.writeLock().unlock();
         }
         // wait for the unlink process to finish
         waitUntil(() -> lm1.isUnlinked(sid2));
@@ -265,13 +268,13 @@ class LinkingAndUnlinkingTests {
             // message from being handled before requesting
             // the unlink and before verifying that
             // socket1's state becomes CANCELLING
-            lm2.getLock().lock();
+            lm2.writeLock().lock();
             lm1.link(sid2);
             assert lm1.isLinking(sid2);
             lm1.unlink(sid2);
             assert lm1.isLinkState(sid2,ls -> ls == Link.LinkState.CANCELLING);
         } finally {
-            lm2.getLock().unlock();
+            lm2.writeLock().unlock();
         }
         // wait for the unlink process to finish
         waitUntil(() -> lm1.isUnlinked(sid2));
@@ -298,7 +301,7 @@ class LinkingAndUnlinkingTests {
         // message coming from socket2 is not handled
         // until the lm2's lock is acquired after
         // socket2 sends a positive LINKREPLY message
-        lm1.getLock().lock();
+        lm1.writeLock().lock();
         // make socket1 send a link request to socket2
         lm1.link(sid2);
         // wait until socket2 is in LINKING state to
@@ -307,14 +310,14 @@ class LinkingAndUnlinkingTests {
         // acquire lm2's lock so that the fatal LINKREPLY
         // msg sent by socket1 is not handled until
         // we assert socket1 has closed the link
-        lm2.getLock().lock();
+        lm2.writeLock().lock();
         // release lm1's lock so that the LINKREPLY msg can be handled
-        lm1.getLock().unlock();
+        lm1.writeLock().unlock();
         // wait for socket1 to close the link
         waitUntil(() -> lm1.isUnlinked(sid2));
         // release lm2's lock so that the fatal LINKREPLY msg
         // from socket1 can be received
-        lm2.getLock().unlock();
+        lm2.writeLock().unlock();
         // wait until the link is closed
         waitUntil(() -> lm2.isUnlinked(sid1));
         assert lm1.isUnlinked(sid2);
@@ -325,8 +328,8 @@ class LinkingAndUnlinkingTests {
     void simultaneousLinkRequestButCompatible() throws InterruptedException {
         // Acquire both locks to prevent handling of LINK message
         // before sending the LINK message themselves
-        lm1.getLock().lock();
-        lm2.getLock().lock();
+        lm1.writeLock().lock();
+        lm2.writeLock().lock();
         // make sockets request link with each other
         lm1.link(sid2);
         lm2.link(sid1);
@@ -334,8 +337,8 @@ class LinkingAndUnlinkingTests {
         assert lm1.isLinking(sid2);
         assert lm2.isLinking(sid1);
         // release lock so that both can establish the link
-        lm1.getLock().unlock();
-        lm2.getLock().unlock();
+        lm1.writeLock().unlock();
+        lm2.writeLock().unlock();
         waitUntil(() -> lm1.isLinked(sid2));
         waitUntil(() -> lm2.isLinked(sid1));
         // assert both are unlinked
@@ -351,8 +354,8 @@ class LinkingAndUnlinkingTests {
         socket2.setCompatProtocols(Set.of(incompatibleProtocol));
         // Acquire both locks to prevent handling of LINK message
         // before sending the LINK message themselves
-        lm1.getLock().lock();
-        lm2.getLock().lock();
+        lm1.writeLock().lock();
+        lm2.writeLock().lock();
         // make sockets request link with each other
         lm1.link(sid2);
         lm2.link(sid1);
@@ -360,8 +363,8 @@ class LinkingAndUnlinkingTests {
         assert lm1.isLinking(sid2);
         assert lm2.isLinking(sid1);
         // release lock so that both can close the link
-        lm1.getLock().unlock();
-        lm2.getLock().unlock();
+        lm1.writeLock().unlock();
+        lm2.writeLock().unlock();
         waitUntil(() -> lm1.isUnlinked(sid2));
         waitUntil(() -> lm2.isUnlinked(sid1));
         // assert both are unlinked
@@ -409,7 +412,7 @@ class LinkingAndUnlinkingTests {
         // acquire lm1's lock so that before any message
         // sent by socket2 is handled, we can verify that
         // the socket2 has closed the link with socket1
-        lm1.getLock().lock();
+        lm1.writeLock().lock();
         // socket1 initiates the unlinking process
         // so that socket2 can close the link on
         // its side right after returning an UNLINK msg
@@ -427,7 +430,7 @@ class LinkingAndUnlinkingTests {
         assert lm2.isLinking(sid1);
         assert lm1.isUnlinking(sid2);
         // release lm1's lock so that the LINK message
-        lm1.getLock().unlock();
+        lm1.writeLock().unlock();
         // wait for a link message to be sent by socket2
         waitUntil(() -> linkMsgsSent.get() > 0);
         // deliver the UNLINK message sent by socket2 to the socket1
@@ -441,8 +444,8 @@ class LinkingAndUnlinkingTests {
     void receivePositiveLinkReplyMsgWhenCancelling() throws InterruptedException {
         // Acquire both locks to prevent handling of LINK message
         // before sending the LINK message themselves
-        lm1.getLock().lock();
-        lm2.getLock().lock();
+        lm1.writeLock().lock();
+        lm2.writeLock().lock();
         // make socket1 send a link request and invoke unlink() after that
         lm1.link(sid2);
         lm1.unlink(sid2);
@@ -453,10 +456,10 @@ class LinkingAndUnlinkingTests {
         // assert that socket1 is in CANCELLING state
         assert lm1.isLinkState(sid2, ls -> ls == Link.LinkState.CANCELLING);
         // release socket2 to enable the handling of the LINK msg
-        lm2.getLock().unlock();
+        lm2.writeLock().unlock();
         // release lm1's lock and check that eventually
         // the link is closed
-        lm1.getLock().unlock();
+        lm1.writeLock().unlock();
         waitUntil(() -> lm2.isUnlinked(sid1));
         assert lm1.isUnlinked(sid2);
     }
@@ -468,23 +471,23 @@ class LinkingAndUnlinkingTests {
         socket2.setCompatProtocols(Set.of(incompatibleProtocol));
         // lock lm2 to prevent handling of LINK msg
         // sent by socket1
-        lm2.getLock().lock();
+        lm2.writeLock().lock();
         // assert that after invoking link() followed by unlink(),
         // socket1 is in CANCELLING state
         lm1.link(sid2);
         lm1.unlink(sid2);
         assert lm1.isLinkState(sid2, ls -> ls == Link.LinkState.CANCELLING);
         // acquire lm1's lock
-        lm1.getLock().lock();
+        lm1.writeLock().lock();
         // release socket2 to enable the handling of the LINK msg
-        lm2.getLock().unlock();
+        lm2.writeLock().unlock();
         // wait a bit for the negative LINKREPLY message to be sent to socket1
         Thread.sleep(50);
         // assert socket1 is still in CANCELLING state
         assert lm1.isLinkState(sid2, ls -> ls == Link.LinkState.CANCELLING);
         // release lm1's lock and check that eventually
         // the link is closed
-        lm1.getLock().unlock();
+        lm1.writeLock().unlock();
         waitUntil(() -> lm1.isUnlinked(sid2));
         assert lm2.isUnlinked(sid1);
     }
@@ -493,14 +496,14 @@ class LinkingAndUnlinkingTests {
     void fatalRefusalDueToNotAllowingIncomingRequests() throws InterruptedException {
         // make socket2 reject incoming link requests
         socket2.setOption("allowIncomingLinkRequests", false);
-        lm2.getLock().lock();
+        lm2.writeLock().lock();
         // make socket1 attempt to link with socket2
         lm1.link(sid2);
         // verify that socket1 is attempting to link
         assert lm1.isLinking(sid2);
         // let socket2 handle the link request and
         // verify that the link is closed
-        lm2.getLock().unlock();
+        lm2.writeLock().unlock();
         waitUntil(() -> lm1.isUnlinked(sid2));
         // assert that socket2 can initiate links
         lm2.link(sid1);
@@ -617,14 +620,14 @@ class LinkingAndUnlinkingTests {
             }
         }, null);
         // acquire both locks to enable simultaneous link requests
-        lm1.getLock().lock();
-        lm2.getLock().lock();
+        lm1.writeLock().lock();
+        lm2.writeLock().lock();
         // make both sockets send link requets
         lm1.link(sid2);
         lm2.link(sid1);
         // release locks
-        lm1.getLock().unlock();
-        lm2.getLock().unlock();
+        lm1.writeLock().unlock();
+        lm2.writeLock().unlock();
         // wait until socket1 is linked
         waitUntil(() -> lm1.isLinked(sid2));
         // assert socket2 is LINKING
@@ -668,7 +671,7 @@ class LinkingAndUnlinkingTests {
             }
         }, null);
         // acquire lm1's lock to prevent immediate handling of socket2's LINK msg
-        lm1.getLock().lock();
+        lm1.writeLock().lock();
         // make sockets send link request to each other
         lm1.link(sid2);
         lm2.link(sid1);
@@ -676,16 +679,16 @@ class LinkingAndUnlinkingTests {
         assert lm1.isLinking(sid2);
         assert lm2.isLinking(sid1);
         // acquire lm2's lock to prevent immediate handling of socket1's LINKREPLY msg
-        lm2.getLock().lock();
+        lm2.writeLock().lock();
         // release lm1's lock to let it answer socket2's link request
-        lm1.getLock().unlock();
+        lm1.writeLock().unlock();
         // wait until socket1 has sent the LINKREPLY msg (without metadata)
         waitUntil(() -> linkReplyMsgsSent.get() > 0);
         // assert socket1 is still LINKING
         assert lm1.isLinking(sid2);
         // release lm2's lock, and check that
         // both sockets are still LINKING
-        lm2.getLock().unlock();
+        lm2.writeLock().unlock();
         Thread.sleep(50);
         assert lm1.isLinking(sid2);
         assert lm2.isLinking(sid1);
@@ -715,7 +718,7 @@ class LinkingAndUnlinkingTests {
             }
         }, null);
         // acquire lm1's lock to prevent immediate handling of socket2's LINK msg
-        lm1.getLock().lock();
+        lm1.writeLock().lock();
         // make sockets send link request to each other
         lm1.link(sid2);
         lm2.link(sid1);
@@ -726,9 +729,9 @@ class LinkingAndUnlinkingTests {
         assert lm2.isLinkState(sid1, ls -> ls == Link.LinkState.CANCELLING);
         System.out.println("----------1----------");
         // acquire lm2's lock to prevent immediate handling of socket1's LINKREPLY msg
-        lm2.getLock().lock();
+        lm2.writeLock().lock();
         // release lm1's lock to let it answer socket2's link request
-        lm1.getLock().unlock();
+        lm1.writeLock().unlock();
         // wait until socket1 has sent the LINKREPLY msg (without metadata)
         waitUntil(() -> linkReplyMsgsSent.get() > 0);
         System.out.println("-----------2---------");
@@ -738,7 +741,7 @@ class LinkingAndUnlinkingTests {
         // socket is still LINKING and socket2 is still CANCELLING.
         // socket1 requires a LINKREPLY message, and socket2 requires
         // a LINK message to send the LINKREPLY message that socket1 requires.
-        lm2.getLock().unlock();
+        lm2.writeLock().unlock();
         Thread.sleep(50);
         assert lm1.isLinking(sid2);
         assert lm2.isLinkState(sid1, ls -> ls == Link.LinkState.CANCELLING);

@@ -1,5 +1,6 @@
 package pt.uminho.di.a3m.core;
 
+import pt.uminho.di.a3m.auxiliary.Timeout;
 import pt.uminho.di.a3m.core.messaging.MsgType;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 import pt.uminho.di.a3m.core.options.GenericOptionHandler;
@@ -8,7 +9,9 @@ import pt.uminho.di.a3m.poller.PollFlags;
 import pt.uminho.di.a3m.poller.PollTable;
 import pt.uminho.di.a3m.poller.Pollable;
 import pt.uminho.di.a3m.poller.Poller;
+import pt.uminho.di.a3m.waitqueue.ParkState;
 import pt.uminho.di.a3m.waitqueue.WaitQueue;
+import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
@@ -30,13 +33,32 @@ public abstract class Socket implements Pollable {
     private SocketManager socketManager = null;
     private MessageDispatcher dispatcher = null;
     final AtomicReference<SocketState> state = new AtomicReference<>(SocketState.CREATED);
-    final boolean cookedMode = false; // TODO - add it to constructor when ready to implement the raw mode
+    final boolean cookedMode;
     final ReadWriteLock lock = new ReentrantReadWriteLock();
     final WaitQueue waitQ = new WaitQueue();
     private Exception error = null;
 
-    protected Socket(SocketIdentifier sid) {
+    /**
+     * Initialize socket.
+     * @param sid socket identifier
+     * @param cookedMode if socket must be in cooked mode or raw mode. Cooked mode means
+     *                   messages are passed to the socket's customOnIncomingMessage() handler
+     *                   and if this handler's return value is "false" for data messages, then
+     *                   the data messages are queued in the associated link's incoming queue.
+     *                   While in raw mode, data and control messages are queued directly in the
+     *                   appropriate link's incoming and must be retrieved using the `receive()` method.
+     */
+    protected Socket(SocketIdentifier sid, boolean cookedMode){
         this.sid = sid;
+        this.cookedMode = cookedMode;
+    }
+
+    /**
+     * Initialize socket in cooked mode.
+     * @param sid socket identifier
+     */
+    protected Socket(SocketIdentifier sid) {
+        this(sid, true);
     }
 
     // ******** Getters & Setters ******** //
@@ -193,7 +215,7 @@ public abstract class Socket implements Pollable {
     }
 
     // ********** Link logic ********** //
-    private final LinkManager linkManager = new LinkManager(this);
+    final LinkManager linkManager = new LinkManager(this, lock);
     private final Map<SocketIdentifier, LinkSocket> linkSockets = new HashMap<>(); // maps peer socket identifiers to link sockets
 
     public final void link(SocketIdentifier peerId){
@@ -222,16 +244,100 @@ public abstract class Socket implements Pollable {
         }
     }
 
-    public final int waitForLink(SocketIdentifier sid){
-        // TODO - waitForLink()
-        return -1;
+    public final int countEstablishedLinks(){
+        lock.readLock().lock();
+        try {
+            return linkSockets.size();
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
-    public final SocketIdentifier waitForAnyLink(boolean notifyIfNone){
-        // TODO - waitForAnyLink()
-        return null;
+    /**
+     * Waits for a link to be established.
+     * @param peerId peer's socket identifier
+     * @param timeout amount of time willing to be waited for the establishment.
+     *                A null value means waiting forever.
+     * @return events mask. If 0 is returned, then waiting operation expired.
+     * If POLLHUP is received, the link either does not exist or was closed.
+     * @throws InterruptedException if an interrupt signal was detected while waiting.
+     */
+    public final int waitForLink(SocketIdentifier peerId, Long timeout) throws InterruptedException {
+        // if link socket exists, then the link is already registered.
+        if(isLinked(peerId)) return 0;
+        else {
+            Link link = linkManager.getLink(peerId);
+            if(link != null) {
+                // subscribe to all events and wait
+                return Poller.poll(new LinkSocket(link, linkManager),~0,timeout);
+            }else {
+                // if link does not exist, return POLLHUP immediately
+                return PollFlags.POLLHUP;
+            }
+        }
     }
 
+    /** Wait queue to wait for any link. */
+    WaitQueue waitAnyLinkQ = new WaitQueue();
+
+    /**
+     * Gets the identifier of the first peer with which a link is established.
+     * If there isn't a link established, a return null is returned if the notifyIfNone
+     * flag is false. If the flag is true, then an IllegalStateException is thrown to notify.
+     *
+     * @param notifyIfNone should be set if being notified by an IllegalStateException is desired
+     *                     when there aren't any links (regardless of the link states).
+     * @return socket identifier of the first peer with which a link is established. 'null' if there isn't
+     * one and the "notifyIfNone" flag is not set.
+     */
+    private SocketIdentifier auxWaitForAnyLink(boolean notifyIfNone){
+        lock.readLock().lock();
+        try {
+            if(state.get() == SocketState.CLOSED || state.get() == SocketState.CLOSING)
+                throw new IllegalStateException("Socket is closed.");
+            if(!linkSockets.isEmpty())
+                return linkSockets.keySet().iterator().next();
+            if(notifyIfNone && !linkManager.hasLinks())
+                throw new IllegalStateException("There isn't any link to wait for.");
+            return null;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Method that can be used to wait for a link to be established. The method returns the
+     * identifier of the first established link it finds.
+     * @param timeout time willing to be waited
+     * @param notifyIfNone if set, an exception will be thrown when there aren't any links
+     *                     (not only in established state but on all other states).
+     * @return socket identifier of a peer that is established. null if operation timed out
+     * before a link was established.
+     * @throws InterruptedException if thread was interrupted during the waiting operation.
+     * @throws IllegalStateException if socket is closed or if there isn't any link regardless of the state.
+     */
+    public final SocketIdentifier waitForAnyLink(Long timeout, boolean notifyIfNone) throws InterruptedException {
+        Long deadline = Timeout.calculateEndTime(timeout);
+
+        SocketIdentifier sid = auxWaitForAnyLink(notifyIfNone);
+        if(sid != null) return sid;
+
+        WaitQueueEntry wait = waitQ.initEntry();
+        ParkState ps = new ParkState(false);
+        wait.add(WaitQueueEntry::defaultWakeFunction, ps);
+        try {
+            while (true) {
+                ps.parked.set(true);
+                sid = auxWaitForAnyLink(notifyIfNone);
+                if (sid != null) return sid;
+                if(Timeout.hasTimedOut(deadline)) return null;
+                WaitQueueEntry.parkStateWaitFunction(deadline, ps, true);
+            }
+        }finally { wait.delete(); }
+    }
+
+    // TODO 4 - since there are "wait for link" methods which wait for a link
+    //  to be established, then there could be a "wait for link closure" also.
 
     // ********** Socket unmodifiable methods ********** //
 
@@ -283,12 +389,12 @@ public abstract class Socket implements Pollable {
         // check if it can be processed
         if(msg.getType() == MsgType.DATA
                 || !MsgType.isReservedType(msg.getType()))
-            onIncomingDataMessage(msg);
+            onIncomingDataOrCustomControlMessage(msg);
         else
             linkManager.handleMsg(msg);
     }
 
-    private void onIncomingDataMessage(SocketMsg msg){
+    private void onIncomingDataOrCustomControlMessage(SocketMsg msg){
         SocketIdentifier peerId = msg.getSrcId();
         LinkSocket linkSocket = getLinkSocket(peerId);
         // if link socket does not exist, then the link has not
@@ -314,51 +420,13 @@ public abstract class Socket implements Pollable {
                }
             }
         }
-        // If socket is in RAW mode, then queue message immediately and notify waiters
-        else{
-            /* TODO - how to do this?
-                  Option 1 > Create unified queue?
-                  Option 2 > Queue messages in the appropriate link
-                       Option 2.1 [Seems like the best idea] > Register every link in a poller instance with read event as the event of interest,
-                                    and use it in the default receive method?
-                       Option 2.2 > Iterate over links in a circular manner for fairness? When there are a lot of
-                                    links, this can be bad as most of them may not have messages. It could be a good
-                                    idea if the list only contained links available for reading. This would require
-                                    the write lock to be used when adding a message to the links as to mark them as
-                                    available if they aren't already. The read lock could be used when reading to
-                                    remove a link from available.
-            */
-        }
+        // If socket is in RAW mode, then queue message immediately
+        else{ linkSocket.link.queueIncomingMessage(msg); }
     }
 
-//final void onCookie(Cookie cookie) {
+    //final void onCookie(Cookie cookie) {
     //    // TODO - onCookie()
     //}
-
-    /* *
-     * Checks if an outgoing message is valid. The method starts by verifying that the
-     * message is not related to default socket functionality. Then, if the skip parameter
-     * is not set, provides the message to isCustomOutgoingMessageValid() in order to check if
-     * the message is valid under the socket's custom semantics and state.
-     * @param outMsg outgoing message to be verified
-     * @param skipCustomVerification determines if the custom verification should be skipped.
-     *                               Enables the socket custom logic to bypass a verification that
-     *                               is sure to be successful. However, the public send() method of
-     *                               a link does not bypass the custom verification, in order, to
-     *                               enable the link method to be exposed outside the socket.
-     * @return "true" if the payload is valid or "false" if the payload is valid but cannot be sent
-     * under the current state.
-     * @throws IllegalArgumentException If the payload is not valid under any state.
-     * /
-    boolean isOutgoingMessageValid(SocketMsg outMsg, boolean skipCustomVerification) {
-        // TODO - isOutgoingMessageValid()
-        //  1. Check if type is within the custom range.
-        //  2. If it is not, throw IllegalArgumentException
-        //  3. Else, pass it to isCustomOutgoingMessageValid() to conclude
-        //  the verification under the socket's semantics and current state.
-        return false;
-    }
-    */
 
     public final void start() {
         try {
@@ -369,6 +437,39 @@ public abstract class Socket implements Pollable {
             if(cookedMode) init();
             // sets state to ready
             state.set(SocketState.READY);
+        }finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /** Wakes up all threads that invoked waitForAnyLink().*/
+    private void wakeUpWaitingAnyLink(SocketIdentifier sid) {
+        lock.readLock().lock();
+        try {
+            waitQ.wakeUp(0,0,0,sid);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void onLinkEstablished(Link link) {
+        try {
+            lock.writeLock().lock();
+            // create link socket
+            LinkSocket linkSocket = new LinkSocket(link, linkManager);
+            // set incoming queue
+            Supplier<Queue<SocketMsg>> supplier = getInQueueSupplier(linkSocket);
+            Queue<SocketMsg> queue = null;
+            if (supplier != null)
+                queue = supplier.get();
+            if (queue == null)
+                queue = getDefaultInQueue();
+            link.setInMsgQ(queue);
+            // register link socket
+            linkSockets.put(link.getDestId(), linkSocket);
+            customOnLinkEstablished(linkSocket);
+            // wake up all threads waiting for a link to be established
+            wakeUpWaitingAnyLink(sid);
         }finally {
             lock.writeLock().unlock();
         }
@@ -437,6 +538,13 @@ public abstract class Socket implements Pollable {
         }
     }
 
+    /** Wakes up all threads that invoked waitForAnyLink() if
+     * there isn't any link regardless of the state. */
+    private void wakeUpWaitingAnyLinkIfNoLinksExist() {
+        if(!linkManager.hasLinks())
+            wakeUpWaitingAnyLink(null);
+    }
+
     public void onLinkClosed(Link link) {
         try {
             lock.writeLock().lock();
@@ -444,6 +552,7 @@ public abstract class Socket implements Pollable {
             customOnLinkClosed(linkSocket);
             if (state.get() == SocketState.CLOSING && linkSockets.isEmpty())
                 closeInternal();
+            wakeUpWaitingAnyLinkIfNoLinksExist();
         }finally {
             lock.writeLock().unlock();
         }
@@ -451,27 +560,6 @@ public abstract class Socket implements Pollable {
 
     private static Queue<SocketMsg> getDefaultInQueue(){
         return new LinkedList<>();
-    }
-
-    public void onLinkEstablished(Link link) {
-        try {
-            lock.writeLock().lock();
-            // create link socket
-            LinkSocket linkSocket = new LinkSocket(link, linkManager);
-            // set incoming queue
-            Supplier<Queue<SocketMsg>> supplier = getInQueueSupplier(linkSocket);
-            Queue<SocketMsg> queue = null;
-            if (supplier != null)
-                queue = supplier.get();
-            if (queue == null)
-                queue = getDefaultInQueue();
-            link.setInMsgQ(queue);
-            // register link socket
-            linkSockets.put(link.getDestId(), linkSocket);
-            customOnLinkEstablished(linkSocket);
-        }finally {
-            lock.writeLock().unlock();
-        }
     }
 
     // ********** Abstract socket methods ********** //
@@ -497,27 +585,22 @@ public abstract class Socket implements Pollable {
      * and means returning a credit to the sender.
      */
     protected abstract boolean customOnIncomingMessage(SocketMsg msg);
-    /**
-     * Checks if the outgoing custom message is valid under the custom socket
-     * semantics and current state.
-     * @param msg message to be verified
-     * @return "true" if the message is valid or "false" if the payload is valid
-     * but cannot be sent under the current state.
-     * @throws IllegalArgumentException If the payload is not valid under any state.
-     * @implNote Any custom runtime exception thrown must be properly documented. The custom
-     * runtime exceptions are allowed to expose the problem behind the message not being
-     * valid. However, such exceptions are caught by the non-public send() version(s) of the
-     * link instances, to prevent internal crashing.
-     */
-    protected abstract boolean isOutgoingCustomMsgValid(SocketMsg msg);
+
     /**
      * Method to get an incoming queue supplier. Custom sockets may override this method to
-     * supply queues that best meets the socket's semantics, such as providing a queue
+     * supply queues that best meet the socket's semantics, such as providing a queue
      * that uses a Comparator to order messages on insertion.
-     * @implSpec The supplied queue should not have size restrictions, as the exactly-once
+     * @implSpec <p>The poll() method is used to retrieve a message from the queue.</p>
+     * <p>The peek() method is used to detect if a queue can be polled.
+     * isEmpty() or size() cannot be used, as the queue may have elements but
+     * the queue may not be ready for polling. For instance, if total order is required,
+     * the peek() method must only return the first element of the queue when it is the
+     * next element that should be polled.</p>
+     * <p>The supplied queue should not have size restrictions, as the exactly-once
      * semantics do not tolerate the discarding of messages, therefore, we assume the message
-     * is added to the queue without any problem. Also, when overriding the method, it must
-     * be taken into consideration the mode of the socket, i.e., if it is in COOKED or RAW mode.
+     * is added to the queue without any problem.</p>
+     * <p>Also, when overriding the method, it must be taken into consideration the mode of
+     * the socket, i.e., if it is in COOKED or RAW mode.</p>
      * @param linkSocket link socket which may include peer's relevant information, such as the protocol identifier,
      *                  for the election of a queue.
      * @return supplier of an incoming queue for the given link
@@ -537,29 +620,54 @@ public abstract class Socket implements Pollable {
     public abstract Set<Protocol> getCompatibleProtocols();
 
     public byte[] receive(Long timeout, boolean notifyIfNone){
-        if(cookedMode)
-            throw new UnsupportedOperationException();
-        else {
-            // TODO - receive() : add RAW behavior here, and let the
-            //  exception be thrown when in cooked mode
-            return null;
-        }
+        throw new UnsupportedOperationException();
     }
 
     public boolean send(byte[] payload, Long timeout, boolean notifyIfNone){
-        if(cookedMode)
-            throw new UnsupportedOperationException();
-        else {
-            // TODO - send() : add RAW behavior here, and let the
-            //  exception be thrown when in cooked mode
-            return false;
-        }
+        throw new UnsupportedOperationException();
     }
 
+    // ******** Polling ********* //
+
+    /**
+     * Only informs POLLERR and POLLHUP events.
+     * @return events mask
+     * @apiNote At least the read lock should be used when calling this method.
+     */
+    protected int getAvailableEventsMask(){
+        int events = 0;
+        events |= PollFlags.POLLIN;
+        if(state.get() == SocketState.CLOSED)
+            events |= PollFlags.POLLHUP;
+        if(error != null)
+            events |= PollFlags.POLLERR;
+        return events;
+    }
+
+    /**
+     * Default implementation of poll() queues waiters if teh socket is not closed
+     * and notifies POLLERR and POLLHUP events. POLLIN and POLLOUT events should
+     * be notified by the implementation that overrides this method.
+     * <p>Specializations of this class are encouraged to override this method.</p>
+     * @implSpec polling only reads the state, so any specialization should only use
+     * the read lock when implementing this method.
+     * @param pt poll table which may contain a queuing function and
+     *           a private object if the caller intends to add itself to
+     *           the wait queue of the pollable.
+     * @return event mask
+     */
     @Override
     public int poll(PollTable pt) {
-        // TODO - default poll(). Custom sockets may want to implement their own poll method.
-        //  getError() and getState() can be used to get the flags POLLERR and POLLHUP.
-        return 0;
+        lock.readLock().lock();
+        try {
+            if (!PollTable.pollDoesNotWait(pt)) {
+                WaitQueueEntry wait =
+                        state.get() != SocketState.CLOSED ? waitQ.initEntry() : null;
+                pt.pollWait(this, wait);
+            }
+            return getAvailableEventsMask();
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 }

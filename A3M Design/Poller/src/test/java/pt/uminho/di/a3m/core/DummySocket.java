@@ -68,11 +68,6 @@ public class DummySocket extends Socket{
     }
 
     @Override
-    public boolean isOutgoingCustomMsgValid(SocketMsg msg) {
-        return false;
-    }
-
-    @Override
     protected void init() {}
 
     @Override
