@@ -18,8 +18,6 @@ import pt.uminho.di.a3m.waitqueue.WaitQueueFunc;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicReference;
 
-// TODO 1 - adjust methods visibility
-
 /**
  * <b>Locking mechanisms</b>
  * <p>There are three locking mechanisms used with Link objects:</p>
@@ -96,11 +94,11 @@ public class Link implements Pollable {
         return id.destId();
     }
 
-    public synchronized LinkState getState() {
+    synchronized LinkState getState() {
         return state;
     }
 
-    public synchronized void setState(LinkState state) {
+    synchronized void setState(LinkState state) {
         this.state = state;
     }
 
@@ -113,7 +111,7 @@ public class Link implements Pollable {
      * value is limited to one time.
      * @param peerProtocolId peer's protocol id
      */
-    public void setPeerProtocolId(Integer peerProtocolId) {
+    void setPeerProtocolId(Integer peerProtocolId) {
         this.peerProtocolId = peerProtocolId;
     }
 
@@ -123,7 +121,7 @@ public class Link implements Pollable {
      * value is limited to one time.
      * @param inMsgQ incoming message queue
      */
-    public synchronized void setInMsgQ(Queue<SocketMsg> inMsgQ) {
+    synchronized void setInMsgQ(Queue<SocketMsg> inMsgQ) {
         if(this.inMsgQ == null) this.inMsgQ = inMsgQ;
     }
 
@@ -280,12 +278,22 @@ public class Link implements Pollable {
      */
     synchronized void queueIncomingMessage(SocketMsg msg){
         // do not add if closed
-        if(state == LinkState.CLOSED)
-            throw new IllegalStateException("Link is closed.");
-        // add new message to incoming messages queue
-        inMsgQ.add(msg);
-        // notify waiters
-        waitQ.fairWakeUp(0,1,0,PollFlags.POLLIN);
+        if(state != LinkState.CLOSED) {
+            // add new message to incoming messages queue
+            inMsgQ.add(msg);
+            // notify waiters
+            waitQ.fairWakeUp(0, 1, 0, PollFlags.POLLIN);
+        }
+    }
+
+    /**
+     * Method used when an incoming message is handled immediately,
+     * and does not require queuing.
+     */
+    synchronized void acknowledgeDeliverAndIncrementBatch(){
+        if(state != LinkState.CLOSED){
+            inFCS.deliver();
+        }
     }
 
     /**
@@ -294,7 +302,7 @@ public class Link implements Pollable {
      * credits batch, that batch is sent to the sender.
      * @return socket message or "null" if there wasn't an available message.
      */
-    public synchronized SocketMsg tryPollingMessage(){
+    private synchronized SocketMsg tryPollingMessage(){
         SocketMsg msg = inMsgQ.poll();
         if(SocketMsg.isType(msg, MsgType.DATA)) {
             // if a message was polled,
@@ -306,7 +314,15 @@ public class Link implements Pollable {
         }
         return msg;
     }
-    
+
+    /**
+     * @return capacity of the link, i.e., maximum amount
+     * of messages that can be queued at a time.
+     */
+    public synchronized int getCapacity(){
+        return inFCS.getCapacity();
+    }
+
     /**
      * If the link is not closed, sets queuing capacity to the provided
      * value, sends current batch and clears the current batch.
@@ -330,6 +346,25 @@ public class Link implements Pollable {
             int batch = inFCS.adjustCapacity(credits);
             sendCredits(batch);
         }
+    }
+
+    /**
+     * @return amount of credits that need to be batched before
+     * returning credits to the sender.
+     */
+    public synchronized int getBatchSize(){
+        return inFCS.getBatchSize();
+    }
+
+    /**
+     * @return percentage of the capacity that makes
+     * the size of a batch. Regardless of the batch size
+     * percentage, when the capacity is
+     * positive, the batch size is at least 1, and when the
+     * capacity is zero or negative, the batch size is 0.
+     */
+    public synchronized float getBatchSizePercentage(){
+        return inFCS.getBatchSizePercentage();
     }
 
     /**
@@ -357,7 +392,7 @@ public class Link implements Pollable {
      * @apiNote Caller must not hold socket lock as it will result in a deadlock
      * when a blocking operation with a non-expired deadline is requested.
      */
-    SocketMsg receive(Long deadline) throws InterruptedException {
+    public SocketMsg receive(Long deadline) throws InterruptedException {
         SocketMsg msg;
         WaitQueueEntry wait;
         ParkStateWithEvents ps;
@@ -405,8 +440,16 @@ public class Link implements Pollable {
     // ********** Outgoing flow Methods ********** //
     private final OutFlowControlState outFCS = new OutFlowControlState(0);
 
-    synchronized boolean hasOutgoingCredits(){
+    public synchronized boolean hasOutgoingCredits(){
         return outFCS.hasCredits();
+    }
+
+    /**
+     * @return amount of outgoing credits, i.e.,
+     * amount of permits to send data messages.
+     */
+    public synchronized int getOutgoingCredits() {
+        return outFCS.getCredits();
     }
 
     synchronized void adjustOutgoingCredits(int credits){
@@ -430,19 +473,6 @@ public class Link implements Pollable {
         return outFCS.trySend();
     }
 
-    // TODO [Socket receive] - When a message is received, the socket passes it to the
-    //  link manager. The link manager then attempts to handle the message, if it decides
-    //  it is not its duty to handle the message, then it informs so using the boolean return
-    //  value (as true, as in, continue handling the message). Data and control messages are
-    //  intercepted by the link manager, as there are some situations where the reception of these
-    //  result in the establishment of the link making them valid messages that can be further
-    //  processed by the socket instead of being discarded as they are when received in an invalid state,
-    //  such as when the link does not exist. After checking that the data and control messages can continue
-    //  to be processed, the socket is then responsible for feeding the message to the custom socket logic,
-    //  which then decides if a message should continue to be handled by the socket, such as queueing a
-    //  DATA message or if the process ends there, be it because a message is invalid or because the message
-    //  was handled on the spot.
-
     /**
      * Sends message to the peer associated with this link. This method
      * is not responsible for verifying if the control message follows
@@ -459,7 +489,7 @@ public class Link implements Pollable {
      * @apiNote Caller must not hold socket lock as it will result in a deadlock
      * when a blocking operation with a non-expired deadline is requested.
      */
-    boolean send(Payload payload, Long deadline) throws InterruptedException {
+    public boolean send(Payload payload, Long deadline) throws InterruptedException {
         boolean ret = false;
         WaitQueueEntry wait;
         ParkStateWithEvents ps;

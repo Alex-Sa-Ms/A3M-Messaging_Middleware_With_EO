@@ -6,7 +6,7 @@ import pt.uminho.di.a3m.poller.PollTable;
 import pt.uminho.di.a3m.poller.Pollable;
 
 public class LinkSocket implements Pollable {
-    private final Link link;
+    final Link link;
     private final LinkManager manager;
 
     public LinkSocket(Link link, LinkManager manager) {
@@ -16,10 +16,17 @@ public class LinkSocket implements Pollable {
         this.manager = manager;
     }
 
-
     @Override
-    public Object getId() {
+    public LinkIdentifier getId() {
         return link.getId();
+    }
+
+    public SocketIdentifier getDestId() {
+        return link.getDestId();
+    }
+
+    public SocketIdentifier getOwnerId() {
+        return link.getOwnerId();
     }
 
     public int getPeerProtocolId(){
@@ -39,8 +46,6 @@ public class LinkSocket implements Pollable {
         return link.poll(pt);
     }
 
-    // TODO - what happens when the link is closed?
-
     /**
      * Waits until an incoming message, from the peer associated with this
      * link, is available or the deadline is reached or the thread is interrupted.
@@ -52,7 +57,7 @@ public class LinkSocket implements Pollable {
      * @apiNote Caller must not hold socket lock as it will result in a deadlock
      * when a blocking operation with a non-expired deadline is requested.
      */
-    SocketMsg receive(Long deadline) throws InterruptedException {
+    public SocketMsg receive(Long deadline) throws InterruptedException {
         return link.receive(deadline);
     }
 
@@ -80,6 +85,76 @@ public class LinkSocket implements Pollable {
         manager.unlink(link.getId().destId());
     }
 
-    // TODO - add other methods related to link that can be exposed,
-    //  such as changing capacity.
+    // ********** Outgoing flow Methods ********** //
+
+    /** @return whether the link has outgoing credits or not. */
+    public synchronized boolean hasOutgoingCredits(){
+        return link.hasOutgoingCredits();
+    }
+
+    /**
+     * @return amount of outgoing credits (permits to send data messages).
+     */
+    public int getOutgoingCredits() {
+        return link.getOutgoingCredits();
+    }
+
+    // ********** Incoming flow Methods ********** //
+
+    /**
+     * @return capacity of the link, i.e., maximum amount
+     * of messages that can be queued at a time.
+     */
+    public int getCapacity(){
+        return link.getCapacity();
+    }
+
+    /**
+     * If the link is not closed, sets queuing capacity to the provided
+     * value, sends current batch and clears the current batch.
+     * @param newCapacity new capacity
+     */
+    public void setCapacity(int newCapacity) {
+        link.setCapacity(newCapacity);
+    }
+
+    /**
+     * If the link is not closed, adjusts the capacity
+     * using provided credit variation and clears the current batch.
+     * @param credits variation of credits to apply to the
+     *                current capacity.
+     */
+    public void adjustCapacity(int credits) {
+        link.adjustCapacity(credits);
+    }
+
+    /**
+     * @return amount of credits that need to be batched before
+     * returning credits to the sender.
+     */
+    public int getBatchSize() {
+        return link.getBatchSize();
+    }
+
+    /**
+     * @return percentage of the capacity that makes
+     * the size of a batch. Regardless of the batch size
+     * percentage, when the capacity is
+     * positive, the batch size is at least 1, and when the
+     * capacity is zero or negative, the batch size is 0.
+     */
+    public float getBatchSizePercentage() {
+        return link.getBatchSizePercentage();
+    }
+
+    /**
+     * Updates the batch size using the provided percentage.
+     * @param newPercentage percentage of the capacity that should make the batch size.
+     *                      When the capacity is positive, the minimum batch size is of 1 credit.
+     * @throws IllegalArgumentException If the provided batch size percentage is not a
+     * value between 0 (exclusive) and 1 (inclusive).
+     */
+    public void setCreditsBatchSizePercentage(float newPercentage) {
+        link.setCreditsBatchSizePercentage(newPercentage);
+    }
 }

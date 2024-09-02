@@ -81,13 +81,18 @@ public class DummySocket extends Socket{
     }
 
     @Override
-    protected void customHandleEvent(SocketEvent event) {
+    protected void customOnLinkEstablished(LinkSocket linkSocket) {
 
     }
 
     @Override
-    protected void customFeedMsg(SocketMsg msg) {
+    protected void customOnLinkClosed(LinkSocket linkSocket) {
 
+    }
+
+    @Override
+    protected boolean customOnIncomingMessage(SocketMsg msg) {
+        return false;
     }
 
     @Override

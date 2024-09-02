@@ -1,36 +1,38 @@
 package pt.uminho.di.a3m.core;
 
-import pt.uminho.di.a3m.core.messaging.Payload;
+import pt.uminho.di.a3m.core.messaging.MsgType;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 import pt.uminho.di.a3m.core.options.GenericOptionHandler;
 import pt.uminho.di.a3m.core.options.OptionHandler;
+import pt.uminho.di.a3m.poller.PollFlags;
+import pt.uminho.di.a3m.poller.PollTable;
+import pt.uminho.di.a3m.poller.Pollable;
+import pt.uminho.di.a3m.poller.Poller;
+import pt.uminho.di.a3m.waitqueue.WaitQueue;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Supplier;
 
-public abstract class Socket{
-    /**
-     * TODO:
-     *   1. Deve-se adicionar nos métodos abstratos que podem não ser
-     *      implementados a seguinte informação: "Método deve emitir a
-     *      exceção java.lang.UnsupportedOperationException quando a
-     *      operação não faz sentido para o socket.". Um exemplo pode ser
-     *      o padrão de comunicação Push-Pull, em que não faz sentido
-     *      implementar métodos receive() para o socket de tipo PUSH,
-     *      logo estes métodos devem emitir a exceção.
-     */
+/**
+ * Abstract socket class that defines the basic behavior of a socket.
+ * A subclass must implement all the abstract methods obedying the instructions
+ * provided in the super method description. Consulting which methods are overridable
+ * is of interest when implementing a subclass. For instance, for a PUSH socket of the
+ * One-way pipeline (Push-Pull) messaging protocol must not have the option to receive
+ * messages, so, the subclass may override this method and make it throw the
+ * java.lang.UnsupportedOperationException.
+ */
+public abstract class Socket implements Pollable {
     private final SocketIdentifier sid;
     private SocketManager socketManager = null;
     private MessageDispatcher dispatcher = null;
     final AtomicReference<SocketState> state = new AtomicReference<>(SocketState.CREATED);
+    final boolean cookedMode = false; // TODO - add it to constructor when ready to implement the raw mode
     final ReadWriteLock lock = new ReentrantReadWriteLock();
-    private final LinkManager linkManager = new LinkManager(this);
-    private final Map<SocketIdentifier, LinkSocket> linkSockets = new HashMap<>(); // maps peer socket identifiers to link sockets
+    final WaitQueue waitQ = new WaitQueue();
     private Exception error = null;
 
     protected Socket(SocketIdentifier sid) {
@@ -44,12 +46,19 @@ public abstract class Socket{
     }
 
     /**
-     * Gives access to the socket's lock for the custom
-     * logic to use.
-     * @return socket lock
+     * Gives access to the socket's lock for the custom logic to use.
+     * @return socket's lock
      */
     protected final ReadWriteLock getLock(){
         return lock;
+    }
+
+    /**
+     * Gives access to the socket's wait queue for the custom logic to use.
+     * @return socket's wait queue
+     */
+    protected final WaitQueue getWaitQueue(){
+        return waitQ;
     }
 
     /** @return current socket state */
@@ -62,7 +71,7 @@ public abstract class Socket{
         return sid;
     }
 
-    public Exception getError() {
+    public final Exception getError() {
         return error;
     }
 
@@ -79,7 +88,7 @@ public abstract class Socket{
         this.socketManager = socketMananer;
     }
 
-    protected void setErrorState(Exception error) {
+    protected final void setErrorState(Exception error) {
         this.error = error;
         this.state.set(SocketState.ERROR);
     }
@@ -184,16 +193,47 @@ public abstract class Socket{
     }
 
     // ********** Link logic ********** //
+    private final LinkManager linkManager = new LinkManager(this);
+    private final Map<SocketIdentifier, LinkSocket> linkSockets = new HashMap<>(); // maps peer socket identifiers to link sockets
 
-    // TODO - socket needs to have a handleLinkRequest method to be invoked
-    //  when the link has not been created yet. It must have in consideration
-    //  a active links limitation option. if such limitation is achieved, send
-    //  "temporarily" unavailable error. Have options such as not enabling
-    //  incoming link requests. And sending outgoing requests? (not sending outgoing
-    //  requests may not make sense)
+    public final void link(SocketIdentifier peerId){
+        linkManager.link(peerId);
+    }
+
+    public final void unlink(SocketIdentifier peerId){
+        linkManager.unlink(peerId);
+    }
+
+    public final LinkSocket getLinkSocket(SocketIdentifier peerId){
+        lock.readLock().lock();
+        try {
+            return linkSockets.get(peerId);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public final boolean isLinked(SocketIdentifier peerId){
+        lock.readLock().lock();
+        try {
+            return linkSockets.containsKey(peerId);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public final int waitForLink(SocketIdentifier sid){
+        // TODO - waitForLink()
+        return -1;
+    }
+
+    public final SocketIdentifier waitForAnyLink(boolean notifyIfNone){
+        // TODO - waitForAnyLink()
+        return null;
+    }
 
 
-    // ********** Socket final methods ********** //
+    // ********** Socket unmodifiable methods ********** //
 
     /**
      * Schedule the dispatch of a message.  
@@ -237,19 +277,65 @@ public abstract class Socket{
      * </p>
      * @param msg socket message to be handled
      */
-    final void feedMsg(SocketMsg msg) {
+    final void onIncomingMessage(SocketMsg msg) {
         assert msg != null;
-
-        SocketIdentifier peerId = msg.getSrcId();
-        //LinkSocket socket = linkSockets.get()
-        // TODO - feedMsg()
+        // if message is of data or custom control type,
+        // check if it can be processed
+        if(msg.getType() == MsgType.DATA
+                || !MsgType.isReservedType(msg.getType()))
+            onIncomingDataMessage(msg);
+        else
+            linkManager.handleMsg(msg);
     }
 
-    //final void feedCookie(Cookie cookie) {
-    //    // TO DO - feedCookie()
+    private void onIncomingDataMessage(SocketMsg msg){
+        SocketIdentifier peerId = msg.getSrcId();
+        LinkSocket linkSocket = getLinkSocket(peerId);
+        // if link socket does not exist, then the link has not
+        // yet been established with the peer.
+        if(linkSocket == null){
+            // The message is passed to the link manager in order
+            // to check if it can be used to establish the link and
+            // then be processed. If it is not accepted by the link
+            // manager, then it is discarded.
+            if(!linkManager.handleMsg(msg)) return;
+        }
+        // since the message was deemed valid by the link manager,
+        // we assume the link was registered and a link socket can be retrieved
+        linkSocket = getLinkSocket(peerId);
+        // If socket is in COOKED mode, then pass the message to be processed by the custom socket.
+        if(cookedMode){
+            boolean handled = customOnIncomingMessage(msg);
+            if(msg.getType() == MsgType.DATA){
+               if(handled)
+                   linkSocket.link.acknowledgeDeliverAndIncrementBatch();
+               else{
+                   linkSocket.link.queueIncomingMessage(msg);
+               }
+            }
+        }
+        // If socket is in RAW mode, then queue message immediately and notify waiters
+        else{
+            /* TODO - how to do this?
+                  Option 1 > Create unified queue?
+                  Option 2 > Queue messages in the appropriate link
+                       Option 2.1 [Seems like the best idea] > Register every link in a poller instance with read event as the event of interest,
+                                    and use it in the default receive method?
+                       Option 2.2 > Iterate over links in a circular manner for fairness? When there are a lot of
+                                    links, this can be bad as most of them may not have messages. It could be a good
+                                    idea if the list only contained links available for reading. This would require
+                                    the write lock to be used when adding a message to the links as to mark them as
+                                    available if they aren't already. The read lock could be used when reading to
+                                    remove a link from available.
+            */
+        }
+    }
+
+//final void onCookie(Cookie cookie) {
+    //    // TODO - onCookie()
     //}
 
-    /**
+    /* *
      * Checks if an outgoing message is valid. The method starts by verifying that the
      * message is not related to default socket functionality. Then, if the skip parameter
      * is not set, provides the message to isCustomOutgoingMessageValid() in order to check if
@@ -263,7 +349,7 @@ public abstract class Socket{
      * @return "true" if the payload is valid or "false" if the payload is valid but cannot be sent
      * under the current state.
      * @throws IllegalArgumentException If the payload is not valid under any state.
-     */
+     * /
     boolean isOutgoingMessageValid(SocketMsg outMsg, boolean skipCustomVerification) {
         // TODO - isOutgoingMessageValid()
         //  1. Check if type is within the custom range.
@@ -272,77 +358,15 @@ public abstract class Socket{
         //  the verification under the socket's semantics and current state.
         return false;
     }
-
-    protected final boolean dispatchMsg(SocketIdentifier peerId, Payload payload, Long timeout /*, Cookie cookie*/){
-        // TODO - dispatchMsg
-        //  1. Must not receive a payload only. It must also contain the type. Merge type in the payload?
-        //  2. Check if type is valid (is data or belongs to the allocated interval for custom messages)
-        //      2.1. If data message, use link "acquire credit" method. If successful, then use dispatcher
-        //      to send message.
-        //      2.2  Else if custom message, check if link state allows exchange of messages. If it is not
-        //      closed, use dispatcher and send message. If closed, throw exception informing link is closed.
-        //      Can this even happen? When closed, the link should be removed, so it wouldn't be in a closed state,
-        //      in theory.
-        //      2.3  Else (invalid type) throw exception.
-        //  [[Check if there is any step that can be simplified by having the link use its socker reference]]
-        return false;
-    }
-
-    protected final SocketMsg pollMsg(SocketIdentifier peerId, Long timeout){
-        // TODO - pollMsg
-        //  1. receive message from link
-        //  2. if data message, invoke "deliver" to determine if a
-        //  sending a flow control message is required. If different than 0,
-        //  then send flow control message with the returned batch.
-        //  [[Check if there is any step that can be simplified by having the link use its socket reference,
-        //  if exposing the dispatcher with default visibility is helpful, do it. May help handle
-        //  flow control and link messages in the link logic]]
-        return null;
-    }
-
-    public final void link(SocketIdentifier peerId){
-        linkManager.link(peerId);
-    }
-
-    public final void unlink(SocketIdentifier peerId){
-        linkManager.unlink(peerId);
-    }
-
-    public final LinkSocket getLinkSocket(SocketIdentifier peerId){
-        lock.readLock().lock();
-        try {
-            return linkSockets.get(peerId);
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    public final boolean isLinked(SocketIdentifier peerId){
-        lock.readLock().lock();
-        try {
-            return linkSockets.containsKey(peerId);
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    public final int waitForLink(SocketIdentifier sid){
-        // TODO - waitForLink()
-        return -1;
-    }
-
-    public final SocketIdentifier waitForAnyLink(boolean notifyIfNone){
-        // TODO - waitForAnyLink()
-        return null;
-    }
+    */
 
     public final void start() {
         try {
             lock.writeLock().lock();
             if (state.get() != SocketState.CREATED)
                 throw new IllegalArgumentException("Socket has already been started once.");
-            // performs custom initializing procedure
-            init();
+            // performs custom initializing procedure if socket is in cooked mode
+            if(cookedMode) init();
             // sets state to ready
             state.set(SocketState.READY);
         }finally {
@@ -350,21 +374,43 @@ public abstract class Socket{
         }
     }
 
-    // TODO - close with timeout, if already closing wait for closure. Wait using polling mechanism.
-    //
-    public final void close() {
+    /**
+     * Closes socket. Returns when socket is closed or the timeout expires or
+     * the thread is interrupted. The timeout expiring does not mean forcing the
+     * clousre of the socket. Due to exactly-once semantics, only after all links
+     * are closed and the resources required by the custom logic are freed, will the
+     * socket close.
+     * @param timeout maximum time willing to be waited for the socket to be closed.
+     * @throws InterruptedException if the thread was interrupted while waiting.
+     */
+    public final boolean close(Long timeout) throws InterruptedException {
         try {
             lock.writeLock().lock();
             SocketState tmpState = state.get();
             if (tmpState == SocketState.CLOSED)
-                return;
-            // TODO - when invoked for the second time, wait using polling mechanism
-            if (tmpState == SocketState.CLOSING)
-                throw new IllegalArgumentException("Socket is closing or has already closed.");
-            closeInternal();
+                return true;
+            if (tmpState != SocketState.CLOSING)
+                closeInternal();
+            return (Poller.poll(this, PollFlags.POLLHUP, timeout) & PollFlags.POLLHUP) != 0;
         } finally {
             lock.writeLock().unlock();
         }
+    }
+
+    /**
+     * Closes socket. Returns after the socket is closed.
+     * @throws InterruptedException if the thread was interrupted.
+     */
+    public final void close() throws InterruptedException {
+        close(null);
+    }
+
+    /**
+     * Initiates closing procedure of the socket and returns immediately.
+     */
+    public final void asyncClose() {
+        try { close(0L);
+        } catch (InterruptedException ignored) {}
     }
 
     /**
@@ -382,10 +428,11 @@ public abstract class Socket{
             }
 
             if (linkSockets.isEmpty()) {
-                destroy();
+                // perform custom closing procedures if socket is in cooked mode
+                if(cookedMode) destroy();
                 state.set(SocketState.CLOSED);
                 socketManager.closeSocket(this);
-                // TODO - wake up waiters with POLLFREE | POLLHUP
+                waitQ.wakeUp(0,0,0,PollFlags.POLLHUP | PollFlags.POLLFREE);
             }
         }
     }
@@ -393,9 +440,8 @@ public abstract class Socket{
     public void onLinkClosed(Link link) {
         try {
             lock.writeLock().lock();
-            linkSockets.remove(link.getDestId());
-            // TODO - Inform link closure to the custom socket logic
-            //  socket.customHandleEvent(new LinkClosedEvent(link));
+            LinkSocket linkSocket = linkSockets.remove(link.getDestId());
+            customOnLinkClosed(linkSocket);
             if (state.get() == SocketState.CLOSING && linkSockets.isEmpty())
                 closeInternal();
         }finally {
@@ -422,8 +468,7 @@ public abstract class Socket{
             link.setInMsgQ(queue);
             // register link socket
             linkSockets.put(link.getDestId(), linkSocket);
-            // TODO - create link established event
-            //  socket.customHandleEvent(new LinkEstablishedEvent(link));
+            customOnLinkEstablished(linkSocket);
         }finally {
             lock.writeLock().unlock();
         }
@@ -438,8 +483,20 @@ public abstract class Socket{
      * @implSpec implementation must avoid - more like "not include" - any blocking operations.
      */
     protected abstract void destroy();
-    protected abstract void customHandleEvent(SocketEvent event);
-    protected abstract void customFeedMsg(SocketMsg msg);
+    protected abstract void customOnLinkEstablished(LinkSocket linkSocket);
+    protected abstract void customOnLinkClosed(LinkSocket linkSocket);
+    /**
+     * Custom logic to process an incoming data or control message.
+     * For data messages, a return value of "false" means the message
+     * should be queued in the link. A return value of "true", means
+     * the "data" message does not require further handling, so it must
+     * not be queued and the sender may have its spent credits returned.
+     * @param msg data or control message to be handled
+     * @return "true" if message does not require further handling. For data
+     * messages, a "true" value means not queuing the message in the link's queue
+     * and means returning a credit to the sender.
+     */
+    protected abstract boolean customOnIncomingMessage(SocketMsg msg);
     /**
      * Checks if the outgoing custom message is valid under the custom socket
      * semantics and current state.
@@ -469,8 +526,40 @@ public abstract class Socket{
         return Socket::getDefaultInQueue;
     }
 
+    /**
+     * @return the messaging protocol that the socket talks. Must be non-null.
+     */
     public abstract Protocol getProtocol();
+
+    /**
+     * @return set of compatible messaging protocols that peers can talk.
+     */
     public abstract Set<Protocol> getCompatibleProtocols();
-    public abstract byte[] receive(Long timeout, boolean notifyIfNone);
-    public abstract boolean send(byte[] payload, Long timeout, boolean notifyIfNone);
+
+    public byte[] receive(Long timeout, boolean notifyIfNone){
+        if(cookedMode)
+            throw new UnsupportedOperationException();
+        else {
+            // TODO - receive() : add RAW behavior here, and let the
+            //  exception be thrown when in cooked mode
+            return null;
+        }
+    }
+
+    public boolean send(byte[] payload, Long timeout, boolean notifyIfNone){
+        if(cookedMode)
+            throw new UnsupportedOperationException();
+        else {
+            // TODO - send() : add RAW behavior here, and let the
+            //  exception be thrown when in cooked mode
+            return false;
+        }
+    }
+
+    @Override
+    public int poll(PollTable pt) {
+        // TODO - default poll(). Custom sockets may want to implement their own poll method.
+        //  getError() and getState() can be used to get the flags POLLERR and POLLHUP.
+        return 0;
+    }
 }

@@ -2,7 +2,6 @@ package pt.uminho.di.a3m.core;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import pt.uminho.di.a3m.core.messaging.Msg;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 
 import java.util.concurrent.atomic.AtomicReference;
@@ -44,7 +43,7 @@ class SocketMananerImplTest {
      * creation, start, get and closure.
      */
     @Test
-    void testBasicSocketLifecycle() {
+    void testBasicSocketLifecycle() throws InterruptedException {
         // register the producers
         registerProducers();
 
@@ -63,7 +62,7 @@ class SocketMananerImplTest {
         // its instance matches
         assert socketManager.getSocket(dealerTagId) == dealerSocket;
         // close the dealer socket and assert its state is CLOSED
-        dealerSocket.close();
+        dealerSocket.asyncClose();
         assert dealerSocket.getState() == SocketState.CLOSED;
 
         String routerTagId = "RouterSocket";
@@ -82,7 +81,7 @@ class SocketMananerImplTest {
         // its instance matches
         assert socketManager.getSocket(routerTagId, DummySocket.class) == routerSocket;
         // close the router socket and assert its state is CLOSED
-        routerSocket.close();
+        routerSocket.asyncClose();
         assert routerSocket.getState() == SocketState.CLOSED;
     }
 

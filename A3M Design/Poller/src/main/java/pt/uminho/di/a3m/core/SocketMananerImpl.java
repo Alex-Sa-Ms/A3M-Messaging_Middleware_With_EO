@@ -141,7 +141,7 @@ class SocketMananerImpl implements SocketManager{
 
             // closes the socket if it is not closed or being closed
             if(s.getState() != SocketState.CLOSING && s.getState() != SocketState.CLOSED)
-                s.close();
+                s.asyncClose();
 
             // if socket is closed, it can be removed from the middleware
             if(s.getState() == SocketState.CLOSED)

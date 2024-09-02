@@ -40,6 +40,33 @@ public class InFlowControlState {
     }
 
     /**
+     * @return capacity of the link, i.e., maximum amount
+     * of messages that can be queued at a time.
+     */
+    public int getCapacity() {
+        return capacity;
+    }
+
+    /**
+     * @return amount of credits that need to be batched before
+     * returning credits to the sender.
+     */
+    public int getBatchSize() {
+        return batchSize;
+    }
+
+    /**
+     * @return percentage of the capacity that makes
+     * the size of a batch. Regardless of the batch size
+     * percentage, when the capacity is
+     * positive, the batch size is at least 1, and when the
+     * capacity is zero or negative, the batch size is 0.
+     */
+    public float getBatchSizePercentage() {
+        return batchSizePercentage;
+    }
+
+    /**
      * Calculates the batch size using the provided capacity and batch size percentage.
      * When the capacity is positive, the minimum size for a batch is 1. If the capacity
      * is 0 or negative, then the peer must not be able to send more messages, so credits,
