@@ -15,6 +15,8 @@ import pt.uminho.di.a3m.waitqueue.WaitQueue;
 import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;
 import pt.uminho.di.a3m.waitqueue.WaitQueueFunc;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -300,10 +302,16 @@ public class Link implements Pollable {
     synchronized void queueIncomingMessage(SocketMsg msg){
         // do not add if closed
         if(state != LinkState.CLOSED) {
+            boolean wake = inMsgQ.peek() == null;
             // add new message to incoming messages queue
             inMsgQ.add(msg);
             // notify waiters
-            waitQ.fairWakeUp(0, 1, 0, PollFlags.POLLIN);
+            // TODO - best is just to make sockets implement a custom queue that informs how
+            //  many can be woken up when a message is inserted. Also, it could have a method
+            //  that returns true if polling is possible.
+            //  This current solution requires waking up a new exclusive waiter after each receive. (which I have done)
+            if(wake && inMsgQ.peek() != null)
+                waitQ.fairWakeUp(0, 1, 0, PollFlags.POLLIN);
         }
     }
 
@@ -425,11 +433,17 @@ public class Link implements Pollable {
                 throw new LinkClosedException();
             // try retrieving a message immediately
             msg = tryPollingMessage();
-            if (msg != null) return msg;
+            if (msg != null) {
+                // notify waiters when polling is possible
+                if(inMsgQ.peek() != null)
+                    waitQ.fairWakeUp(0,1,0,PollFlags.POLLIN);
+                return msg;
+            }
             // return if timed out
             if (timedOut) return null;
             // If a message could not be retrieved, make the caller a waiter
             wait = queueDirectEventWaiter(PollFlags.POLLIN, true);
+            if(wait == null) return null; // if link is closed
             ps = (Link.ParkStateWithEvents) wait.getPriv();
         }
 
@@ -455,6 +469,9 @@ public class Link implements Pollable {
         }
         // delete entry since a hanging wait queue entry is not desired.
         wait.delete();
+        // notify waiters when polling is possible
+        if(inMsgQ.peek() != null)
+            waitQ.fairWakeUp(0,1,0,PollFlags.POLLIN);
         return msg;
     }
     

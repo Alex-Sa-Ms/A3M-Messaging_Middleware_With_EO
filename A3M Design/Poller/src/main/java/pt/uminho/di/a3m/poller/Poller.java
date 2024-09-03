@@ -461,21 +461,19 @@ public class Poller {
 
     /**
      * @param maxEvents maximum number of events that should be returned
-     * @param timeout maximum time allocated to wait for events.
-     *                null to wait until there are events to return.
-     *                0 or negative values for non-blocking operation.
+     * @param endTimeout deadline allocated to wait for events. Obtained using System.currentTimeMillis().
+     *                 null to wait until there are events to return.
      * @return <p> > list of pairs of pollable id and mask of available events for that pollable.
      *         <p> > null if timed out
      * @throws InterruptedException if thread was interrupted during the invocation of this method.
      * @throws IllegalArgumentException if the maximum number of events is not a positive value.
      * @throws PollerClosedException if poller is closed
      */
-    public List<PollEvent<Object>> await(int maxEvents, Long timeout) throws InterruptedException, PollerClosedException {
+    public List<PollEvent<Object>> await(Long endTimeout, int maxEvents) throws InterruptedException, PollerClosedException {
         if(maxEvents <= 0)
             throw new IllegalArgumentException("Maximum number of events must be a positive value.");
 
         List<PollEvent<Object>> rEvents;
-        Long endTimeout = calculateEndTime(timeout);
         boolean timedOut = Objects.equals(endTimeout,0L);
         ParkState ps = new ParkState(true);
 
@@ -534,6 +532,22 @@ public class Poller {
             // are events ready, even if the waiting operation timed out
             ready = true;
         }
+    }
+
+    /**
+     * @param maxEvents maximum number of events that should be returned
+     * @param timeout maximum time allocated to wait for events.
+     *                null to wait until there are events to return.
+     *                0 or negative values for non-blocking operation.
+     * @return <p> > list of pairs of pollable id and mask of available events for that pollable.
+     *         <p> > null if timed out
+     * @throws InterruptedException if thread was interrupted during the invocation of this method.
+     * @throws IllegalArgumentException if the maximum number of events is not a positive value.
+     * @throws PollerClosedException if poller is closed
+     */
+    public List<PollEvent<Object>> await(int maxEvents, Long timeout) throws InterruptedException, PollerClosedException {
+        Long endTimeout = calculateEndTime(timeout);
+        return await(endTimeout, maxEvents);
     }
 
     public List<PollEvent<Object>> await(int maxEvents) throws InterruptedException, PollerClosedException {

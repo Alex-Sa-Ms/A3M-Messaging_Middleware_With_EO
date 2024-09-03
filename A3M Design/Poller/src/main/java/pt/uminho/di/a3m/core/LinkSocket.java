@@ -5,6 +5,7 @@ import pt.uminho.di.a3m.core.messaging.SocketMsg;
 import pt.uminho.di.a3m.poller.PollTable;
 import pt.uminho.di.a3m.poller.Pollable;
 
+// TODO - test this
 public class LinkSocket implements Pollable {
     final Link link;
     private final LinkManager manager;
@@ -19,10 +20,6 @@ public class LinkSocket implements Pollable {
     @Override
     public LinkIdentifier getId() {
         return link.getId();
-    }
-
-    public SocketIdentifier getDestId() {
-        return link.getDestId();
     }
 
     public SocketIdentifier getOwnerId() {

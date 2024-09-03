@@ -7,6 +7,15 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.function.Supplier;
 
+/**
+ * Dummy socket:
+ * <ul>
+ *     <li>Allows changing the protocol and compatible protocols to facilitate
+ *     testing the linking and unlinking procedures.</li>
+ *      <li>Does not implement any custom behavior since this is not required
+ *      to test the linking and unlinking procedures.</li>
+ * </ul>
+ */
 public class DummySocket extends Socket{
     // NOTE: The protocol must be static and final, however, for 
     // tests purposes, allowing the protocol to be defined is helpful
@@ -58,12 +67,12 @@ public class DummySocket extends Socket{
     }
 
     @Override
-    public byte[] receive(Long timeout, boolean notifyIfNone) {
+    public byte[] receive(Long timeout, boolean notifyIfNone) throws InterruptedException {
         return new byte[0];
     }
 
     @Override
-    public boolean send(byte[] payload, Long timeout, boolean notifyIfNone) {
+    public boolean send(byte[] payload, Long timeout, boolean notifyIfNone) throws InterruptedException {
         return false;
     }
 

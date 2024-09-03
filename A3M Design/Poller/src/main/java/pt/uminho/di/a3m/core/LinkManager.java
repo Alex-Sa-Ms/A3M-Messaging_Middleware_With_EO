@@ -791,8 +791,7 @@ public class LinkManager implements Link.LinkDispatcher {
             if(link != null){
                 // To accept an unlink request, the peer's clock identifier
                 // must match the registered peer clock identifier.
-                if(peerClockId < link.getPeerClockId()
-                        || peerClockId > link.getPeerProtocolId())
+                if(peerClockId != link.getPeerClockId())
                     return;
                 boolean sendUnlinkMsg = false;
                 switch (link.getState()){
