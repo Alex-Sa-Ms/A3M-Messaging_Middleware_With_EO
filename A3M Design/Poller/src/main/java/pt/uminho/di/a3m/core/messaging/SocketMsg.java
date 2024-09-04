@@ -5,9 +5,9 @@ import pt.uminho.di.a3m.core.SocketIdentifier;
 import java.util.Arrays;
 
 public class SocketMsg extends Msg{
-    private final String srcTagId;
-    private final String destTagId;
-    private final int clockId;
+    private String srcTagId;
+    private String destTagId;
+    private int clockId;
 
     public SocketMsg(String srcNodeId, String srcTagId, String destNodeId, String destTagId, byte type, int clockId, byte[] payload) {
         super(srcNodeId, destNodeId, type, payload);
@@ -29,6 +29,13 @@ public class SocketMsg extends Msg{
 
     public SocketMsg(SocketIdentifier srcId, SocketIdentifier destId, int clockId, Payload payload){
         this(srcId.nodeId(), srcId.tagId(), destId.nodeId(), destId.tagId(), payload.getType(), clockId, payload.getPayload());
+    }
+
+    public SocketMsg(SocketMsg msg){
+        super(msg);
+        this.clockId = msg.clockId;
+        this.srcTagId = msg.srcTagId;
+        this.destTagId = msg.destTagId;
     }
 
     public String getSrcTagId() {

@@ -15,4 +15,12 @@ public class PollEvent<T> {
         this.data = data;
         this.events = events;
     }
+
+    @Override
+    public String toString() {
+        return "PollEvent{" +
+                "data=" + data +
+                ", events=" + PollFlags.getFlags(events) +
+                '}';
+    }
 }

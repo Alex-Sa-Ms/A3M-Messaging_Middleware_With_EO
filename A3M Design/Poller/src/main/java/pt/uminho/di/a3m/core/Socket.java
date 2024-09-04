@@ -451,22 +451,20 @@ public abstract class Socket implements Pollable {
             // then be processed. If it is not accepted by the link
             // manager, then it is discarded.
             if(!linkManager.handleMsg(msg)) return;
+            // since the message was deemed valid by the link manager,
+            // we assume the link was registered and a link socket can be retrieved
+            linkSocket = getLinkSocket(peerId);
+            if (linkSocket == null) return;
         }
-        // since the message was deemed valid by the link manager,
-        // we assume the link was registered and a link socket can be retrieved
-        linkSocket = getLinkSocket(peerId);
         // If socket is in COOKED mode, then pass the message to be processed by the custom socket.
         if(cookedMode){
-            // TODO - maybe make customOnIncomingMessage return an instance of Payload,
-            //  that way, parsing the message only needs to be done once and the message
-            //  can be queued as a payload. In raw mode, the parsing can be done when retrieving
-            //  messages from the link's queues.
-            boolean handled = customOnIncomingMessage(msg);
+            SocketMsg rMsg = customOnIncomingMessage(msg);
             if(msg.getType() == MsgType.DATA){
-               if(handled)
+               if(rMsg == null || rMsg.getType() != MsgType.DATA) {
                    linkSocket.link.acknowledgeDeliverAndIncrementBatch();
+               }
                else{
-                   linkSocket.link.queueIncomingMessage(msg);
+                   linkSocket.link.queueIncomingMessage(rMsg);
                }
             }
         }
@@ -626,17 +624,16 @@ public abstract class Socket implements Pollable {
     protected abstract void customOnLinkEstablished(LinkSocket linkSocket);
     protected abstract void customOnLinkClosed(LinkSocket linkSocket);
     /**
-     * Custom logic to process an incoming data or control message.
-     * For data messages, a return value of "false" means the message
-     * should be queued in the link. A return value of "true", means
-     * the "data" message does not require further handling, so it must
-     * not be queued and the sender may have its spent credits returned.
+     * Custom logic to process an incoming data or control message when the socket is in COOKED mode.
+     * When the message passed as parameter is of data type, if a socket message is to
+     * be returned, it must have its type as data as well. Only data messages are queued
+     * in the appropriate link's queue. Custom control messages returned are discarded.
      * @param msg data or control message to be handled
-     * @return "true" if message does not require further handling. For data
-     * messages, a "true" value means not queuing the message in the link's queue
-     * and means returning a credit to the sender.
+     * @return null if message does not require further handling, or a socket message
+     * to be queued in the appropriate link's queue. The data message can be returned as received,
+     * if it should be queued as it was received.
      */
-    protected abstract boolean customOnIncomingMessage(SocketMsg msg);
+    protected abstract SocketMsg customOnIncomingMessage(SocketMsg msg);
 
     /**
      * Method to get an incoming queue supplier. Custom sockets may override this method to

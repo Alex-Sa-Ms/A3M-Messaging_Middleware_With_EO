@@ -1,6 +1,7 @@
-package pt.uminho.di.a3m.core;
+package pt.uminho.di.a3m.core.SimpleSocket;
 
 import pt.uminho.di.a3m.auxiliary.Timeout;
+import pt.uminho.di.a3m.core.*;
 import pt.uminho.di.a3m.core.messaging.MsgType;
 import pt.uminho.di.a3m.core.messaging.Payload;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
@@ -37,6 +38,10 @@ public class SimpleSocket extends Socket {
         super(sid);
     }
 
+    public static SimpleSocket createSocket(SocketIdentifier sid){
+        return new SimpleSocket(sid);
+    }
+
     @Override
     protected void init() {
         // empty because it does not require any special initializing procedures
@@ -47,19 +52,19 @@ public class SimpleSocket extends Socket {
         // empty because it does not require any special closing procedures
     }
 
-    private void resubscribeReadEvent(LinkSocket linkSocket){
-        readPoller.modify(linkSocket, PollFlags.POLLIN | PollFlags.POLLONESHOT);
+    private void resubscribeReadEvent(LinkIdentifier linkId){
+        readPoller.modify(linkId, PollFlags.POLLIN | PollFlags.POLLET | PollFlags.POLLONESHOT);
     }
 
-    private void resubscribeWriteEvent(LinkSocket linkSocket){
-        writePoller.modify(linkSocket, PollFlags.POLLOUT | PollFlags.POLLONESHOT);
+    private void resubscribeWriteEvent(LinkIdentifier linkId){
+        writePoller.modify(linkId, PollFlags.POLLOUT | PollFlags.POLLET | PollFlags.POLLONESHOT);
     }
 
     @Override
     protected void customOnLinkEstablished(LinkSocket linkSocket) {
         // add link socket to pollers
-        readPoller.add(linkSocket, PollFlags.POLLIN | PollFlags.POLLONESHOT);
-        writePoller.add(linkSocket, PollFlags.POLLOUT | PollFlags.POLLONESHOT);
+        readPoller.add(linkSocket, PollFlags.POLLIN | PollFlags.POLLET | PollFlags.POLLONESHOT);
+        writePoller.add(linkSocket, PollFlags.POLLOUT | PollFlags.POLLET | PollFlags.POLLONESHOT);
     }
 
     @Override
@@ -70,14 +75,12 @@ public class SimpleSocket extends Socket {
     }
 
     @Override
-    protected boolean customOnIncomingMessage(SocketMsg msg) {
+    protected SocketMsg customOnIncomingMessage(SocketMsg msg) {
         // notify waiters
-        System.out.println(StandardCharsets.UTF_8.decode(ByteBuffer.wrap(msg.getPayload())));
-        System.out.flush();
         getWaitQueue().fairWakeUp(0,1,0,PollFlags.POLLIN);
         // Return false because it does not use custom control messages,
         // and all data messages should be queued in the appropriate link's queue.
-        return false;
+        return SocketMsgWithOrder.parseFrom(msg);
     }
 
     @Override
@@ -90,20 +93,23 @@ public class SimpleSocket extends Socket {
         return compatProtocols;
     }
 
-    private static final ToIntFunction<SocketMsg> orderExtractor
-            = msg -> ByteBuffer.wrap(msg.getPayload()).getInt();
+    private final Comparator<SocketMsg> orderComparator = (o1, o2) -> {
+        SocketMsgWithOrder s1 = (SocketMsgWithOrder) o1;
+        SocketMsgWithOrder s2 = (SocketMsgWithOrder) o2;
+        return Integer.compare(s1.getOrder(),s2.getOrder());
+    };
 
     @Override
     protected Supplier<Queue<SocketMsg>> getInQueueSupplier(LinkSocket linkSocket) {
-        return () -> new PriorityQueue<>(Comparator.comparingInt(orderExtractor)){
+        return () -> new PriorityQueue<>(orderComparator){
             private int next = 0;
 
             @Override
             public SocketMsg peek() {
-                SocketMsg msg = super.peek();
+                SocketMsgWithOrder msg = (SocketMsgWithOrder) super.peek();
                 // make peek() return null if the first element in the queue is not
                 // the next in order.
-                if(msg != null && orderExtractor.applyAsInt(msg) != next)
+                if(msg != null && msg.getOrder() != next)
                     msg = null;
                 return msg;
             }
@@ -122,14 +128,6 @@ public class SimpleSocket extends Socket {
         };
     }
 
-    private byte[] removeOrderValueFromPayload(byte[] payload){
-        ByteBuffer buffer = ByteBuffer.wrap(payload);
-        buffer.position(4); // skip int
-        byte[] newPayload = new byte[buffer.remaining()];
-        buffer.get(newPayload);
-        return newPayload;
-    }
-
     @Override
     public byte[] receive(Long timeout, boolean notifyIfNone) throws InterruptedException {
         SocketMsg msg;
@@ -139,13 +137,13 @@ public class SimpleSocket extends Socket {
             if (rlist == null) return null; // if waiting timed out
             PollEvent<Object> linkReady = rlist.getFirst();
             LinkIdentifier linkId = (LinkIdentifier) rlist.getFirst().data;
+            resubscribeReadEvent(linkId);
             if ((linkReady.events & PollFlags.POLLIN) != 0) {
                 LinkSocket linkSocket = getLinkSocket(linkId.destId());
                 if(linkSocket != null) {
-                    resubscribeReadEvent(linkSocket);
                     msg = linkSocket.receive(0L); // non-blocking receive
                     if (msg != null)
-                        return removeOrderValueFromPayload(msg.getPayload());
+                        return msg.getPayload();
                 }
             }
         }
@@ -166,10 +164,10 @@ public class SimpleSocket extends Socket {
             if (wlist == null) return false; // if waiting timed out
             PollEvent<Object> linkReady = wlist.getFirst();
             LinkIdentifier linkId = (LinkIdentifier) wlist.getFirst().data;
+            resubscribeWriteEvent(linkId);
             if ((linkReady.events & PollFlags.POLLOUT) != 0) {
                 LinkSocket linkSocket = getLinkSocket(linkId.destId());
                 if(linkSocket != null) {
-                    resubscribeWriteEvent(linkSocket);
                     send = linkSocket.send(p, 0L); // non-blocking send
                     if (send) return true;
                 }
@@ -187,13 +185,9 @@ public class SimpleSocket extends Socket {
             if (rlist == null) return false; // if waiting timed out
             PollEvent<Object> linkReady = rlist.getFirst();
             LinkIdentifier linkId = (LinkIdentifier) rlist.getFirst().data;
-            if ((linkReady.events & PollFlags.POLLIN) != 0) {
-                LinkSocket linkSocket = getLinkSocket(linkId.destId());
-                if(linkSocket != null) {
-                    resubscribeReadEvent(linkSocket);
-                    return true;
-                }
-            }
+            resubscribeReadEvent(linkId);
+            if ((linkReady.events & PollFlags.POLLIN) != 0)
+                return true;
         }
     }
 
@@ -202,18 +196,15 @@ public class SimpleSocket extends Socket {
      * @return true if there is a link available to send.
      */
     private boolean isReadyToSend() throws InterruptedException {
+        boolean ready = false;
         while(true) {
             List<PollEvent<Object>> wlist = writePoller.await(0L, 1);
             if (wlist == null) return false; // if waiting timed out
             PollEvent<Object> linkReady = wlist.getFirst();
             LinkIdentifier linkId = (LinkIdentifier) wlist.getFirst().data;
-            if ((linkReady.events & PollFlags.POLLOUT) != 0) {
-                LinkSocket linkSocket = getLinkSocket(linkId.destId());
-                if(linkSocket != null) {
-                    resubscribeWriteEvent(linkSocket);
-                    return true;
-                }
-            }
+            resubscribeWriteEvent(linkId);
+            if ((linkReady.events & PollFlags.POLLOUT) != 0)
+                return true;
         }
     }
 

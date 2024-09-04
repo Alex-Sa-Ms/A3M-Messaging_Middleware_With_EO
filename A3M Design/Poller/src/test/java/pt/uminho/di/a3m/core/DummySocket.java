@@ -95,8 +95,8 @@ public class DummySocket extends Socket{
     }
 
     @Override
-    protected boolean customOnIncomingMessage(SocketMsg msg) {
-        return false;
+    protected SocketMsg customOnIncomingMessage(SocketMsg msg) {
+        return null;
     }
 
     @Override

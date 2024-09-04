@@ -182,11 +182,6 @@ public class MockPollable implements Pollable {
             if(!inQ.isEmpty()){
                 return inQ.poll();
             }
-            // throw exception if socket is closed and
-            // receiving is no longer possible
-            // (i.e. there are no messages to be received)
-            if(closed.get())
-                throw new IllegalStateException("Socket is closed.");
             // return null if there aren't messages to be received
             return null;
         }finally {

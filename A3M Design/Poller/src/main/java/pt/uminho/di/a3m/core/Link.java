@@ -255,6 +255,10 @@ public class Link implements Pollable {
     private Queue<SocketMsg> inMsgQ = null;
     private final InFlowControlState inFCS;
 
+    synchronized void printInMsgQ(){
+        System.out.println(inMsgQ);
+    }
+
     /**
      * Inform the need to send a batch of credits
      * to the peer associated with this link.
@@ -297,21 +301,21 @@ public class Link implements Pollable {
      * if the sender is not obeying the flow control restrictions.
      * @param msg When the socket is in COOKED mode, the message to be
      *            queued is a data message. Else, if the socket is in RAW mode,
-     *            then the queue can also have custom control messages queued.       
+     *            then the queue can also have custom control messages queued.
      */
     synchronized void queueIncomingMessage(SocketMsg msg){
         // do not add if closed
         if(state != LinkState.CLOSED) {
             boolean wake = inMsgQ.peek() == null;
             // add new message to incoming messages queue
-            inMsgQ.add(msg);
-            // notify waiters
-            // TODO - best is just to make sockets implement a custom queue that informs how
-            //  many can be woken up when a message is inserted. Also, it could have a method
-            //  that returns true if polling is possible.
-            //  This current solution requires waking up a new exclusive waiter after each receive. (which I have done)
-            if(wake && inMsgQ.peek() != null)
-                waitQ.fairWakeUp(0, 1, 0, PollFlags.POLLIN);
+            try {
+                inMsgQ.add(msg);
+                // notify waiters
+                if(wake && inMsgQ.peek() != null)
+                    waitQ.fairWakeUp(0, 1, 0, PollFlags.POLLIN);
+            }catch (Exception e){
+                e.printStackTrace();
+            }
         }
     }
 
@@ -334,6 +338,9 @@ public class Link implements Pollable {
     private synchronized SocketMsg tryPollingMessage(){
         SocketMsg msg = inMsgQ.poll();
         if(SocketMsg.isType(msg, MsgType.DATA)) {
+            // notify waiters when polling is possible
+            if(inMsgQ.peek() != null)
+                waitQ.fairWakeUp(0,1,0,PollFlags.POLLIN);
             // if a message was polled,
             // "mark" the message as delivered and
             // send a credits batch when required
@@ -429,16 +436,11 @@ public class Link implements Pollable {
 
         synchronized (this){
             // if link is closed and queue is empty, messages cannot be received.
-            if (getState() == LinkState.CLOSED && hasIncomingMessages())
+            if (getState() == LinkState.CLOSED && !hasIncomingMessages())
                 throw new LinkClosedException();
             // try retrieving a message immediately
             msg = tryPollingMessage();
-            if (msg != null) {
-                // notify waiters when polling is possible
-                if(inMsgQ.peek() != null)
-                    waitQ.fairWakeUp(0,1,0,PollFlags.POLLIN);
-                return msg;
-            }
+            if (msg != null) return msg;
             // return if timed out
             if (timedOut) return null;
             // If a message could not be retrieved, make the caller a waiter
@@ -469,9 +471,6 @@ public class Link implements Pollable {
         }
         // delete entry since a hanging wait queue entry is not desired.
         wait.delete();
-        // notify waiters when polling is possible
-        if(inMsgQ.peek() != null)
-            waitQ.fairWakeUp(0,1,0,PollFlags.POLLIN);
         return msg;
     }
     
@@ -556,6 +555,7 @@ public class Link implements Pollable {
             if (timedOut) return false;
             // If the message could not be sent, make the caller a waiter
             wait = queueDirectEventWaiter(PollFlags.POLLOUT, true);
+            assert wait != null;
             ps = (ParkStateWithEvents) wait.getPriv();
         }
 

@@ -3,8 +3,8 @@ package pt.uminho.di.a3m.poller;
 import org.junit.jupiter.api.Test;
 import pt.uminho.di.a3m.poller.exceptions.PollerClosedException;
 
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -161,7 +161,7 @@ class PollerTest {
         Thread t = new Thread(() -> {
             try {
                 // waits 2 seconds until timeout
-                List<PollEvent<Object>> rEvents = poller.await(1, 200L);
+                List<PollEvent<Object>> rEvents = poller.await(1, 50L);
                 // timed out if events were not received
                 timedOut.set(rEvents == null);
             } catch (InterruptedException e) {
@@ -180,6 +180,129 @@ class PollerTest {
             Thread.onSpinWait();
 
         assert timedOut.get();
+    }
+
+    @Test
+    void spamIncomingMessages() throws InterruptedException {
+        Poller poller = Poller.create();
+        MockPollable s1 = new MockPollable("1", 0);
+        // assert immediate send is unsuccessful
+        assert s1.tryReceiveMsg() == null;
+        // register socket in poller with POLLIN as the event of interest
+        poller.add(s1, PollFlags.POLLIN | PollFlags.POLLET | PollFlags.POLLONESHOT);
+        final int nrMsgs = 100;
+        List<String> msgs = new ArrayList<>();
+        Thread catcher = new Thread(() -> {
+            for (int i = 0; i < nrMsgs;) {
+                try {
+                    List<PollEvent<Object>> rlist = poller.await(1, null);
+                    if(rlist == null) continue; // if timed out,
+                    else{
+                        i++;
+                        poller.modify(s1.getId(), PollFlags.POLLIN | PollFlags.POLLET | PollFlags.POLLONESHOT);
+                        msgs.add(s1.tryReceiveMsg());
+                    }
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        });
+        Thread spammer = new Thread(() ->{
+            for (int i = 0; i < nrMsgs; i++) {
+                s1.newMsg(String.valueOf(i));
+            }
+        });
+        catcher.start();
+        spammer.start();
+        catcher.join();
+        spammer.join();
+
+        msgs.sort(Comparator.comparingInt(Integer::valueOf));
+        for (int i = 0; i < nrMsgs; i++) {
+            assert msgs.get(i).equals(String.valueOf(i));
+        }
+
+        System.out.println("Msgs: " + msgs);
+    }
+
+    void spamIncomingMessagesWithMultipleSpammersAndCatchers(int nrSpammers, int nrCatchers, int nrMsgs) throws InterruptedException {
+        Poller poller = Poller.create();
+        MockPollable s1 = new MockPollable("1", 0);
+        // assert immediate send is unsuccessful
+        assert s1.tryReceiveMsg() == null;
+        // register socket in poller with POLLIN as the event of interest
+        poller.add(s1, PollFlags.POLLIN | PollFlags.POLLET | PollFlags.POLLONESHOT);
+
+        // map to join results
+        Map<String, List<String>> msgs = new ConcurrentHashMap<>();
+
+        // create waiters for messages
+        Thread[] catchers = new Thread[nrCatchers];
+        for (int i = 0; i < nrCatchers; i++) {
+            catchers[i] = new Thread(() -> {
+                List<String> catcherMsgs = new ArrayList<>();
+                int revents;
+                boolean run = true;
+                while (run) {
+                    try {
+                        List<PollEvent<Object>> rlist = poller.await(1, null);
+                        if(rlist == null) continue; // if timed out,
+                        else{
+                            revents = rlist.getFirst().events;
+                            poller.modify(s1.getId(),  PollFlags.POLLIN | PollFlags.POLLET | PollFlags.POLLONESHOT);
+                            if((revents & PollFlags.POLLIN) != 0) {
+                                String rmsg = s1.tryReceiveMsg();
+                                if(rmsg != null)
+                                    catcherMsgs.add(rmsg);
+                            }
+                            else if ((revents & PollFlags.POLLHUP) != 0)
+                                run = false;
+                        }
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+                msgs.put(Thread.currentThread().getName(), catcherMsgs);
+            });
+            catchers[i].start();
+        }
+
+        // create a spammers of messages
+        Thread[] spammers = new Thread[nrSpammers];
+        AtomicInteger counter = new AtomicInteger(0);
+        for (int i = 0; i < nrSpammers; i++) {
+            spammers[i] = new Thread(() ->{
+                int m;
+                while ((m = counter.getAndIncrement()) < nrMsgs) {
+                    s1.newMsg(String.valueOf(m));
+                }
+            });
+            spammers[i].start();
+        }
+
+        //  wait for spammers to finish
+        for (int i = 0; i < nrSpammers; i++) {
+            spammers[i].join();
+        }
+        // close pollable
+        s1.close();
+        System.out.println("Closed");
+        // wait for catchers to finish
+        for (int i = 0; i < nrCatchers; i++) {
+            catchers[i].join();
+        }
+
+        List<String> aggMsgs = new ArrayList<>();
+        for (Map.Entry<String, List<String>> entry : msgs.entrySet()){
+            System.out.println(entry.getKey() + " sent " + entry.getValue().size());
+            aggMsgs.addAll(entry.getValue());
+        }
+        assert aggMsgs.size() == nrMsgs;
+    }
+
+    @Test
+    void spamMessages() throws InterruptedException {
+        spamIncomingMessagesWithMultipleSpammersAndCatchers(2,10,1000);
     }
 
     @Test

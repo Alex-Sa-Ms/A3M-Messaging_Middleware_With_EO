@@ -1,14 +1,11 @@
 package pt.uminho.di.a3m.core;
 
-import com.google.protobuf.InvalidProtocolBufferException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import pt.uminho.di.a3m.core.SimpleSocket.SimpleSocket;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 import pt.uminho.di.a3m.poller.PollFlags;
-import pt.uminho.di.a3m.poller.PollTable;
 import pt.uminho.di.a3m.poller.Poller;
-import pt.uminho.di.a3m.waitqueue.ParkState;
-import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -71,14 +68,18 @@ class LinkSocketTest {
         }
 
         private void _dispatch(SocketMsg msg){
-            if(msg != null){
-                Socket socket = sockets.get(msg.getDestId());
-                if(socket != null) {
-                    socket.onIncomingMessage(msg);
-                    //try {
-                    //    println(LinkManager.linkRelatedMsgToString(msg));
-                    //} catch (InvalidProtocolBufferException ignored) {}
+            try {
+                if(msg != null){
+                    Socket socket = sockets.get(msg.getDestId());
+                    if(socket != null) {
+                        socket.onIncomingMessage(msg);
+                        //try {
+                        //    println(LinkManager.linkRelatedMsgToString(msg));
+                        //} catch (InvalidProtocolBufferException ignored) {}
+                    }
                 }
+            } catch (Exception e) {
+                e.printStackTrace();
             }
         }
 
@@ -109,8 +110,8 @@ class LinkSocketTest {
     void initSocketsAndLinkManagers(){
         for (int i = 0; i < nrSockets; i++) {
             sids[i] = new SocketIdentifier("Node" + i, "Socket" + i);
-            sockets[i] = new SimpleSocket(sids[i]);
-            sockets[i].setCoreComponents(dispatcher, new SocketMananerImpl("Node" + i, dispatcher));
+            sockets[i] = SimpleSocket.createSocket(sids[i]);
+            ((Socket) sockets[i]).setCoreComponents(dispatcher, new SocketMananerImpl("Node" + i, dispatcher));
             dispatcher.registerSocket(sockets[i]);
         }
     }
@@ -212,6 +213,7 @@ class LinkSocketTest {
         String msgPrefix = "I'm socket";
         for (int i = 0; i < 2; i++)
             sockets[i].send((msgPrefix + i).getBytes(),0L,true);
+        Thread.sleep(10L);
         // assert poll shows they can receive and send messages
         events = Poller.poll(sockets[0], interest, null);
         assert (events & PollFlags.POLLIN) != 0;
@@ -231,8 +233,6 @@ class LinkSocketTest {
         assert msg.equals(msgPrefix + 0);
     }
 
-    // TODO - not working for some reason. Seems like there is a deadlock?
-
     @Test
     void testOrderedReceive() throws InterruptedException {
         // activate random delay
@@ -240,7 +240,7 @@ class LinkSocketTest {
         // link socket0 to socket1
         linkSockets(0,1,true);
         // make socket0 send a sequence of messages and assert they arrive in order
-        int N = 50;
+        int N = 1000;
         // send string messages with 0 until N - 1
         for (int i = 0; i < N; i++)
             sockets[0].send(String.valueOf(i).getBytes(), null, true);
@@ -249,7 +249,6 @@ class LinkSocketTest {
         for (int i = 0; i < N; i++) {
             arrMsg = sockets[1].receive(null, true);
             String msg = StandardCharsets.UTF_8.decode(ByteBuffer.wrap(arrMsg)).toString();
-            System.out.println("received: " + msg);
             assert msg.equals(String.valueOf(i));
         }
     }
