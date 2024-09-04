@@ -1,5 +1,6 @@
 package pt.uminho.di.a3m.waitqueue;
 
+import pt.uminho.di.a3m.list.IListNode;
 import pt.uminho.di.a3m.list.ListNode;
 
 import java.util.concurrent.locks.Lock;
@@ -19,7 +20,7 @@ public class WaitQueue{
     // Adds non-exclusive wait entry at the head of the list.
     // Must have lock acquired
     void _addFirst(ListNode<WaitQueueEntry> node) {
-        ListNode.addFirst(node, head);
+        IListNode.addFirst(node, head);
         size++;
     }
 
@@ -36,7 +37,7 @@ public class WaitQueue{
     // Adds non-exclusive wait entry at the tail of the list.
     // Must have lock acquired
     void _addLast(ListNode<WaitQueueEntry> node) {
-        ListNode.addLast(node, head);
+        IListNode.addLast(node, head);
         size++;
     }
 
@@ -53,7 +54,7 @@ public class WaitQueue{
     // Delete wait entry at the head of the list.
     // Must have lock acquired
     void _delete(ListNode<WaitQueueEntry> node) {
-        ListNode.delete(node);
+        IListNode.delete(node);
         size--;
     }
 
@@ -80,7 +81,7 @@ public class WaitQueue{
     public int wakeUp(int mode, int nrExclusive, int wakeFlags, Object key) {
         try{
             lock.lock();
-            ListNode.Iterator<WaitQueueEntry> it = ListNode.iterator(head);
+            IListNode.Iterator<WaitQueueEntry> it = IListNode.iterator(head);
             // "current" and "next" variables are required to execute a loop
             // safe against removals done by the wake function
             WaitQueueEntry curr = it.hasNext() ? it.next() : null,
@@ -111,14 +112,14 @@ public class WaitQueue{
     public int fairWakeUp(int mode, int nrExclusive, int wakeFlags, Object key) {
         try{
             lock.lock();
-            ListNode.Iterator<WaitQueueEntry> it = ListNode.iterator(head);
+            IListNode.Iterator<WaitQueueEntry> it = IListNode.iterator(head);
             WaitQueueEntry curr = it.hasNext() ? it.next() : null,
                                next,
                                last;
             // Last entry. Since exclusive entries are moved to the tail
             // upon being woken up, it is required to break the loop
             // after waking up the last entry.
-            last = ListNode.getLast(head).getObject();
+            last = IListNode.getLast(head).getObject();
             while(curr != null){
                 next = it.hasNext() ? it.next() : null;
                 int ret = curr.getFunc().apply(curr, mode, wakeFlags, key);
@@ -130,7 +131,7 @@ public class WaitQueue{
                     // with the iterator as the iterator is positioned
                     // in the node next to the current one
                     if(curr.isQueued())
-                        ListNode.moveToLast(curr.getNode(), head);
+                        IListNode.moveToLast(curr.getNode(), head);
                     // stops waking up if the number of exclusive entries have been woken up
                     // or if the recorded last entry before modifications is reached.
                     if(--nrExclusive == 0 || curr == last)
@@ -147,7 +148,7 @@ public class WaitQueue{
     public boolean isEmpty() {
         try{
             lock.lock();
-            return ListNode.isEmpty(head);
+            return IListNode.isEmpty(head);
         }finally {
             lock.unlock();
         }
@@ -156,7 +157,7 @@ public class WaitQueue{
     public int size(){
         try{
             lock.lock();
-            assert size == ListNode.size(head);
+            assert size == IListNode.size(head);
             return size;
         }finally {
             lock.unlock();

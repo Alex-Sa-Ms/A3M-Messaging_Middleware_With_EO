@@ -9,18 +9,18 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 class ListNodeTest {
 
-    // Class that matches the operations of the ListNode with an ArrayList to check if the
+    // Class that matches the operations of the IListNode with an ArrayList to check if the
     // operations are consistent.
     private static class ListConsistencyChecker<T>{
-        protected List<ListNode<T>> confirmList = new ArrayList<>();
-        protected ListNode<T> head = ListNode.init();
+        protected List<IListNode<T>> confirmList = new ArrayList<>();
+        protected IListNode<T> head = ListNode.init();
 
         @Override
         public String toString() {
             StringBuilder sb = new StringBuilder("ListConsistencyChecker{");
             if(!confirmList.isEmpty()) {
                 sb.append('\n');
-                for (ListNode<T> node : confirmList)
+                for (IListNode<T> node : confirmList)
                     sb.append("\t").append(node.getObject().toString()).append(",\n");
                 sb.deleteCharAt(sb.length() - 2);
             }
@@ -28,54 +28,54 @@ class ListNodeTest {
             return sb.toString();
         }
 
-        public void remove(ListNode<T> node) {
+        public void remove(IListNode<T> node) {
             confirmList.remove(node);
-            ListNode.remove(node);
+            IListNode.remove(node);
         }
 
-        public void removeAndInit(ListNode<T> node) {
+        public void removeAndInit(IListNode<T> node) {
             confirmList.remove(node);
-            ListNode.removeAndInit(node);
+            IListNode.removeAndInit(node);
         }
 
-        public void delete(ListNode<T> node) {
+        public void delete(IListNode<T> node) {
             confirmList.remove(node);
-            ListNode.delete(node);
+            IListNode.delete(node);
         }
 
-        public void addHead(ListNode<T> node) {
+        public void addHead(IListNode<T> node) {
             confirmList.addFirst(node);
-            ListNode.addFirst(node, head);
+            IListNode.addFirst(node, head);
         }
 
-        public void addTail(ListNode<T> node) {
+        public void addTail(IListNode<T> node) {
             confirmList.addLast(node);
-            ListNode.addLast(node, head);
+            IListNode.addLast(node, head);
         }
 
-        public void moveToFirst(ListNode<T> node) {
+        public void moveToFirst(IListNode<T> node) {
             confirmList.remove(node);
             confirmList.addFirst(node);
-            ListNode.moveToFirst(node, head);
+            IListNode.moveToFirst(node, head);
         }
 
-        public void moveToLast(ListNode<T> node) {
+        public void moveToLast(IListNode<T> node) {
             confirmList.remove(node);
             confirmList.addLast(node);
-            ListNode.moveToLast(node, head);
+            IListNode.moveToLast(node, head);
         }
 
         public void confirmEquality() {
             // confirms that both lists agree on whether it is empty or not
-            assert ListNode.isEmpty(head) == confirmList.isEmpty();
+            assert IListNode.isEmpty(head) == confirmList.isEmpty();
 
             // return if list is empty
-            if(ListNode.isEmpty(head))
+            if(IListNode.isEmpty(head))
                 return;
 
             // gets first element
-            ListIterator<ListNode<T>> clIt = confirmList.listIterator(); // confirm list iterator
-            ListNode<T> node = head, nodeConfirm;
+            ListIterator<IListNode<T>> clIt = confirmList.listIterator(); // confirm list iterator
+            IListNode<T> node = head, nodeConfirm;
 
             // checks links in the forward direction
             while(clIt.hasNext()) {
@@ -105,7 +105,7 @@ class ListNodeTest {
     @Test
     void createEntryAndGetObject() {
         Object o1 = new Object(), o2 = new Object();
-        ListNode<Object> listNode = ListNode.create(o1);
+        IListNode<Object> listNode = ListNode.create(o1);
         Object obj = listNode.getObject();
         assert obj == o1;
         assert obj != o2;
@@ -114,7 +114,7 @@ class ListNodeTest {
     @Test
     void initList() {
         Object o = new Object();
-        ListNode<Object> head = ListNode.init();
+        IListNode<Object> head = ListNode.init();
         assert head.getObject() == null && head.getNext() == head && head.getPrev() == head;
     }
 
@@ -139,9 +139,9 @@ class ListNodeTest {
     @Test
     void remove() {
         ListConsistencyChecker<String> lchecker = new ListConsistencyChecker<>();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
         lchecker.addHead(node3);
         lchecker.addHead(node2);
         lchecker.addHead(node1);
@@ -164,9 +164,9 @@ class ListNodeTest {
     @Test
     void removeAndInit() {
         ListConsistencyChecker<String> lchecker = new ListConsistencyChecker<>();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
         lchecker.addHead(node3);
         lchecker.addHead(node2);
         lchecker.addHead(node1);
@@ -185,16 +185,16 @@ class ListNodeTest {
         assert node3.getPrev() == node3 && node3.getNext() == node3;
         System.out.println(lchecker);
 
-        ListNode<String> head = lchecker.head;
+        IListNode<String> head = lchecker.head;
         assert head.getPrev() == head && head.getNext() == head;
     }
 
     @Test
     void delete() {
         ListConsistencyChecker<String> lchecker = new ListConsistencyChecker<>();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
         lchecker.addHead(node3);
         lchecker.addHead(node2);
         lchecker.addHead(node1);
@@ -213,16 +213,16 @@ class ListNodeTest {
         assert node3.getPrev() == null && node3.getNext() == null;
         System.out.println(lchecker);
 
-        ListNode<String> head = lchecker.head;
+        IListNode<String> head = lchecker.head;
         assert head.getPrev() == head && head.getNext() == head;
     }
 
     @Test
     void moveToHead() {
         ListConsistencyChecker<String> lchecker = new ListConsistencyChecker<>();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
         lchecker.addHead(node3);
         lchecker.addHead(node2);
         lchecker.addHead(node1);
@@ -243,9 +243,9 @@ class ListNodeTest {
     @Test
     void moveToTail() {
         ListConsistencyChecker<String> lchecker = new ListConsistencyChecker<>();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
         lchecker.addHead(node3);
         lchecker.addHead(node2);
         lchecker.addHead(node1);
@@ -265,134 +265,134 @@ class ListNodeTest {
 
     @Test
     void isFirst() {
-        ListNode<String> head = ListNode.init();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
-        assert !ListNode.isFirst(node1, head);
-        assert !ListNode.isFirst(node2, head);
-        assert !ListNode.isFirst(node3, head);
-        assert !ListNode.isFirst(head, head);
+        IListNode<String> head = ListNode.init();
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
+        assert !IListNode.isFirst(node1, head);
+        assert !IListNode.isFirst(node2, head);
+        assert !IListNode.isFirst(node3, head);
+        assert !IListNode.isFirst(head, head);
 
-        ListNode.addFirst(node3, head);
-        assert ListNode.isFirst(node3, head);
+        IListNode.addFirst(node3, head);
+        assert IListNode.isFirst(node3, head);
 
-        ListNode.addFirst(node2, head);
-        assert ListNode.isFirst(node2, head);
-        assert !ListNode.isFirst(node3, head);
+        IListNode.addFirst(node2, head);
+        assert IListNode.isFirst(node2, head);
+        assert !IListNode.isFirst(node3, head);
 
-        ListNode.addFirst(node1, head);
-        assert ListNode.isFirst(node1, head);
-        assert !ListNode.isFirst(node2, head);
-        assert !ListNode.isFirst(node3, head);
+        IListNode.addFirst(node1, head);
+        assert IListNode.isFirst(node1, head);
+        assert !IListNode.isFirst(node2, head);
+        assert !IListNode.isFirst(node3, head);
     }
 
     @Test
     void isLast() {
-        ListNode<String> head = ListNode.init();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
-        assert !ListNode.isLast(node1, head);
-        assert !ListNode.isLast(node2, head);
-        assert !ListNode.isLast(node3, head);
-        assert !ListNode.isLast(head, head);
+        IListNode<String> head = ListNode.init();
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
+        assert !IListNode.isLast(node1, head);
+        assert !IListNode.isLast(node2, head);
+        assert !IListNode.isLast(node3, head);
+        assert !IListNode.isLast(head, head);
 
-        ListNode.addLast(node3, head);
-        assert ListNode.isLast(node3, head);
+        IListNode.addLast(node3, head);
+        assert IListNode.isLast(node3, head);
 
-        ListNode.addLast(node2, head);
-        assert ListNode.isLast(node2, head);
-        assert !ListNode.isLast(node3, head);
+        IListNode.addLast(node2, head);
+        assert IListNode.isLast(node2, head);
+        assert !IListNode.isLast(node3, head);
 
-        ListNode.addLast(node1, head);
-        assert ListNode.isLast(node1, head);
-        assert !ListNode.isLast(node2, head);
-        assert !ListNode.isLast(node3, head);
+        IListNode.addLast(node1, head);
+        assert IListNode.isLast(node1, head);
+        assert !IListNode.isLast(node2, head);
+        assert !IListNode.isLast(node3, head);
     }
 
     @Test
     void isHead() {
-        ListNode<String> head = ListNode.init();
-        assert ListNode.isHead(head, head);
+        IListNode<String> head = ListNode.init();
+        assert IListNode.isHead(head, head);
 
-        ListNode<String> node1 = ListNode.create("1");
-        assert ListNode.isHead(head, head);
-        assert !ListNode.isHead(node1, head);
+        IListNode<String> node1 = ListNode.create("1");
+        assert IListNode.isHead(head, head);
+        assert !IListNode.isHead(node1, head);
 
-        ListNode.addFirst(node1, head);
-        assert ListNode.isHead(head, head);
-        assert !ListNode.isHead(node1, head);
+        IListNode.addFirst(node1, head);
+        assert IListNode.isHead(head, head);
+        assert !IListNode.isHead(node1, head);
     }
 
     @Test
     void isEmpty() {
-        ListNode<String> head = ListNode.init();
-        assert ListNode.isEmpty(head);
+        IListNode<String> head = ListNode.init();
+        assert IListNode.isEmpty(head);
 
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode.addFirst(node1, head);
-        assert !ListNode.isEmpty(head);
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode.addFirst(node1, head);
+        assert !IListNode.isEmpty(head);
 
-        ListNode.removeAndInit(node1);
-        assert ListNode.isEmpty(head);
+        IListNode.removeAndInit(node1);
+        assert IListNode.isEmpty(head);
 
-        ListNode.addLast(node1, head);
-        assert !ListNode.isEmpty(head);
+        IListNode.addLast(node1, head);
+        assert !IListNode.isEmpty(head);
     }
 
     @Test
     void getFirst() {
-        ListNode<String> head = ListNode.init();
-        assert ListNode.getFirst(head) == head;
+        IListNode<String> head = ListNode.init();
+        assert IListNode.getFirst(head) == head;
 
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode.addFirst(node1, head);
-        assert ListNode.getFirst(head) == node1;
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode.addFirst(node1, head);
+        assert IListNode.getFirst(head) == node1;
 
-        ListNode.removeAndInit(node1);
-        assert ListNode.getFirst(head) == head;
+        IListNode.removeAndInit(node1);
+        assert IListNode.getFirst(head) == head;
 
-        ListNode.addLast(node1, head);
-        assert ListNode.getFirst(head) == node1;
+        IListNode.addLast(node1, head);
+        assert IListNode.getFirst(head) == node1;
 
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode.addFirst(node2, head);
-        assert ListNode.getFirst(head) == node2;
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode.addFirst(node2, head);
+        assert IListNode.getFirst(head) == node2;
     }
 
     @Test
     void getLast() {
-        ListNode<String> head = ListNode.init();
-        assert ListNode.getLast(head) == head;
+        IListNode<String> head = ListNode.init();
+        assert IListNode.getLast(head) == head;
 
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode.addFirst(node1, head);
-        assert ListNode.getLast(head) == node1;
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode.addFirst(node1, head);
+        assert IListNode.getLast(head) == node1;
 
-        ListNode.removeAndInit(node1);
-        assert ListNode.getLast(head) == head;
+        IListNode.removeAndInit(node1);
+        assert IListNode.getLast(head) == head;
 
-        ListNode.addLast(node1, head);
-        assert ListNode.getLast(head) == node1;
+        IListNode.addLast(node1, head);
+        assert IListNode.getLast(head) == node1;
 
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode.addLast(node2, head);
-        assert ListNode.getLast(head) == node2;
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode.addLast(node2, head);
+        assert IListNode.getLast(head) == node2;
     }
 
     @Test
     void forEach() {
-        ListNode<String> head = ListNode.init();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
-        ListNode.addFirst(node3, head);
-        ListNode.addFirst(node2, head);
-        ListNode.addFirst(node1, head);
+        IListNode<String> head = ListNode.init();
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
+        IListNode.addFirst(node3, head);
+        IListNode.addFirst(node2, head);
+        IListNode.addFirst(node1, head);
 
         List<String> list = new ArrayList<>();
-        ListNode.forEach(head, list::add);
+        IListNode.forEach(head, list::add);
         assert list.size() == 3;
         assert list.indexOf("1") == 0;
         assert list.indexOf("2") == 1;
@@ -401,16 +401,16 @@ class ListNodeTest {
 
     @Test
     void forEachReverse() {
-        ListNode<String> head = ListNode.init();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
-        ListNode.addFirst(node3, head);
-        ListNode.addFirst(node2, head);
-        ListNode.addFirst(node1, head);
+        IListNode<String> head = ListNode.init();
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
+        IListNode.addFirst(node3, head);
+        IListNode.addFirst(node2, head);
+        IListNode.addFirst(node1, head);
 
         List<String> list = new ArrayList<>();
-        ListNode.forEachReverse(head, list::add);
+        IListNode.forEachReverse(head, list::add);
         assert list.size() == 3;
         assert list.indexOf("3") == 0;
         assert list.indexOf("2") == 1;
@@ -419,16 +419,16 @@ class ListNodeTest {
 
     @Test
     void forEachWithIterator() {
-        ListNode<String> head = ListNode.init();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
-        ListNode.addFirst(node3, head);
-        ListNode.addFirst(node2, head);
-        ListNode.addFirst(node1, head);
+        IListNode<String> head = ListNode.init();
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
+        IListNode.addFirst(node3, head);
+        IListNode.addFirst(node2, head);
+        IListNode.addFirst(node1, head);
 
         List<String> list = new ArrayList<>();
-        ListNode.Iterator<String> it = ListNode.iterator(head);
+        IListNode.Iterator<String> it = IListNode.iterator(head);
         while(it.hasNext())
             list.add(it.next());
 
@@ -440,16 +440,16 @@ class ListNodeTest {
 
     @Test
     void forEachReverseWithIterator() {
-        ListNode<String> head = ListNode.init();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
-        ListNode.addFirst(node3, head);
-        ListNode.addFirst(node2, head);
-        ListNode.addFirst(node1, head);
+        IListNode<String> head = ListNode.init();
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
+        IListNode.addFirst(node3, head);
+        IListNode.addFirst(node2, head);
+        IListNode.addFirst(node1, head);
 
         List<String> list = new ArrayList<>();
-        ListNode.Iterator<String> it = ListNode.iterator(head);
+        IListNode.Iterator<String> it = IListNode.iterator(head);
         while(it.hasPrevious())
             list.add(it.previous());
 
@@ -461,16 +461,16 @@ class ListNodeTest {
 
     @Test
     void forEachForwardPlusReverseWithIterator() {
-        ListNode<String> head = ListNode.init();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
-        ListNode.addFirst(node3, head);
-        ListNode.addFirst(node2, head);
-        ListNode.addFirst(node1, head);
+        IListNode<String> head = ListNode.init();
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
+        IListNode.addFirst(node3, head);
+        IListNode.addFirst(node2, head);
+        IListNode.addFirst(node1, head);
 
         List<String> list = new ArrayList<>();
-        ListNode.Iterator<String> it = ListNode.iterator(head);
+        IListNode.Iterator<String> it = IListNode.iterator(head);
         while(it.hasNext())
             list.add(it.next());
 
@@ -493,17 +493,17 @@ class ListNodeTest {
 
     @Test
     void addAfterHeadWithIterator() {
-        ListNode<String> head = ListNode.init();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
-        ListNode.addFirst(node3, head);
-        ListNode.addFirst(node2, head);
-        ListNode.addFirst(node1, head);
+        IListNode<String> head = ListNode.init();
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
+        IListNode.addFirst(node3, head);
+        IListNode.addFirst(node2, head);
+        IListNode.addFirst(node1, head);
 
         List<String> list = new ArrayList<>();
-        ListNode.Iterator<String> it = ListNode.iterator(head);
-        ListNode<String> node0 = it.addAfter("0");
+        IListNode.Iterator<String> it = IListNode.iterator(head);
+        it.addAfter(ListNode.create("0"));
         while(it.hasNext())
             list.add(it.next());
 
@@ -516,17 +516,17 @@ class ListNodeTest {
 
     @Test
     void addBeforeHeadWithIterator() {
-        ListNode<String> head = ListNode.init();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
-        ListNode.addFirst(node3, head);
-        ListNode.addFirst(node2, head);
-        ListNode.addFirst(node1, head);
+        IListNode<String> head = ListNode.init();
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
+        IListNode.addFirst(node3, head);
+        IListNode.addFirst(node2, head);
+        IListNode.addFirst(node1, head);
 
         List<String> list = new ArrayList<>();
-        ListNode.Iterator<String> it = ListNode.iterator(head);
-        ListNode<String> node4 = it.addBefore("4");
+        IListNode.Iterator<String> it = IListNode.iterator(head);
+        it.addBefore(ListNode.create("4"));
         while(it.hasNext())
             list.add(it.next());
 
@@ -539,21 +539,21 @@ class ListNodeTest {
 
     @Test
     void addAfterNonHeadNodeWithIterator() {
-        ListNode<String> head = ListNode.init();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
-        ListNode.addFirst(node3, head);
-        ListNode.addFirst(node2, head);
-        ListNode.addFirst(node1, head);
+        IListNode<String> head = ListNode.init();
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
+        IListNode.addFirst(node3, head);
+        IListNode.addFirst(node2, head);
+        IListNode.addFirst(node1, head);
 
         List<String> list = new ArrayList<>();
-        ListNode.Iterator<String> it = ListNode.iterator(head);
+        IListNode.Iterator<String> it = IListNode.iterator(head);
         while(it.hasNext())
             list.add(it.next());
 
         // add node4 as last because the iterator stopped due to lack of a next node
-        ListNode<String> node4 = it.addAfter("4");
+        it.addAfter(ListNode.create("4"));
 
         // node4 is added after the current node, therefore it.hasNext() must be true
         assert it.hasNext();
@@ -568,21 +568,21 @@ class ListNodeTest {
 
     @Test
     void addBeforeNonHeadNodeWithIterator() {
-        ListNode<String> head = ListNode.init();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
-        ListNode.addFirst(node3, head);
-        ListNode.addFirst(node2, head);
-        ListNode.addFirst(node1, head);
+        IListNode<String> head = ListNode.init();
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
+        IListNode.addFirst(node3, head);
+        IListNode.addFirst(node2, head);
+        IListNode.addFirst(node1, head);
 
         // Makes iterator go to the last node
-        ListNode.Iterator<String> it = ListNode.iterator(head);
+        IListNode.Iterator<String> it = IListNode.iterator(head);
         while(it.hasNext())
             it.next();
 
         // add node4 before last node
-        ListNode<String> node4 = it.addBefore("4");
+        it.addBefore(ListNode.create("4"));
 
         // Iterates back to the start and adds objects to the list.
         // The current is not added to the list.
@@ -599,21 +599,21 @@ class ListNodeTest {
 
     @Test
     void removeWithIterator(){
-        ListNode<String> head = ListNode.init();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
-        ListNode.addFirst(node3, head);
-        ListNode.addFirst(node2, head);
-        ListNode.addFirst(node1, head);
+        IListNode<String> head = ListNode.init();
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
+        IListNode.addFirst(node3, head);
+        IListNode.addFirst(node2, head);
+        IListNode.addFirst(node1, head);
 
         // checks that removing after initiating the iterator
         // does not do anything.
-        ListNode.Iterator<String> it = ListNode.iterator(head);
+        IListNode.Iterator<String> it = IListNode.iterator(head);
         it.remove();
         assert head.getPrev() == node3 && head.getNext() == node1;
 
-        ListNode<String> rmvd;
+        IListNode<String> rmvd;
         // remove node1
         it.next();
         rmvd = it.remove();
@@ -633,7 +633,7 @@ class ListNodeTest {
         assert node3.getPrev() == head && node3.getNext() == head;
 
         // assert list is empty
-        assert ListNode.isEmpty(head);
+        assert IListNode.isEmpty(head);
         // assert iterator cannot move
         assert !it.hasNext();
         assert !it.hasPrevious();
@@ -641,21 +641,21 @@ class ListNodeTest {
 
     @Test
     void removeAndInitWithIterator(){
-        ListNode<String> head = ListNode.init();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
-        ListNode.addFirst(node3, head);
-        ListNode.addFirst(node2, head);
-        ListNode.addFirst(node1, head);
+        IListNode<String> head = ListNode.init();
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
+        IListNode.addFirst(node3, head);
+        IListNode.addFirst(node2, head);
+        IListNode.addFirst(node1, head);
 
         // checks that removing after initiating the iterator
         // does not do anything.
-        ListNode.Iterator<String> it = ListNode.iterator(head);
+        IListNode.Iterator<String> it = IListNode.iterator(head);
         it.removeAndInit();
         assert head.getPrev() == node3 && head.getNext() == node1;
 
-        ListNode<String> rmvd;
+        IListNode<String> rmvd;
         // remove and init node1
         it.next();
         rmvd = it.removeAndInit();
@@ -675,7 +675,7 @@ class ListNodeTest {
         assert node3.getPrev() == node3 && node3.getNext() == node3;
 
         // assert list is empty
-        assert ListNode.isEmpty(head);
+        assert IListNode.isEmpty(head);
         // assert iterator cannot move
         assert !it.hasNext();
         assert !it.hasPrevious();
@@ -683,17 +683,17 @@ class ListNodeTest {
 
     @Test
     void deleteWithIterator(){
-        ListNode<String> head = ListNode.init();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
-        ListNode.addFirst(node3, head);
-        ListNode.addFirst(node2, head);
-        ListNode.addFirst(node1, head);
+        IListNode<String> head = ListNode.init();
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
+        IListNode.addFirst(node3, head);
+        IListNode.addFirst(node2, head);
+        IListNode.addFirst(node1, head);
 
         // checks that removing after initiating the iterator
         // does not do anything.
-        ListNode.Iterator<String> it = ListNode.iterator(head);
+        IListNode.Iterator<String> it = IListNode.iterator(head);
         it.delete();
         assert head.getPrev() == node3 && head.getNext() == node1;
 
@@ -717,7 +717,7 @@ class ListNodeTest {
         assert node3.getPrev() == null && node3.getNext() == null;
 
         // assert list is empty
-        assert ListNode.isEmpty(head);
+        assert IListNode.isEmpty(head);
         // assert iterator cannot move
         assert !it.hasNext();
         assert !it.hasPrevious();
@@ -725,17 +725,17 @@ class ListNodeTest {
 
     @Test
     void moveToFirstWithIterator(){
-        ListNode<String> head = ListNode.init();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
-        ListNode.addFirst(node3, head);
-        ListNode.addFirst(node2, head);
-        ListNode.addFirst(node1, head);
+        IListNode<String> head = ListNode.init();
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
+        IListNode.addFirst(node3, head);
+        IListNode.addFirst(node2, head);
+        IListNode.addFirst(node1, head);
 
         // checks that attempting to move the node after initiating the iterator
         // does not do anything.
-        ListNode.Iterator<String> it = ListNode.iterator(head);
+        IListNode.Iterator<String> it = IListNode.iterator(head);
         it.moveToFirst();
         assert head.getPrev() == node3 && head.getNext() == node1;
 
@@ -771,17 +771,17 @@ class ListNodeTest {
 
     @Test
     void moveToLastWithIterator(){
-        ListNode<String> head = ListNode.init();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
-        ListNode.addFirst(node3, head);
-        ListNode.addFirst(node2, head);
-        ListNode.addFirst(node1, head);
+        IListNode<String> head = ListNode.init();
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
+        IListNode.addFirst(node3, head);
+        IListNode.addFirst(node2, head);
+        IListNode.addFirst(node1, head);
 
         // checks that attempting to move the node after initiating the iterator
         // does not do anything.
-        ListNode.Iterator<String> it = ListNode.iterator(head);
+        IListNode.Iterator<String> it = IListNode.iterator(head);
         it.moveToLast();
         assert head.getPrev() == node3 && head.getNext() == node1;
 
@@ -817,72 +817,72 @@ class ListNodeTest {
 
     @Test
     public void size(){
-        ListNode<String> head = ListNode.init();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
+        IListNode<String> head = ListNode.init();
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
 
-        assert ListNode.size(head) == 0;
+        assert IListNode.size(head) == 0;
 
-        ListNode.addFirst(node3, head);
-        assert ListNode.size(head) == 1;
+        IListNode.addFirst(node3, head);
+        assert IListNode.size(head) == 1;
 
-        ListNode.addFirst(node2, head);
-        assert ListNode.size(head) == 2;
+        IListNode.addFirst(node2, head);
+        assert IListNode.size(head) == 2;
 
-        ListNode.addFirst(node1, head);
-        assert ListNode.size(head) == 3;
+        IListNode.addFirst(node1, head);
+        assert IListNode.size(head) == 3;
 
-        ListNode.delete(node1);
-        assert ListNode.size(head) == 2;
+        IListNode.delete(node1);
+        assert IListNode.size(head) == 2;
 
-        ListNode.delete(node2);
-        assert ListNode.size(head) == 1;
+        IListNode.delete(node2);
+        assert IListNode.size(head) == 1;
 
-        ListNode.delete(node3);
-        assert ListNode.size(head) == 0;
+        IListNode.delete(node3);
+        assert IListNode.size(head) == 0;
     }
 
     @Test
     public void indexOf(){
-        ListNode<String> head = ListNode.init();
-        ListNode<String> node1 = ListNode.create("1");
-        ListNode<String> node2 = ListNode.create("2");
-        ListNode<String> node3 = ListNode.create("3");
+        IListNode<String> head = ListNode.init();
+        IListNode<String> node1 = ListNode.create("1");
+        IListNode<String> node2 = ListNode.create("2");
+        IListNode<String> node3 = ListNode.create("3");
 
         // assert that the nodes do not exist in the list
-        assert ListNode.indexOf(node1, head) == -1;
-        assert ListNode.indexOf(node2, head) == -1;
-        assert ListNode.indexOf(node3, head) == -1;
+        assert IListNode.indexOf(node1, head) == -1;
+        assert IListNode.indexOf(node2, head) == -1;
+        assert IListNode.indexOf(node3, head) == -1;
 
-        ListNode.addFirst(node3, head);
-        assert ListNode.indexOf(node3, head) == 0;
+        IListNode.addFirst(node3, head);
+        assert IListNode.indexOf(node3, head) == 0;
 
-        ListNode.addFirst(node2, head);
-        assert ListNode.indexOf(node2, head) == 0;
-        assert ListNode.indexOf(node3, head) == 1;
+        IListNode.addFirst(node2, head);
+        assert IListNode.indexOf(node2, head) == 0;
+        assert IListNode.indexOf(node3, head) == 1;
 
-        ListNode.addFirst(node1, head);
-        assert ListNode.indexOf(node1, head) == 0;
-        assert ListNode.indexOf(node2, head) == 1;
-        assert ListNode.indexOf(node3, head) == 2;
+        IListNode.addFirst(node1, head);
+        assert IListNode.indexOf(node1, head) == 0;
+        assert IListNode.indexOf(node2, head) == 1;
+        assert IListNode.indexOf(node3, head) == 2;
 
-        ListNode.delete(node1);
-        assert ListNode.indexOf(node1, head) == -1;
-        assert ListNode.indexOf(node2, head) == 0;
-        assert ListNode.indexOf(node3, head) == 1;
+        IListNode.delete(node1);
+        assert IListNode.indexOf(node1, head) == -1;
+        assert IListNode.indexOf(node2, head) == 0;
+        assert IListNode.indexOf(node3, head) == 1;
 
-        ListNode.delete(node2);
-        assert ListNode.indexOf(node2, head) == -1;
-        assert ListNode.indexOf(node3, head) == 0;
+        IListNode.delete(node2);
+        assert IListNode.indexOf(node2, head) == -1;
+        assert IListNode.indexOf(node3, head) == 0;
 
-        ListNode.delete(node3);
-        assert ListNode.indexOf(node3, head) == -1;
+        IListNode.delete(node3);
+        assert IListNode.indexOf(node3, head) == -1;
     }
 
-    private <T> void getAndCatchOutOfBoundsException(ListNode<T> head, int i){
+    private <T> void getAndCatchOutOfBoundsException(IListNode<T> head, int i){
         try {
-            ListNode.get(head, i);
+            IListNode.get(head, i);
             // shouldn't get here
             assert false;
         } catch (IndexOutOfBoundsException exception) {
@@ -892,82 +892,82 @@ class ListNodeTest {
 
     @Test
     public void get(){
-        ListNode<List<String>> head = ListNode.init();
-        ListNode<List<String>> node1 = ListNode.create(List.of("1"));
-        ListNode<List<String>> node2 = ListNode.create(List.of("2"));
-        ListNode<List<String>> node3 = ListNode.create(List.of("3"));
+        IListNode<List<String>> head = ListNode.init();
+        IListNode<List<String>> node1 = ListNode.create(List.of("1"));
+        IListNode<List<String>> node2 = ListNode.create(List.of("2"));
+        IListNode<List<String>> node3 = ListNode.create(List.of("3"));
 
         // assert that the nodes do not exist in the list
         for(int i = -1; i <= 1; i++)
             getAndCatchOutOfBoundsException(head, i);
 
-        ListNode.addFirst(node3, head);
-        assert ListNode.get(head, 0) == node3.getObject();
+        IListNode.addFirst(node3, head);
+        assert IListNode.get(head, 0) == node3.getObject();
 
-        ListNode.addFirst(node2, head);
-        assert ListNode.get(head, 0) == node2.getObject();
-        assert ListNode.get(head, 1) == node3.getObject();
+        IListNode.addFirst(node2, head);
+        assert IListNode.get(head, 0) == node2.getObject();
+        assert IListNode.get(head, 1) == node3.getObject();
 
-        ListNode.addFirst(node1, head);
-        assert ListNode.get(head, 0) == node1.getObject();
-        assert ListNode.get(head, 1) == node2.getObject();
-        assert ListNode.get(head, 2) == node3.getObject();
+        IListNode.addFirst(node1, head);
+        assert IListNode.get(head, 0) == node1.getObject();
+        assert IListNode.get(head, 1) == node2.getObject();
+        assert IListNode.get(head, 2) == node3.getObject();
 
-        ListNode.delete(node1);
-        assert ListNode.get(head, 0) == node2.getObject();
-        assert ListNode.get(head, 1) == node3.getObject();
+        IListNode.delete(node1);
+        assert IListNode.get(head, 0) == node2.getObject();
+        assert IListNode.get(head, 1) == node3.getObject();
 
-        ListNode.delete(node2);
-        assert ListNode.get(head, 0) == node3.getObject();
+        IListNode.delete(node2);
+        assert IListNode.get(head, 0) == node3.getObject();
 
-        ListNode.delete(node3);
+        IListNode.delete(node3);
         getAndCatchOutOfBoundsException(head, 0);
     }
 
     @Test
     public void concat(){
-        ListNode<Integer> head1 = ListNode.init();
-        ListNode<Integer> head2 = ListNode.init();
-        ListNode<Integer> head3 = ListNode.init();
+        IListNode<Integer> head1 = ListNode.init();
+        IListNode<Integer> head2 = ListNode.init();
+        IListNode<Integer> head3 = ListNode.init();
 
         // assert lists remain empty
-        ListNode.concat(head1, head2);
-        assert ListNode.isEmpty(head1);
+        IListNode.concat(head1, head2);
+        assert IListNode.isEmpty(head1);
 
         // add 1, 2 and 3 to list 1
-        ListNode<Integer> node1 = ListNode.create(1);
-        ListNode<Integer> node2 = ListNode.create(2);
-        ListNode<Integer> node3 = ListNode.create(3);
-        ListNode.addFirst(node3, head2);
-        ListNode.addFirst(node2, head2);
-        ListNode.addFirst(node1, head2);
+        IListNode<Integer> node1 = ListNode.create(1);
+        IListNode<Integer> node2 = ListNode.create(2);
+        IListNode<Integer> node3 = ListNode.create(3);
+        IListNode.addFirst(node3, head2);
+        IListNode.addFirst(node2, head2);
+        IListNode.addFirst(node1, head2);
 
         // joins the nodes in list 2 to
         // the nodes of list 1.
-        ListNode.concat(head1, head2);
+        IListNode.concat(head1, head2);
 
         // assert the elements were properly added
         AtomicInteger i = new AtomicInteger(1);
-        ListNode.forEach(head1, integer -> {
+        IListNode.forEach(head1, integer -> {
             assert integer == i.getAndIncrement();
         });
 
         // add 4, 5 and 6 to list 2
-        ListNode<Integer> node4 = ListNode.create(4);
-        ListNode<Integer> node5 = ListNode.create(5);
-        ListNode<Integer> node6 = ListNode.create(6);
-        ListNode.addFirst(node6, head3);
-        ListNode.addFirst(node5, head3);
-        ListNode.addFirst(node4, head3);
+        IListNode<Integer> node4 = ListNode.create(4);
+        IListNode<Integer> node5 = ListNode.create(5);
+        IListNode<Integer> node6 = ListNode.create(6);
+        IListNode.addFirst(node6, head3);
+        IListNode.addFirst(node5, head3);
+        IListNode.addFirst(node4, head3);
 
         // joins the nodes in list 3 to
         // the nodes of list 1.
-        ListNode.concat(head1, head3);
+        IListNode.concat(head1, head3);
 
         // assert the elements were properly added
-        ListNode.concat(head1, head3);
+        IListNode.concat(head1, head3);
         i.set(1);
-        ListNode.forEach(head1, integer -> {
+        IListNode.forEach(head1, integer -> {
             assert integer == i.getAndIncrement();
         });
     }
@@ -975,23 +975,23 @@ class ListNodeTest {
     @Test
     void moveToAnotherList() {
         // create 2 lists
-        ListNode<Integer> head1 = ListNode.init();
-        ListNode<Integer> head2 = ListNode.init();
+        IListNode<Integer> head1 = ListNode.init();
+        IListNode<Integer> head2 = ListNode.init();
 
         // add 3 integer nodes to list 1
-        ListNode<Integer> node1 = ListNode.create(1);
-        ListNode<Integer> node2 = ListNode.create(2);
-        ListNode<Integer> node3 = ListNode.create(3);
-        ListNode.addFirst(node3, head1);
-        ListNode.addFirst(node2, head1);
-        ListNode.addFirst(node1, head1);
+        IListNode<Integer> node1 = ListNode.create(1);
+        IListNode<Integer> node2 = ListNode.create(2);
+        IListNode<Integer> node3 = ListNode.create(3);
+        IListNode.addFirst(node3, head1);
+        IListNode.addFirst(node2, head1);
+        IListNode.addFirst(node1, head1);
 
         // move nodes from list 1 to list 2
-        ListNode.moveToLast(node3, head2);
-        ListNode.moveToLast(node2, head2);
-        ListNode.moveToLast(node1, head2);
+        IListNode.moveToLast(node3, head2);
+        IListNode.moveToLast(node2, head2);
+        IListNode.moveToLast(node1, head2);
 
-        assert ListNode.size(head1) == 0;
-        assert ListNode.size(head2) == 3;
+        assert IListNode.size(head1) == 0;
+        assert IListNode.size(head2) == 3;
     }
 }

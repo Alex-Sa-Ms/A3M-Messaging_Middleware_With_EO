@@ -1,6 +1,7 @@
 package pt.uminho.di.a3m.poller;
 
-import pt.uminho.di.a3m.list.ListNode;
+import pt.uminho.di.a3m.list.IListNode;
+import pt.uminho.di.a3m.list.VListNode;
 import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;
 
 import java.util.concurrent.atomic.AtomicReference;
@@ -9,15 +10,16 @@ class PollerItem {
     // Static instance to mark the overflow list as not active,
     // or to inform that a poller item is not in the overflow list.
     static final PollerItem NOT_ACTIVE = new PollerItem(null, null, null, 0);
-    private final ListNode<PollerItem> readyLink; // used to link the poller item to the ready list
-    private PollerItem overflowLink = PollerItem.NOT_ACTIVE;// used to link the poller item to the overflow list
+    private final VListNode<PollerItem> readyLink; // used to link the poller item to the ready list
+    private final AtomicReference<PollerItem> overflowLink = // used to link the poller item to the overflow list
+            new AtomicReference<>(PollerItem.NOT_ACTIVE);
     private final Pollable p; // pollable being monitored through this instance
     private WaitQueueEntry wait; // wait queue entry queued in p's queue
     private final Poller poller; // poller that owns this instance
     private int events; // events bit mask
 
     private PollerItem(Pollable p, WaitQueueEntry wait, Poller poller, int events) {
-        this.readyLink = ListNode.create(this);
+        this.readyLink = VListNode.create(this);
         this.p = p;
         this.wait = wait;
         this.poller = poller;
@@ -37,16 +39,12 @@ class PollerItem {
         return p;
     }
 
-    ListNode<PollerItem> getReadyLink() {
+    VListNode<PollerItem> getReadyLink() {
         return readyLink;
     }
 
-    public PollerItem getOverflowLink() {
+    public AtomicReference<PollerItem> getOverflowLink() {
         return overflowLink;
-    }
-
-    public void setOverflowLink(PollerItem overflowLink) {
-        this.overflowLink = overflowLink;
     }
 
     WaitQueueEntry getWait() {
@@ -66,7 +64,7 @@ class PollerItem {
      * @return true if the item is in the ready list
      */
     boolean isReady(){
-        return !ListNode.isEmpty(readyLink);
+        return !IListNode.isEmpty(readyLink);
     }
 
     /**

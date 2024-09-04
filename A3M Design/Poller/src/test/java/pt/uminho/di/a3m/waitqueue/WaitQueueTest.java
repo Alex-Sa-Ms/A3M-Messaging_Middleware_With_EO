@@ -1,6 +1,7 @@
 package pt.uminho.di.a3m.waitqueue;
 
 import org.junit.jupiter.api.Test;
+import pt.uminho.di.a3m.list.IListNode;
 import pt.uminho.di.a3m.list.ListNode;
 
 import java.util.*;
@@ -15,7 +16,7 @@ class WaitQueueTest {
     @Test
     void initQueue() {
         WaitQueue queue = new WaitQueue();
-        assert ListNode.isEmpty(queue.getHead());
+        assert IListNode.isEmpty(queue.getHead());
     }
 
     @Test
@@ -39,8 +40,8 @@ class WaitQueueTest {
         WaitQueueFunc func = WaitQueueEntry::defaultWakeFunction;
         ParkState ps = new ParkState();
         entry1.add(func, ps);
-        assert ListNode.isFirst(entry1.getNode(),queue.getHead());
-        assert ListNode.size(queue.getHead()) == 1;
+        assert IListNode.isFirst(entry1.getNode(),queue.getHead());
+        assert IListNode.size(queue.getHead()) == 1;
         assert entry1.getWaitFlags() == 0
                 && entry1.getPriv() == ps
                 && entry1.getQueue() == queue
@@ -50,8 +51,8 @@ class WaitQueueTest {
                 && entry1.getNode().getNext() == queue.getHead();
 
         entry2.add(func, ps);
-        assert ListNode.isFirst(entry2.getNode(),queue.getHead());
-        assert ListNode.size(queue.getHead()) == 2;
+        assert IListNode.isFirst(entry2.getNode(),queue.getHead());
+        assert IListNode.size(queue.getHead()) == 2;
         assert entry2.getWaitFlags() == 0
                 && entry2.getPriv() == ps
                 && entry2.getQueue() == queue
@@ -61,8 +62,8 @@ class WaitQueueTest {
                 && entry2.getNode().getNext() == entry1.getNode();
 
         entry3.add(func, ps);
-        assert ListNode.isFirst(entry3.getNode(),queue.getHead());
-        assert ListNode.size(queue.getHead()) == 3;
+        assert IListNode.isFirst(entry3.getNode(),queue.getHead());
+        assert IListNode.size(queue.getHead()) == 3;
         assert entry3.getWaitFlags() == 0
                 && entry3.getPriv() == ps
                 && entry3.getQueue() == queue
@@ -78,13 +79,13 @@ class WaitQueueTest {
         WaitQueueEntry entry1 = queue.initEntry(),
                 entry2 = queue.initEntry(),
                 entry3 = queue.initEntry();
-        assert ListNode.isEmpty(queue.getHead());
+        assert IListNode.isEmpty(queue.getHead());
 
         WaitQueueFunc func = WaitQueueEntry::defaultWakeFunction;
         ParkState ps = new ParkState();
         entry1.addExclusive(func, ps);
-        assert ListNode.isLast(entry1.getNode(),queue.getHead());
-        assert ListNode.size(queue.getHead()) == 1;
+        assert IListNode.isLast(entry1.getNode(),queue.getHead());
+        assert IListNode.size(queue.getHead()) == 1;
         assert entry1.getWaitFlags() == WaitQueueFlags.EXCLUSIVE
                 && entry1.getPriv() == ps
                 && entry1.getQueue() == queue
@@ -94,8 +95,8 @@ class WaitQueueTest {
                 && entry1.getNode().getNext() == queue.getHead();
 
         entry2.addExclusive(func, ps);
-        assert ListNode.isLast(entry2.getNode(),queue.getHead());
-        assert ListNode.size(queue.getHead()) == 2;
+        assert IListNode.isLast(entry2.getNode(),queue.getHead());
+        assert IListNode.size(queue.getHead()) == 2;
         assert entry2.getWaitFlags() == WaitQueueFlags.EXCLUSIVE
                 && entry2.getPriv() == ps
                 && entry2.getQueue() == queue
@@ -105,8 +106,8 @@ class WaitQueueTest {
                 && entry2.getNode().getNext() == queue.getHead();
 
         entry3.addExclusive(func, ps);
-        assert ListNode.isLast(entry3.getNode(),queue.getHead());
-        assert ListNode.size(queue.getHead()) == 3;
+        assert IListNode.isLast(entry3.getNode(),queue.getHead());
+        assert IListNode.size(queue.getHead()) == 3;
         assert entry3.getWaitFlags() == WaitQueueFlags.EXCLUSIVE
                 && entry3.getPriv() == ps
                 && entry3.getQueue() == queue
@@ -462,7 +463,7 @@ class WaitQueueTest {
 
         // Wait queue should only have exclusive entries
         AtomicBoolean allExclusive = new AtomicBoolean(true);
-        ListNode.forEach(waitQueue.getHead(),entry -> {
+        IListNode.forEach(waitQueue.getHead(),entry -> {
             if((entry.getWaitFlags() & WaitQueueFlags.EXCLUSIVE) == 0)
                 allExclusive.set(false);
         } );
@@ -529,7 +530,7 @@ class WaitQueueTest {
         WaitQueueEntry excl = null;
         int idxExcl = 0;
         if(n >= 0) {
-            ListNode.Iterator<WaitQueueEntry> it = ListNode.iterator(queue.getHead());
+            IListNode.Iterator<WaitQueueEntry> it = IListNode.iterator(queue.getHead());
             while (it.hasNext()) {
                 WaitQueueEntry entry = it.next();
                 if ((entry.getWaitFlags() & WaitQueueFlags.EXCLUSIVE) != 0
@@ -636,7 +637,7 @@ class WaitQueueTest {
         // the fair wake-up call will continue to search for an exclusive entry
         // that can be woken up successfully. This wil result in the second exclusive
         // entry being woken up and moved to the tail.
-        WaitQueueEntry sndExcl = ListNode.get(waitQueue.getHead(), idxFstExcl + 1);
+        WaitQueueEntry sndExcl = IListNode.get(waitQueue.getHead(), idxFstExcl + 1);
 
         waitQueue.fairWakeUp(0,1,0,0);
 
@@ -651,11 +652,11 @@ class WaitQueueTest {
         assert waitQueue.size() == nrThreads;
 
         // assert the first exclusive entry remained in the same place
-        assert ListNode.get(waitQueue.getHead(), idxFstExcl) == fstExcl;
+        assert IListNode.get(waitQueue.getHead(), idxFstExcl) == fstExcl;
 
         // assert the second exclusive entry was moved to the tail, i.e.,
         // is now the last entry
-        assert ListNode.isLast(sndExcl.getNode(), waitQueue.getHead());
+        assert IListNode.isLast(sndExcl.getNode(), waitQueue.getHead());
     }
 
     /**

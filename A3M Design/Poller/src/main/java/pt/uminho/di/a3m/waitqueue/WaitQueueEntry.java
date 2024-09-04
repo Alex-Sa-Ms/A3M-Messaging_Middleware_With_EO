@@ -1,5 +1,6 @@
 package pt.uminho.di.a3m.waitqueue;
 
+import pt.uminho.di.a3m.list.IListNode;
 import pt.uminho.di.a3m.list.ListNode;
 
 import java.util.concurrent.atomic.AtomicInteger;
@@ -252,7 +253,7 @@ public class WaitQueueEntry {
 
     public boolean isQueued(){
         synchronized (this) {
-            return node != null && ListNode.isQueued(node);
+            return node != null && IListNode.isQueued(node);
         }
     }
 

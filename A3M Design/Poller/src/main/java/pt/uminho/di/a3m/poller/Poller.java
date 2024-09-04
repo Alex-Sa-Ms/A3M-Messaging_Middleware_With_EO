@@ -1,7 +1,7 @@
 package pt.uminho.di.a3m.poller;
 
-import pt.uminho.di.a3m.core.LinkSocket;
-import pt.uminho.di.a3m.list.ListNode;
+import pt.uminho.di.a3m.list.IListNode;
+import pt.uminho.di.a3m.list.VListNode;
 import pt.uminho.di.a3m.poller.exceptions.PollerClosedException;
 import pt.uminho.di.a3m.waitqueue.ParkState;
 import pt.uminho.di.a3m.waitqueue.WaitQueue;
@@ -12,7 +12,9 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static pt.uminho.di.a3m.auxiliary.Timeout.calculateEndTime;
 
@@ -24,16 +26,16 @@ public class Poller {
 
     // Finer-grained lock that protects the ready list.
     // If acquired along the global lock, the global lock must be acquired first.
-    private final Lock rlLock = new ReentrantLock();
+    private final ReadWriteLock rlLock = new ReentrantReadWriteLock();
 
     // list of pollables that are "supposedly" ready
-    private ListNode<PollerItem> readyList = ListNode.init();
+    private VListNode<PollerItem> readyList = VListNode.init();
 
     // Overflow list of pollables that are "supposedly" ready.
     // This overflow list is used when a scan of the current
     // ready list is ongoing. When a scan is ongoing, this
     // list is initialized.
-    private PollerItem overflowList = PollerItem.NOT_ACTIVE;
+    private AtomicReference<PollerItem> overflowList = new AtomicReference<>(PollerItem.NOT_ACTIVE);
 
     // wait queue for the poller's "users" (threads that use the poller)
     private final WaitQueue waitQ = new WaitQueue();
@@ -128,14 +130,32 @@ public class Poller {
 
     private static void addOverflowPItem(Poller poller, PollerItem pItem) {
         // check the item is not already in the overflow list
-        if(pItem.getOverflowLink() != PollerItem.NOT_ACTIVE)
+        if(pItem.getOverflowLink().get() != PollerItem.NOT_ACTIVE)
             return;
-        // Finally, set this item as the head of the overflow list
+        // Attempt to atomically insert itself in the overflow list.
+        // If the attempt fails, then another thread has insert this item
+        // in the overflow list concurrently.
+        if(!pItem.getOverflowLink().compareAndSet(PollerItem.NOT_ACTIVE, null))
+            return;
+        // Finally, atomically set this item as the head of the overflow list
         // and retrieves teh previous head.
-        PollerItem next = poller.overflowList;
-        poller.overflowList = pItem;
+        PollerItem next = poller.overflowList.getAndSet(pItem);
         // Link the previous head to this item
-        pItem.setOverflowLink(next);
+        pItem.getOverflowLink().set(next);
+    }
+
+    private static void addReadyPItemAtomic(Poller poller, PollerItem pItem) {
+        VListNode<PollerItem> rdlink = pItem.getReadyLink();
+        // try to set the "next" of this item to the head of the ready list.
+        // If it isn't possible, then it is because a new thread is concurrently
+        // trying to do the same.
+        if(!rdlink.compareAndSetNextAtomic(rdlink, poller.readyList))
+            return;
+        // add pItem to the tail of the ready list and get the previous tail item atomically
+        VListNode<PollerItem> prev = poller.readyList.getAndSetPrevAtomic(rdlink);
+        // make the prev point to this item, and make this item point to the prev
+        prev.setNext(rdlink);
+        rdlink.setPrev(prev);
     }
 
     private static final WaitQueueFunc waitQueueFunc = (entry, mode, flags, keyObject) -> {
@@ -150,11 +170,8 @@ public class Poller {
         PollerItem pItem = (PollerItem) entry.getPriv();
         Poller poller = pItem.getPoller();
 
-        // TODO - when possible, make rlLock a read write lock, and do atomic insertions in the
-        //  ready list using AtomicReferenceFieldUpdater. The overflow list is already using atomic
-        //  operations in preparation for this update.
         try{
-            poller.rlLock.lock();
+            poller.rlLock.readLock().lock();
             wakeUp:
             {
                 // Checks if any events are subscribed
@@ -167,14 +184,16 @@ public class Poller {
                     break wakeUp;
 
                 // Add the item to the overflow list if it is active
-                if(poller.overflowList != PollerItem.NOT_ACTIVE){
+                if(poller.overflowList.get() != PollerItem.NOT_ACTIVE){
                     addOverflowPItem(poller, pItem);
                 }else {
+                    addReadyPItemAtomic(poller, pItem);
+
                     // Else, if the overflow list is not active,
                     // and the item is not in the ready list,
                     // then add it at the tail of the ready list.
                     if(!pItem.isReady())
-                        ListNode.addLast(pItem.getReadyLink(), poller.readyList);
+                        IListNode.addLast(pItem.getReadyLink(), poller.readyList);
                 }
 
                 if(poller.hasWaiters()) {
@@ -192,7 +211,7 @@ public class Poller {
                 pItem.setWait(null);
             }
         }finally {
-            poller.rlLock.unlock();
+            poller.rlLock.readLock().unlock();
         }
 
         // Non-exclusive wake-up requested, therefore,
@@ -251,7 +270,7 @@ public class Poller {
 
         // removes item from the ready list if present
         if(pItem.isReady())
-            ListNode.delete(pItem.getReadyLink());
+            IListNode.delete(pItem.getReadyLink());
     }
 
     /**
@@ -274,11 +293,11 @@ public class Poller {
             rEvents = new ArrayList<>();
             PollTable pt = new PollTable(~0, null, null);
 
-            ListNode<PollerItem> tmpList = startReadyEventsScan();
+            VListNode<PollerItem> tmpList = startReadyEventsScan();
 
             PollerItem pItem;
             int aEvents;
-            ListNode.Iterator<PollerItem> it = ListNode.iterator(tmpList);
+            IListNode.Iterator<PollerItem> it = IListNode.iterator(tmpList);
 
             while (it.hasNext()) {
                 // if the number of max events to be returned
@@ -311,7 +330,7 @@ public class Poller {
                     // ready list so that other waiters can also be
                     // aware of the availability. Added as last,
                     // so that the order of the ready list is preserved.
-                    ListNode.moveToLast(pItem.getReadyLink(), readyList);
+                    IListNode.moveToLast(pItem.getReadyLink(), readyList);
                 }
             }
 
@@ -324,30 +343,30 @@ public class Poller {
         return rEvents;
     }
 
-    private ListNode<PollerItem> startReadyEventsScan() {
+    private VListNode<PollerItem> startReadyEventsScan() {
         try {
-            rlLock.lock();
+            rlLock.writeLock().lock();
             // Saves current ready list in a temporary variable
             // and initiates a new ready list. This is done
             // for performance reasons, as to not keep track
             // of pollables re-added to the list at the tail,
             // which hinder the traversal of the list using an iterator.
-            ListNode<PollerItem> tmpList = readyList;
-            readyList = ListNode.init();
+            VListNode<PollerItem> tmpList = readyList;
+            readyList = VListNode.init();
             // initializes the overflow list
-            overflowList = null;
+            overflowList.set(null);
             return tmpList;
         } finally {
-            rlLock.unlock();
+            rlLock.writeLock().unlock();
         }
     }
 
-    private void endReadyEventsScan(ListNode<PollerItem> tmpList) {
+    private void endReadyEventsScan(VListNode<PollerItem> tmpList) {
         try {
-            rlLock.lock();
+            rlLock.writeLock().lock();
             // During the scan above, items may have been inserted in the ready list,
             // so before merging the lists, duplicates need to be removed.
-            PollerItem ovflItem = overflowList, tmpOvfl;
+            PollerItem ovflItem = overflowList.get();
             while (ovflItem != null){
                 // insertions in the overflow list are always done at the head, so,
                 // we need to reverse the order when inserting in the ready list.
@@ -355,23 +374,21 @@ public class Poller {
                 // in the ready list (the ones registered with level-triggered mode),
                 // have already been polled, so they must stay at the tail.
                 if(!ovflItem.isReady())
-                    ListNode.addFirst(ovflItem.getReadyLink(),readyList);
+                    IListNode.addFirst(ovflItem.getReadyLink(),readyList);
                 // get the next overflow item and deactivate the overflow link pointer
-                tmpOvfl = ovflItem;
-                ovflItem = ovflItem.getOverflowLink();
-                tmpOvfl.setOverflowLink(PollerItem.NOT_ACTIVE);
+                ovflItem = ovflItem.getOverflowLink().getAndSet(PollerItem.NOT_ACTIVE);
             }
             // add the remaining items in the
             // tmp list back to the ready list
-            ListNode.concat(tmpList, readyList);
+            IListNode.concat(tmpList, readyList);
             // make tmpList the readyList so that
             // the items that were not scanned,
             // are scanned first next
             readyList = tmpList;
             // deactivate the overflow list
-            overflowList = PollerItem.NOT_ACTIVE;
+            overflowList.set(PollerItem.NOT_ACTIVE);
         } finally {
-            rlLock.unlock();
+            rlLock.writeLock().unlock();
         }
     }
 
@@ -429,7 +446,7 @@ public class Poller {
             int aEvents = itemPoll(p, pt);
 
             try {
-                rlLock.lock();
+                rlLock.writeLock().lock();
                 // If pollable did not allow queueing,
                 // throw exception to inform that the
                 // pollable is closed to polling.
@@ -440,12 +457,12 @@ public class Poller {
                 // not yet marked as ready, then add it to the ready list
                 // and wake up waiters
                 if(aEvents != 0 && !pItem.isReady()){
-                    ListNode.addLast(readyList, pItem.getReadyLink());
+                    IListNode.addLast(readyList, pItem.getReadyLink());
                     if(hasWaiters())
                         waitQ.wakeUp(0,1,0,0);
                 }
             } finally {
-                rlLock.unlock();
+                rlLock.writeLock().unlock();
             }
         }finally {
             lock.unlock();
@@ -497,14 +514,14 @@ public class Poller {
 
             int aEvents = itemPoll(pItem.getPollable(), pt);
             try {
-                rlLock.lock();
+                rlLock.writeLock().lock();
                 if(aEvents != 0 && !pItem.isReady()) {
-                    ListNode.addLast(readyList, pItem.getReadyLink());
+                    IListNode.addLast(readyList, pItem.getReadyLink());
                     if (hasWaiters())
                         waitQ.wakeUp(0, 1, 0, 0);
                 }
             } finally {
-                rlLock.unlock();
+                rlLock.writeLock().unlock();
             }
         }finally {
             lock.unlock();
@@ -554,10 +571,10 @@ public class Poller {
 
             // deletes pollable's item
             try {
-                rlLock.lock();
+                rlLock.writeLock().lock();
                 deletePollerItem(pItem);
             } finally {
-                rlLock.unlock();
+                rlLock.writeLock().unlock();
             }
 
             return interestMap.size();
@@ -589,7 +606,7 @@ public class Poller {
         // allows the call to return immediatelly. Otherwise,
         // there shouldn't be a problem since after lock is acquired,
         // this will be re-tested.
-        boolean ready = !ListNode.isEmpty(readyList);
+        boolean ready = !IListNode.isEmpty(readyList);
         while(true){
             if(ready){
                 rEvents = getReadyEvents(maxEvents);
@@ -612,11 +629,11 @@ public class Poller {
                 lock.lock();
                 checkClosed();
                 try {
-                    rlLock.lock();
+                    rlLock.writeLock().lock();
                     // Final availability check under lock.
                     // If there aren't events available,
                     // then queues itself.
-                    ready = !ListNode.isEmpty(readyList);
+                    ready = !IListNode.isEmpty(readyList);
                     if(!ready) {
                         // preemptively set parked to true in order to enable
                         // the accumulation of an unparked permit. This is required
@@ -626,7 +643,7 @@ public class Poller {
                         wait.addExclusive(WaitQueueEntry::autoDeleteWakeFunction, ps);
                     }
                 } finally {
-                    rlLock.unlock();
+                    rlLock.writeLock().unlock();
                 }
             }finally {
                 lock.unlock();
@@ -644,12 +661,12 @@ public class Poller {
             // Checks if the entry was deleted, as the thread may have
             // timed out but was woken up.
             try {
-                rlLock.lock();
+                rlLock.writeLock().lock();
                 if(timedOut)
                     ready = wait.isDeleted();
                 wait.delete();
             } finally {
-                rlLock.unlock();
+                rlLock.writeLock().unlock();
             }
         }
     }
