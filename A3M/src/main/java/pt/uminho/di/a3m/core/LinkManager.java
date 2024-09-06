@@ -118,7 +118,7 @@ public class LinkManager implements Link.LinkDispatcher {
      * @param dispatchTime time at which the dispatch should be executed. 
      *                     Must be obtained using System.currentTimeMillis()               
      */
-    private AtomicReference<SocketMsg> scheduleDispatch(SocketIdentifier dest, byte type, int clockId, byte[] payload, long dispatchTime){
+    private AtomicReference<Msg> scheduleDispatch(SocketIdentifier dest, byte type, int clockId, byte[] payload, long dispatchTime){
         SocketMsg msg = createMsg(dest, type, clockId, payload);
         return socket.scheduleDispatch(msg, dispatchTime);
     }
@@ -130,7 +130,7 @@ public class LinkManager implements Link.LinkDispatcher {
      * @param dispatchTime time at which the dispatch should be executed.
      *                     Must be obtained using System.currentTimeMillis()
      */
-    private AtomicReference<SocketMsg> scheduleDispatch(SocketIdentifier dest, int clockId, Payload payload, long dispatchTime){
+    private AtomicReference<Msg> scheduleDispatch(SocketIdentifier dest, int clockId, Payload payload, long dispatchTime){
         assert payload != null;
         SocketMsg msg = createMsg(dest, payload.getType(), clockId, payload.getPayload());
         return socket.scheduleDispatch(msg, dispatchTime);
@@ -142,7 +142,7 @@ public class LinkManager implements Link.LinkDispatcher {
      * @param dispatchTime time at which the dispatch should be executed. 
      *                     Must be obtained using System.currentTimeMillis() 
      */
-    private AtomicReference<SocketMsg> scheduleDispatch(SocketMsg msg, long dispatchTime){
+    private AtomicReference<Msg> scheduleDispatch(SocketMsg msg, long dispatchTime){
         return socket.scheduleDispatch(msg, dispatchTime);
     }
 
@@ -419,7 +419,7 @@ public class LinkManager implements Link.LinkDispatcher {
         byte[] linkReqPayload = createLinkRequestMsg().serialize();
         long retryInterval = socket.getOption("retryInterval", Long.class);
         long dispatchTime = retryInterval + System.currentTimeMillis();
-        AtomicReference<SocketMsg> scheduled =
+        AtomicReference<Msg> scheduled =
                 scheduleDispatch(link.getDestId(), MsgType.LINK,
                         link.getClockId(), linkReqPayload, dispatchTime);
         link.setScheduled(scheduled);

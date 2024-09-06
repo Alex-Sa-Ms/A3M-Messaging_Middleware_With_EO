@@ -1,6 +1,7 @@
 package pt.uminho.di.a3m.core;
 
 import pt.uminho.di.a3m.auxiliary.Timeout;
+import pt.uminho.di.a3m.core.messaging.Msg;
 import pt.uminho.di.a3m.core.messaging.MsgType;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 import pt.uminho.di.a3m.core.options.GenericOptionHandler;
@@ -391,7 +392,7 @@ public abstract class Socket implements Pollable {
      * @param dispatchTime time at which the dispatch should be executed.
      *                     Must be obtained using System.currentTimeMillis()
      */
-    final AtomicReference<SocketMsg> scheduleDispatch(SocketMsg msg, long dispatchTime) {
+    final AtomicReference<Msg> scheduleDispatch(SocketMsg msg, long dispatchTime) {
         return dispatcher.scheduleDispatch(msg, dispatchTime);
     }
 

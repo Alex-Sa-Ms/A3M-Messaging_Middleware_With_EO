@@ -3,6 +3,7 @@ package pt.uminho.di.a3m.core;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import pt.uminho.di.a3m.core.SimpleSocket.SimpleSocket;
+import pt.uminho.di.a3m.core.messaging.Msg;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 import pt.uminho.di.a3m.poller.PollFlags;
 import pt.uminho.di.a3m.poller.Poller;
@@ -84,20 +85,20 @@ class LinkSocketTest {
         }
 
         @Override
-        public void dispatch(SocketMsg msg) {
+        public void dispatch(Msg msg) {
             if(randomDelay) {
                 long delay = random.nextLong(minDelay, maxDelay);
-                scheduler.schedule(() -> _dispatch(msg), delay, TimeUnit.MILLISECONDS);
+                scheduler.schedule(() -> _dispatch((SocketMsg) msg), delay, TimeUnit.MILLISECONDS);
             }
-            else _dispatch(msg);
+            else _dispatch((SocketMsg) msg);
         }
 
         @Override
-        public AtomicReference<SocketMsg> scheduleDispatch(SocketMsg msg, long dispatchTime) {
-            AtomicReference<SocketMsg> ref = new AtomicReference<>(msg);
+        public AtomicReference<Msg> scheduleDispatch(Msg msg, long dispatchTime) {
+            AtomicReference<Msg> ref = new AtomicReference<>(msg);
             long delay = Math.max(0L, dispatchTime - System.currentTimeMillis());
             scheduler.schedule(() -> {
-                SocketMsg m = ref.getAndSet(null);
+                SocketMsg m = (SocketMsg) ref.getAndSet(null);
                 if(m != null) {
                     this.dispatch(m);
                 }

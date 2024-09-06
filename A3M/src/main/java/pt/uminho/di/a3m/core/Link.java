@@ -4,6 +4,7 @@ import pt.uminho.di.a3m.auxiliary.Timeout;
 import pt.uminho.di.a3m.core.exceptions.LinkClosedException;
 import pt.uminho.di.a3m.core.flowcontrol.InFlowControlState;
 import pt.uminho.di.a3m.core.flowcontrol.OutFlowControlState;
+import pt.uminho.di.a3m.core.messaging.Msg;
 import pt.uminho.di.a3m.core.messaging.MsgType;
 import pt.uminho.di.a3m.core.messaging.Payload;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
@@ -131,7 +132,7 @@ public class Link implements Pollable {
 
     private final int clockId;
     private int peerClockId = Integer.MIN_VALUE;
-    private AtomicReference<SocketMsg> scheduled = null; // To keep track of scheduled LINK message
+    private AtomicReference<Msg> scheduled = null; // To keep track of scheduled LINK message
     // For the linking/unlinking process. Holds the value present in
     // the peer's LINKREPLY msg that was received before the peer's LINK msg.
     // When a LINK msg is received, this variable is verified.
@@ -159,7 +160,7 @@ public class Link implements Pollable {
 
 
     /** @return scheduled (LINK) message or null if there isn't one. */
-    AtomicReference<SocketMsg> getScheduled() {
+    AtomicReference<Msg> getScheduled() {
         return scheduled;
     }
 
@@ -167,7 +168,7 @@ public class Link implements Pollable {
      * Set scheduled (LINK) message.
      * @param scheduled atomic reference to the scheduled message.
      */
-    void setScheduled(AtomicReference<SocketMsg> scheduled) {
+    void setScheduled(AtomicReference<Msg> scheduled) {
         this.scheduled = scheduled;
     }
 
@@ -177,12 +178,12 @@ public class Link implements Pollable {
      * or if a message was not scheduled.
      */
     SocketMsg cancelScheduledMessage(){
-        SocketMsg msg = null;
+        Msg msg = null;
         if(scheduled != null){
             msg = scheduled.getAndSet(null);
             scheduled = null;
         }
-        return msg;
+        return (SocketMsg) msg;
     }
 
     Integer isLinkReplyMsgReceived() {

@@ -23,3 +23,12 @@ message ErrorPayload{
   bytes code = 1;
   string text = 2;
 }
+
+// core message
+message Message{
+  string srcTagId = 1; // tag identifier of the source socket
+  string destTagId = 2; // tag identifier of the destination socket
+  bytes type = 3; // type of the message
+  int32 clockId = 4; // clock identifier (for socket messages)
+  bytes payload = 5; // payload
+}

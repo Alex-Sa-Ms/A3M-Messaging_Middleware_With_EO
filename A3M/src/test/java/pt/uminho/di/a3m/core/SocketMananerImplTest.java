@@ -2,6 +2,7 @@ package pt.uminho.di.a3m.core;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import pt.uminho.di.a3m.core.messaging.Msg;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 
 import java.util.concurrent.atomic.AtomicReference;
@@ -21,10 +22,10 @@ class SocketMananerImplTest {
     void init(){
         socketManager = new SocketMananerImpl("dummyNodeId",new MessageDispatcher() {
             @Override
-            public void dispatch(SocketMsg msg) {}
+            public void dispatch(Msg msg) {}
 
             @Override
-            public AtomicReference<SocketMsg> scheduleDispatch(SocketMsg msg, long dispatchTime) {
+            public AtomicReference<Msg> scheduleDispatch(Msg msg, long dispatchTime) {
                 return new AtomicReference<>(msg);
             }
         });

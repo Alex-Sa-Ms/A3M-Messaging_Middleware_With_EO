@@ -53,16 +53,16 @@ class LinkingAndUnlinkingTests {
         }
 
         @Override
-        public void dispatch(SocketMsg msg) {
-            LinkingAndUnlinkingTests.this.dispatchTo(lms.get(msg.getDestId()), msg);
+        public void dispatch(Msg msg) {
+            LinkingAndUnlinkingTests.this.dispatchTo(lms.get(((SocketMsg) msg).getDestId()), (SocketMsg) msg);
         }
 
         @Override
-        public AtomicReference<SocketMsg> scheduleDispatch(SocketMsg msg, long dispatchTime) {
-            AtomicReference<SocketMsg> ref = new AtomicReference<>(msg);
+        public AtomicReference<Msg> scheduleDispatch(Msg msg, long dispatchTime) {
+            AtomicReference<Msg> ref = new AtomicReference<>(msg);
             long delay = Math.max(0L, dispatchTime - System.currentTimeMillis());
             scheduler.schedule(() -> {
-                SocketMsg m = ref.getAndSet(null);
+                SocketMsg m = (SocketMsg) ref.getAndSet(null);
                 if(m != null) {
                     this.dispatch(m);
                 }
@@ -395,9 +395,9 @@ class LinkingAndUnlinkingTests {
         AtomicInteger linkMsgsSent = new AtomicInteger(0);
         socket2.setCoreComponents(new DirectDispatcherToLinkManager(sid1, lm1){
             @Override
-            public void dispatch(SocketMsg msg) {
+            public void dispatch(Msg msg) {
                 if(msg.getType() == MsgType.UNLINK)
-                    unlinkMsg.set(msg);
+                    unlinkMsg.set((SocketMsg) msg);
                 else {
                     super.dispatch(msg);
                     if (msg.getType() == MsgType.LINK)
@@ -516,9 +516,9 @@ class LinkingAndUnlinkingTests {
         AtomicInteger unlinkMsgsSent = new AtomicInteger(0);
         socket1.setCoreComponents(new DirectDispatcherToLinkManager(sid2, lm2){
             @Override
-            public void dispatch(SocketMsg msg) {
+            public void dispatch(Msg msg) {
                 if(msg.getType() == MsgType.LINKREPLY)
-                    linkreplyMsg.set(msg);
+                    linkreplyMsg.set((SocketMsg) msg);
                 else {
                     super.dispatch(msg);
                     if (msg.getType() == MsgType.UNLINK)
@@ -559,9 +559,9 @@ class LinkingAndUnlinkingTests {
         AtomicInteger unlinkMsgsSent = new AtomicInteger(0);
         socket1.setCoreComponents(new DirectDispatcherToLinkManager(sid2, lm2){
             @Override
-            public void dispatch(SocketMsg msg) {
+            public void dispatch(Msg msg) {
                 if(msg.getType() == MsgType.LINKREPLY)
-                    linkreplyMsg.set(msg);
+                    linkreplyMsg.set((SocketMsg) msg);
                 else {
                     super.dispatch(msg);
                     if (msg.getType() == MsgType.UNLINK)
@@ -606,9 +606,9 @@ class LinkingAndUnlinkingTests {
         AtomicInteger unlinkMsgsSent = new AtomicInteger(0);
         socket1.setCoreComponents(new DirectDispatcherToLinkManager(sid2, lm2){
             @Override
-            public void dispatch(SocketMsg msg) {
+            public void dispatch(Msg msg) {
                 if(msg.getType() == MsgType.LINKREPLY)
-                    linkreplyMsg.set(msg);
+                    linkreplyMsg.set((SocketMsg) msg);
                 else {
                     super.dispatch(msg);
                     if (msg.getType() == MsgType.UNLINK)
@@ -657,9 +657,9 @@ class LinkingAndUnlinkingTests {
         AtomicInteger linkReplyMsgsSent = new AtomicInteger(0);
         socket1.setCoreComponents(new DirectDispatcherToLinkManager(sid2, lm2){
             @Override
-            public void dispatch(SocketMsg msg) {
+            public void dispatch(Msg msg) {
                 if(msg.getType() == MsgType.LINK)
-                    linkMsg.set(msg);
+                    linkMsg.set((SocketMsg) msg);
                 else {
                     super.dispatch(msg);
                     if (msg.getType() == MsgType.LINKREPLY)
@@ -704,9 +704,9 @@ class LinkingAndUnlinkingTests {
         AtomicInteger linkReplyMsgsSent = new AtomicInteger(0);
         socket1.setCoreComponents(new DirectDispatcherToLinkManager(sid2, lm2){
             @Override
-            public void dispatch(SocketMsg msg) {
+            public void dispatch(Msg msg) {
                 if(msg.getType() == MsgType.LINK)
-                    linkMsg.set(msg);
+                    linkMsg.set((SocketMsg) msg);
                 else {
                     super.dispatch(msg);
                     if (msg.getType() == MsgType.LINKREPLY)
@@ -760,9 +760,9 @@ class LinkingAndUnlinkingTests {
         AtomicInteger linkReplyMsgsSent = new AtomicInteger(0);
         socket2.setCoreComponents(new DirectDispatcherToLinkManager(sid1, lm1){
             @Override
-            public void dispatch(SocketMsg msg) {
+            public void dispatch(Msg msg) {
                 if(msg.getType() == MsgType.LINK)
-                    linkMsg.set(msg);
+                    linkMsg.set((SocketMsg) msg);
                 else {
                     super.dispatch(msg);
                     if (msg.getType() == MsgType.LINKREPLY)
@@ -798,9 +798,9 @@ class LinkingAndUnlinkingTests {
         AtomicInteger linkReplyMsgsSent = new AtomicInteger(0);
         socket2.setCoreComponents(new DirectDispatcherToLinkManager(sid1, lm1){
             @Override
-            public void dispatch(SocketMsg msg) {
+            public void dispatch(Msg msg) {
                 if(msg.getType() == MsgType.LINK)
-                    linkMsg.set(msg);
+                    linkMsg.set((SocketMsg) msg);
                 else {
                     super.dispatch(msg);
                     if (msg.getType() == MsgType.LINKREPLY)
@@ -924,9 +924,9 @@ class LinkingAndUnlinkingTests {
         AtomicReference<SocketMsg> linkMsg = new AtomicReference<>(null);
         socket1.setCoreComponents(new DirectDispatcherToLinkManager(sid2, lm2){
             @Override
-            public void dispatch(SocketMsg msg) {
+            public void dispatch(Msg msg) {
                 if(msg.getType() == MsgType.LINKREPLY)
-                    linkMsg.set(msg);
+                    linkMsg.set((SocketMsg) msg);
                 else {
                     super.dispatch(msg);
                 }

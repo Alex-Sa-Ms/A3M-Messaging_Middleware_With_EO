@@ -12,7 +12,7 @@ public interface MessageDispatcher {
      * not have any null tag and node identifiers.
      * @param msg message to be dispatched
      */
-    void dispatch(SocketMsg msg);
+    void dispatch(Msg msg);
 
     /**
      * Allows scheduling the dispatch of a message if the
@@ -30,5 +30,5 @@ public interface MessageDispatcher {
      *                     depending on how busy the middleware is.
      * @return atomic reference that allows cancelling the delivery of the message.
      */
-    AtomicReference<SocketMsg> scheduleDispatch(SocketMsg msg, long dispatchTime);
+    AtomicReference<Msg> scheduleDispatch(Msg msg, long dispatchTime);
 }
