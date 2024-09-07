@@ -3,10 +3,14 @@ package pt.uminho.di.a3m.core;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import haslab.eo.EOMiddleware;
+import haslab.eo.TransportAddress;
 import haslab.eo.msgs.ClientMsg;
 import pt.uminho.di.a3m.core.messaging.*;
 import pt.uminho.di.a3m.core.messaging.payloads.ErrorPayload;
 
+import java.io.IOException;
+import java.net.SocketException;
+import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.PriorityQueue;
 import java.util.Queue;
@@ -14,6 +18,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Logger;
+
+// TODO - needs testing
 
 // This class should be closed before the exon instance,
 // but after closing all sockets.
@@ -105,6 +111,14 @@ public class MessageManagementSystem implements MessageDispatcher{
         }
     }
 
+    /**
+     * Schedules the dispatch of a message.
+     * @param msg message to be dispatched
+     * @param dispatchTime time at which the dispatch should be executed.
+     *                     The actual dispatch time may be a bit delayed
+     *                     depending on how busy the middleware is.
+     * @return atomic reference that allows cancelling the delivery of the message.
+     */
     @Override
     public AtomicReference<Msg> scheduleDispatch(Msg msg, long dispatchTime) {
         // do not dispatch if the state differs from RUNNING
@@ -166,7 +180,7 @@ public class MessageManagementSystem implements MessageDispatcher{
         // events queue
         final Queue<Event> eventsQ = new PriorityQueue<>();
         // lock to synchronize insertions
-        final Lock lock = new ReentrantLock();
+        // final Lock lock = new ReentrantLock();
 
         @Override
         public void run() {
@@ -175,73 +189,73 @@ public class MessageManagementSystem implements MessageDispatcher{
             while (state == RUNNING) {
                 // receive messages while not interrupted and
                 // the operation does not time out.
-                while(!Thread.interrupted()){
+                do {
                     try {
                         cMsg = eom.receive(timeout);
                         // break out of the receiving loop if timed out
-                        if(cMsg == null) {
-                            // clear any interrupt status
-                            Thread.interrupted();
-                            break;
-                        }
-                        // If a message was received, parse it and forward it
-                        // to the appropriate socket (if it exists)
-                        try {
-                            CoreMessages.Message msg = CoreMessages.Message.parseFrom(cMsg.msg);
-                            // if it is a socket message
-                            if(!msg.getSrcTagId().isEmpty() && !msg.getDestTagId().isEmpty()){
-                                // if message does not have type and/or the clock identifier,
-                                // then it is malformed. Just ignore it.
-                                if(msg.getType().isEmpty() || msg.getType().isEmpty()) continue;
-                                // get identifier of the destination socket and check if it exists
-                                Socket socket = sm.getSocket(msg.getDestTagId());
-                                // if socket does not exist, then send error "socket not found"
-                                if(socket == null) {
-                                    dispatch(createSocketNotFoundMsg(
-                                            new SocketIdentifier(eom.getIdentifier(), msg.getDestTagId()),
-                                            new SocketIdentifier(cMsg.nodeId, msg.getSrcTagId())));
+                        if (cMsg != null) {
+                            // If a message was received, parse it and forward it
+                            // to the appropriate socket (if it exists)
+                            try {
+                                CoreMessages.Message msg = CoreMessages.Message.parseFrom(cMsg.msg);
+                                // if it is a socket message
+                                if (!msg.getSrcTagId().isEmpty() && !msg.getDestTagId().isEmpty()) {
+                                    // if message does not have type and/or the clock identifier,
+                                    // then it is malformed. Just ignore it.
+                                    if (msg.getType().isEmpty() || msg.getType().isEmpty()) continue;
+                                    // get identifier of the destination socket and check if it exists
+                                    Socket socket = sm.getSocket(msg.getDestTagId());
+                                    // if socket does not exist, then send error "socket not found"
+                                    if (socket == null) {
+                                        dispatch(createSocketNotFoundMsg(
+                                                new SocketIdentifier(eom.getIdentifier(), msg.getDestTagId()),
+                                                new SocketIdentifier(cMsg.nodeId, msg.getSrcTagId())));
+                                    }
+                                    // else form the message and forward it to the socket
+                                    else {
+                                        SocketMsg socketMsg = new SocketMsg(
+                                                new SocketIdentifier(cMsg.nodeId, msg.getSrcTagId()),
+                                                new SocketIdentifier(eom.getIdentifier(), msg.getDestTagId()),
+                                                msg.getType().byteAt(0),
+                                                msg.getClockId(),
+                                                msg.getPayload().toByteArray());
+                                        socket.onIncomingMessage(socketMsg);
+                                    }
                                 }
-                                // else form the message and forward it to the socket
-                                else {
-                                    SocketMsg socketMsg = new SocketMsg(
-                                            new SocketIdentifier(cMsg.nodeId, msg.getSrcTagId()),
-                                            new SocketIdentifier(eom.getIdentifier(), msg.getDestTagId()),
-                                            msg.getType().byteAt(0),
-                                            msg.getClockId(),
-                                            msg.getPayload().toByteArray());
-                                    socket.onIncomingMessage(socketMsg);
-                                }
+                            } catch (InvalidProtocolBufferException e) {
+                                // ignored malformed messages
                             }
-                        } catch (InvalidProtocolBufferException e) {
-                            // ignored malformed messages
                         }
                     } catch (InterruptedException ignored) {
                         // when the loop condition is ran, the thread will
                         // detect that it was interrupted.
                     }
-                }
+                } while (!Thread.interrupted() && cMsg != null);
 
                 // execute events that have reached their execution time
-                try {
-                    lock.lock();
-                    Event event;
-                    while ((event = eventsQ.peek()) != null
-                            && System.currentTimeMillis() > event.getEventTime()){
-                        // remove event
-                        eventsQ.poll();
-                        event.execute(MessageManagementSystem.this);
-                    }
-                    // define new timeout
-                    timeout = event == null ? Long.MAX_VALUE
-                            : event.getEventTime() - System.currentTimeMillis();
-                } finally {
-                    lock.unlock();
+                Event event;
+                while ((event = eventsQ.peek()) != null
+                        && System.currentTimeMillis() > event.getEventTime()) {
+                    // remove event
+                    eventsQ.poll();
+                    event.execute(MessageManagementSystem.this);
                 }
+                // define new timeout
+                timeout = event == null ? Long.MAX_VALUE
+                        : event.getEventTime() - System.currentTimeMillis();
             }
             // sets state to closed
             state = CLOSED;
         }
 
+        public void addEvent(Event event) {
+            eventsQ.add(event);
+        }
+
+        /*
+        // Implementation to be used when scheduling of events are to be allowed
+        // for client threads. The handling of the events must also be protected
+        // by the lock.
         public void addEvent(Event event) {
             try {
                 lock.lock();
@@ -250,13 +264,14 @@ public class MessageManagementSystem implements MessageDispatcher{
                 // if waiting to receive a message, is woken up with InterruptedException,
                 // and is able to determine when the next event needs to be executed.
                 Event fst = eventsQ.peek();
-                if(fst == null || event.getEventTime() < fst.getEventTime())
+                if(Thread.currentThread() != this
+                        && (fst == null || event.getEventTime() < fst.getEventTime()))
                     this.interrupt();
                 eventsQ.add(event);
             } finally {
                 lock.unlock();
             }
-            eventsQ.add(event);
         }
+         */
     }
 }
