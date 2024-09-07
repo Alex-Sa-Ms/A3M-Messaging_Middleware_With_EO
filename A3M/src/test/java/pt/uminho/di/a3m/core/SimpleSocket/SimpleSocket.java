@@ -11,12 +11,14 @@ import pt.uminho.di.a3m.poller.PollFlags;
 import pt.uminho.di.a3m.poller.Poller;
 
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
-import java.util.function.ToIntFunction;
 
 /**
  * Simple socket:
@@ -32,7 +34,7 @@ public class SimpleSocket extends Socket {
     final static public Set<Protocol> compatProtocols = Collections.singleton(protocol);
     final private Poller readPoller = Poller.create();
     final private Poller writePoller = Poller.create();
-    final private AtomicInteger next = new AtomicInteger(0);
+    final private Map<SocketIdentifier, Integer> orderCounters = new ConcurrentHashMap<>();
 
     protected SimpleSocket(SocketIdentifier sid) {
         super(sid);
@@ -65,6 +67,8 @@ public class SimpleSocket extends Socket {
         // add link socket to pollers
         readPoller.add(linkSocket, PollFlags.POLLIN | PollFlags.POLLET | PollFlags.POLLONESHOT);
         writePoller.add(linkSocket, PollFlags.POLLOUT | PollFlags.POLLET | PollFlags.POLLONESHOT);
+        // add counter
+        orderCounters.put(linkSocket.getPeerId(), 0);
     }
 
     @Override
@@ -72,6 +76,8 @@ public class SimpleSocket extends Socket {
         // remove link socket from pollers
         readPoller.delete(linkSocket);
         writePoller.delete(linkSocket);
+        // remove counter
+        orderCounters.remove(linkSocket.getPeerId());
     }
 
     @Override
@@ -100,8 +106,8 @@ public class SimpleSocket extends Socket {
     };
 
     @Override
-    protected Supplier<Queue<SocketMsg>> getInQueueSupplier(LinkSocket linkSocket) {
-        return () -> new PriorityQueue<>(orderComparator){
+    protected Queue<SocketMsg> createIncomingQueue(int peerProtocolId) {
+        return new PriorityQueue<>(orderComparator){
             private int next = 0;
 
             @Override
@@ -128,6 +134,74 @@ public class SimpleSocket extends Socket {
         };
     }
 
+    public static class SimpleLinkSocket extends LinkSocket{
+        int next = 0;
+        Lock lock = new ReentrantLock();
+
+        private BytePayload createDataPayload(byte[] payload){
+            byte[] payloadWithOrder =
+                    ByteBuffer.allocate(payload.length + 4) // allocate space for payload plus order number
+                              .putInt(next) // put order number
+                              .put(payload) // put payload
+                              .array(); // convert to byte array
+            return new BytePayload(MsgType.DATA, payloadWithOrder);
+        }
+
+        public boolean trySend(byte[] payload) throws InterruptedException {
+            boolean locked = lock.tryLock();
+            if(locked) {
+                try {
+                    boolean sent = super.send(createDataPayload(payload), 0L);
+                    if (sent) next++;
+                    return sent;
+                } finally {
+                    lock.unlock();
+                }
+            }else return false;
+        }
+
+        /**
+         * Example of how to send messages with deadlines or timeouts,
+         * when synchronization between sending is required. If a thread
+         * cannot execute the send operation due to the lack of credits,
+         * then all threads that attempt to do so, will also not be successful.
+         * This is relevant, as maintaining consistency between order numbers is mandatory,
+         * i.e. we don't want to acquire an order number, let another thread acquire the order
+         * number that follows, and potentially end up with only the second thread to send a message,
+         * leaving a gap on the order numbers which will stall the progress.
+         * So, the solution is to protect the sending of the message using a reentrant lock, and waiting
+         * for lock acquisition using tryLock. If acquiring the lock is not possible during the provided
+         * timeout or deadline, then the reason behind this incapability, most likely, is that the link
+         * is being throttled by the flow control.
+         * @param payload
+         * @param deadline
+         * @return
+         * @throws InterruptedException
+         */
+        public boolean send(byte[] payload, Long deadline) throws InterruptedException {
+            boolean locked = lock.tryLock(Timeout.calculateTimeout(deadline), TimeUnit.MILLISECONDS);
+            if(locked) {
+                try {
+                    boolean sent = super.send(createDataPayload(payload), deadline);
+                    if(sent) next++;
+                    return sent;
+                } finally {
+                    lock.unlock();
+                }
+            }else return false;
+        }
+
+        @Override
+        public boolean send(Payload payload, Long deadline) throws InterruptedException {
+            throw new UnsupportedOperationException();
+        }
+    }
+
+    @Override
+    protected LinkSocket createLinkSocketInstance(int peerProtocolId) {
+        return new SimpleLinkSocket();
+    }
+
     @Override
     public byte[] receive(Long timeout, boolean notifyIfNone) throws InterruptedException {
         SocketMsg msg;
@@ -149,15 +223,18 @@ public class SimpleSocket extends Socket {
         }
     }
 
+    private Integer getNextAndIncrement(SocketIdentifier sid){
+        // atomically increment the counter
+        Integer next = orderCounters.computeIfPresent(sid, (socketIdentifier, integer) -> integer + 1);
+        // decrement one as the method above increments the counter atomically and returns the new value
+        if(next != null) next--;
+        return next;
+    }
+
     @Override
     public boolean send(byte[] payload, Long timeout, boolean notifyIfNone) throws InterruptedException {
         boolean send;
         if(payload == null) throw new IllegalArgumentException("Payload is null.");
-        byte[] payloadWithOrder = ByteBuffer.allocate(payload.length + 4) // allocate space for payload plus order number
-                                            .putInt(next.getAndIncrement()) // put order number
-                                            .put(payload) // put payload
-                                            .array(); // convert to byte array
-        Payload p = new BytePayload(MsgType.DATA, payloadWithOrder); // create payload object
         Long deadline = Timeout.calculateEndTime(timeout);
         while(true) {
             List<PollEvent<Object>> wlist = writePoller.await(deadline, 1);
@@ -166,9 +243,9 @@ public class SimpleSocket extends Socket {
             LinkIdentifier linkId = (LinkIdentifier) wlist.getFirst().data;
             resubscribeWriteEvent(linkId);
             if ((linkReady.events & PollFlags.POLLOUT) != 0) {
-                LinkSocket linkSocket = getLinkSocket(linkId.destId());
+                SimpleLinkSocket linkSocket = (SimpleLinkSocket) getLinkSocket(linkId.destId());
                 if(linkSocket != null) {
-                    send = linkSocket.send(p, 0L); // non-blocking send
+                    send = linkSocket.trySend(payload); // non-blocking send
                     if (send) return true;
                 }
             }
@@ -228,7 +305,7 @@ public class SimpleSocket extends Socket {
      * @return link socket associated with the given identifier, or "null" if
      * there isn't a link socket associated to that identifier.
      */
-    public LinkSocket linkSocket(SocketIdentifier peerId){
-        return getLinkSocket(peerId);
+    public SimpleLinkSocket linkSocket(SocketIdentifier peerId){
+        return (SimpleLinkSocket) getLinkSocket(peerId);
     }
 }

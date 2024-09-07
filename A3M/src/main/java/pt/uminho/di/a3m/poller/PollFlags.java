@@ -14,6 +14,9 @@ public class PollFlags {
     /** Hang up event bit */
     public static final int POLLHUP = 0x08;
 
+    /** Combination of all event bits **/
+    public static final int POLLALL = POLLIN | POLLOUT | POLLERR | POLLHUP;
+
     /**
      * Free event bit.
      * <p> Primarily used to inform pollers

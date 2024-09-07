@@ -18,7 +18,6 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.function.Supplier;
 
 // TODO - i need to hide LinkSocket and Socket poll(pt).
 
@@ -277,7 +276,7 @@ public abstract class Socket implements Pollable {
             Link link = linkManager.getLink(peerId);
             if(link != null) {
                 // subscribe to all events and wait
-                return Poller.poll(new LinkSocket(link, linkManager),~0,timeout);
+                return Poller.poll(link,PollFlags.POLLINOUT_BITS,timeout);
             }else {
                 // if link does not exist, return POLLHUP immediately
                 return PollFlags.POLLHUP;
@@ -301,7 +300,7 @@ public abstract class Socket implements Pollable {
             Link link = linkManager.getLink(peerId);
             if(link != null) {
                 // subscribe to POLLHUP event and wait
-                return Poller.poll(new LinkSocket(link, linkManager),PollFlags.POLLHUP,timeout);
+                return Poller.poll(link,PollFlags.POLLHUP,timeout);
             }else {
                 // if link does not exist, return POLLHUP immediately
                 return PollFlags.POLLHUP;
@@ -391,6 +390,8 @@ public abstract class Socket implements Pollable {
      * @param msg message to be dispatched
      * @param dispatchTime time at which the dispatch should be executed.
      *                     Must be obtained using System.currentTimeMillis()
+     * @apiNote Currently, can only be invoked by the middleware thread, since the
+     * scheduling of messages is not protected by locks.
      */
     final AtomicReference<Msg> scheduleDispatch(SocketMsg msg, long dispatchTime) {
         return dispatcher.scheduleDispatch(msg, dispatchTime);
@@ -462,15 +463,15 @@ public abstract class Socket implements Pollable {
             SocketMsg rMsg = customOnIncomingMessage(msg);
             if(msg.getType() == MsgType.DATA){
                if(rMsg == null || rMsg.getType() != MsgType.DATA) {
-                   linkSocket.link.acknowledgeDeliverAndIncrementBatch();
+                   linkSocket.getLink().acknowledgeDeliverAndIncrementBatch();
                }
                else{
-                   linkSocket.link.queueIncomingMessage(rMsg);
+                   linkSocket.getLink().queueIncomingMessage(rMsg);
                }
             }
         }
         // If socket is in RAW mode, then queue message immediately
-        else{ linkSocket.link.queueIncomingMessage(msg); }
+        else{ linkSocket.getLink().queueIncomingMessage(msg); }
     }
 
     //final void onCookie(Cookie cookie) {
@@ -504,17 +505,14 @@ public abstract class Socket implements Pollable {
     }
 
     public final void onLinkEstablished(Link link) {
+        assert link != null;
         try {
             lock.writeLock().lock();
             // create link socket
-            LinkSocket linkSocket = new LinkSocket(link, linkManager);
+            LinkSocket linkSocket = createLinkSocket(link, linkManager);
             // set incoming queue
-            Supplier<Queue<SocketMsg>> supplier = getInQueueSupplier(linkSocket);
-            Queue<SocketMsg> queue = null;
-            if (supplier != null)
-                queue = supplier.get();
-            if (queue == null)
-                queue = getDefaultInQueue();
+            Queue<SocketMsg> queue =
+                    validateAndCreateIncomingQueue(link.getPeerProtocolId());
             link.setInMsgQ(queue);
             // register link socket
             linkSockets.put(link.getDestId(), linkSocket);
@@ -524,6 +522,16 @@ public abstract class Socket implements Pollable {
         }finally {
             lock.writeLock().unlock();
         }
+    }
+
+    private LinkSocket createLinkSocket(Link link, LinkManager linkManager) {
+        LinkSocket linkSocket = createLinkSocketInstance(link.getPeerProtocolId());
+        // If method was overriden by subclass and returns a null instance,
+        // then create a regular link socket.
+        if(linkSocket == null) linkSocket = new LinkSocket();
+        // set link and link manager which are required for basic behavior
+        linkSocket.setLinkAndManager(link, linkManager);
+        return linkSocket;
     }
 
     /**
@@ -613,6 +621,18 @@ public abstract class Socket implements Pollable {
         return new LinkedList<>();
     }
 
+    /**
+     * Attempts to retrieve a new and custom queue provided by the socket's custom logic.
+     * If a null queue is provided, then a default linked queue is used instead.
+     * @param peerProtocolId peer's protocol identifier that may be relevant to decide the type of queue.
+     * @return queue for socket messages
+     */
+    private Queue<SocketMsg> validateAndCreateIncomingQueue(int peerProtocolId){
+        Queue<SocketMsg> queue = createIncomingQueue(peerProtocolId);
+        if(queue == null) queue = getDefaultInQueue();
+        return queue;
+    }
+
     // ********** Abstract socket methods ********** //
     protected abstract void init();
 
@@ -637,26 +657,39 @@ public abstract class Socket implements Pollable {
     protected abstract SocketMsg customOnIncomingMessage(SocketMsg msg);
 
     /**
-     * Method to get an incoming queue supplier. Custom sockets may override this method to
+     * Creates an incoming queue. Custom sockets may override this method to
      * supply queues that best meet the socket's semantics, such as providing a queue
      * that uses a Comparator to order messages on insertion.
      * @implSpec <p>The poll() method is used to retrieve a message from the queue.</p>
-     * <p>The peek() method is used to detect if a queue can be polled.
-     * isEmpty() or size() cannot be used, as the queue may have elements but
-     * the queue may not be ready for polling. For instance, if total order is required,
-     * the peek() method must only return the first element of the queue when it is the
-     * next element that should be polled.</p>
+     * <p>The peek() method is used to detect if a queue can be polled. For instance,
+     * if total order is required, the peek() method must only return the first element
+     * of the queue when it is the next element that should be polled.</p>
+     * <p>isEmpty() or size() must report how many elements are in the queue accurately.</p>
      * <p>The supplied queue should not have size restrictions, as the exactly-once
      * semantics do not tolerate the discarding of messages, therefore, we assume the message
      * is added to the queue without any problem.</p>
      * <p>Also, when overriding the method, it must be taken into consideration the mode of
-     * the socket, i.e., if it is in COOKED or RAW mode.</p>
-     * @param linkSocket link socket which may include peer's relevant information, such as the protocol identifier,
-     *                  for the election of a queue.
+     * the socket. On COOKED mode, only data messages will be added to the queue.
+     * On RAW mode, both data and custom control messages are added. In the latter case,
+     * one may want to have two queues disguised as one.</p>
+     * @param peerProtocolId peer's protocol identifier which may be relevant for
+     *                       the election of a queue.
      * @return supplier of an incoming queue for the given link
      */
-    protected Supplier<Queue<SocketMsg>> getInQueueSupplier(LinkSocket linkSocket){
-        return Socket::getDefaultInQueue;
+    protected Queue<SocketMsg> createIncomingQueue(int peerProtocolId){
+        return getDefaultInQueue();
+    }
+
+    /**
+     * Method to create a link socket instance. Since link sockets are the central for communication,
+     * having all custom information and behavior related to the link in a single point may be
+     * desirable from the efficiency and usability points of view. So, specializations of socket can
+     * override this method to specify the kind of instance they desire to be associated to a link with
+     * the provided peer protocol.
+     * @return non-null link socket
+     */
+    protected LinkSocket createLinkSocketInstance(int peerProtocolId){
+        return new LinkSocket();
     }
 
     /**

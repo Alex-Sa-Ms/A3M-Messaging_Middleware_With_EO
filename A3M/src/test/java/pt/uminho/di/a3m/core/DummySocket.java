@@ -100,7 +100,7 @@ public class DummySocket extends Socket{
     }
 
     @Override
-    protected Supplier<Queue<SocketMsg>> getInQueueSupplier(LinkSocket linkSocket) {
+    protected Queue<SocketMsg> createIncomingQueue(int peerProtocolId) {
         return null;
     }
 }

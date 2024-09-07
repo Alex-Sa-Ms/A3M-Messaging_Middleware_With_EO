@@ -7,10 +7,29 @@ import pt.uminho.di.a3m.poller.Pollable;
 
 // TODO - test this
 public class LinkSocket implements Pollable {
-    final Link link;
-    private final LinkManager manager;
+    private Link link = null;
+    private LinkManager manager = null;
+    /* TODO - do something similar to the incoming queue?
+            1. Let subclass dictate the type of link socket if pretended.
+            2. Make link socket constructor private and use setter methods to define
+            the link and link manager variables.
+            3. There is no need for a supplier. Just test if the overriden-method returns
+            a non-null link socket. If it does not, just create a regular link socket.
+     */
+    public LinkSocket(){}
 
-    public LinkSocket(Link link, LinkManager manager) {
+    Link getLink() {
+        return link;
+    }
+
+    /**
+     * Since specializations of link socket are allowed, and to prevent unwanted capturing
+     * of the link and link manager references, these variables are set using this final
+     * and package-private method.
+     * @param link link
+     * @param manager link manager
+     */
+    final void setLinkAndManager(Link link, LinkManager manager){
         if(link == null || manager == null)
             throw new IllegalArgumentException("Link or manager is null.");
         this.link = link;
@@ -18,23 +37,23 @@ public class LinkSocket implements Pollable {
     }
 
     @Override
-    public LinkIdentifier getId() {
+    public final LinkIdentifier getId() {
         return link.getId();
     }
 
-    public SocketIdentifier getOwnerId() {
+    public final SocketIdentifier getOwnerId() {
         return link.getOwnerId();
     }
 
-    public int getPeerProtocolId(){
+    public final int getPeerProtocolId(){
         return link.getPeerProtocolId();
     }
 
-    public SocketIdentifier getPeerId(){
+    public final SocketIdentifier getPeerId(){
         return link.getDestId();
     }
 
-    public Link.LinkState getState(){
+    public final Link.LinkState getState(){
         return link.getState();
     }
 
