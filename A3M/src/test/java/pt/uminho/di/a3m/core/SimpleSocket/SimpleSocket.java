@@ -152,6 +152,7 @@ public class SimpleSocket extends Socket {
             if(locked) {
                 try {
                     boolean sent = super.send(createDataPayload(payload), 0L);
+                    System.out.println("Sent: dest=" + this.getPeerId() + ", next=" + next);
                     if (sent) next++;
                     return sent;
                 } finally {
@@ -179,7 +180,12 @@ public class SimpleSocket extends Socket {
          * @throws InterruptedException
          */
         public boolean send(byte[] payload, Long deadline) throws InterruptedException {
-            boolean locked = lock.tryLock(Timeout.calculateTimeout(deadline), TimeUnit.MILLISECONDS);
+            boolean locked;
+            if(deadline == null){
+                lock.lock();
+                locked = true;
+            } else
+                locked = lock.tryLock(Timeout.calculateTimeout(deadline), TimeUnit.MILLISECONDS);
             if(locked) {
                 try {
                     boolean sent = super.send(createDataPayload(payload), deadline);
@@ -202,38 +208,30 @@ public class SimpleSocket extends Socket {
         return new SimpleLinkSocket();
     }
 
+    // TODO - "notify if none" is not being used
     @Override
     public byte[] receive(Long timeout, boolean notifyIfNone) throws InterruptedException {
-        SocketMsg msg;
+        SocketMsg msg = null;
         Long deadline = Timeout.calculateEndTime(timeout);
         while(true) {
             List<PollEvent<Object>> rlist = readPoller.await(deadline, 1);
             if (rlist == null) return null; // if waiting timed out
             PollEvent<Object> linkReady = rlist.getFirst();
             LinkIdentifier linkId = (LinkIdentifier) rlist.getFirst().data;
-            resubscribeReadEvent(linkId);
             if ((linkReady.events & PollFlags.POLLIN) != 0) {
                 LinkSocket linkSocket = getLinkSocket(linkId.destId());
                 if(linkSocket != null) {
                     msg = linkSocket.receive(0L); // non-blocking receive
-                    if (msg != null)
-                        return msg.getPayload();
                 }
             }
+            resubscribeReadEvent(linkId);
+            if (msg != null) return msg.getPayload();
         }
-    }
-
-    private Integer getNextAndIncrement(SocketIdentifier sid){
-        // atomically increment the counter
-        Integer next = orderCounters.computeIfPresent(sid, (socketIdentifier, integer) -> integer + 1);
-        // decrement one as the method above increments the counter atomically and returns the new value
-        if(next != null) next--;
-        return next;
     }
 
     @Override
     public boolean send(byte[] payload, Long timeout, boolean notifyIfNone) throws InterruptedException {
-        boolean send;
+        boolean sent = false;
         if(payload == null) throw new IllegalArgumentException("Payload is null.");
         Long deadline = Timeout.calculateEndTime(timeout);
         while(true) {
@@ -241,14 +239,13 @@ public class SimpleSocket extends Socket {
             if (wlist == null) return false; // if waiting timed out
             PollEvent<Object> linkReady = wlist.getFirst();
             LinkIdentifier linkId = (LinkIdentifier) wlist.getFirst().data;
-            resubscribeWriteEvent(linkId);
             if ((linkReady.events & PollFlags.POLLOUT) != 0) {
                 SimpleLinkSocket linkSocket = (SimpleLinkSocket) getLinkSocket(linkId.destId());
-                if(linkSocket != null) {
-                    send = linkSocket.trySend(payload); // non-blocking send
-                    if (send) return true;
-                }
+                if(linkSocket != null)
+                    sent = linkSocket.trySend(payload); // non-blocking send
             }
+            resubscribeWriteEvent(linkId);
+            if (sent) return true;
         }
     }
 

@@ -670,3 +670,15 @@ A *Cookie* can be used to determine when a message has arrived at the destinatio
 	- For instance, try acquiring write lock instantaneously, if not possible use read lock with combination of atomic operations.
 		- When the middleware thread wants to queue a message in a socket, if it can acquire the lock immediately, then handle the message queuing until it is finished. If not possible, then add it in a temporary queue. Queuing in this temporary queue is assumed to be only done by the middleware thread, so, if we initiate two of these queues initially, the thread that acquires the write lock, can swap this queues atomically. 
 			- Is this idea correct?
+# Link Socket Credit Reservation
+- Reserving provides flexibility to implement all kinds of logic. One of them is acquiring permission to send a message before effectively creating the message. 
+	- One example could be when total order is required. Since the sockets are thread-safe, avoiding a situation where 2 threads reclaim order numbers, one after the other, but the thread with the lowest order number fails to send the message, then a gap would be left, leading eventually to both the sender and receiver to stall.
+- **Possible solution** if reserving credits is really a functionality to be provided:
+	- Ensuring the reserved credit is only claimed once is necessary. 
+	- A counter and a collection containing the reserved credits can be used to provide this functionality. 
+	- When a thread reserves a credit, an identifier is associated to the credit (and stored in the collection) and provided to the client thread, so that it can use such identifier to bypass the flow control waiting. 
+	- Once the message is sent using the bypass method, the reserved credit is removed from the collection to avoid an exploit of sending data messages without requiring credits.
+	- One may also have the possibility of returning the credit if using it is no longer wanted.
+	- A desirable related functionality is to timeout the credit reservations, so that in case of bad utilization, the credit would be restored.
+- **Another solution (callback)** is to not credit reservation in a different way. The send() method would enable a supplier or callback function that creates the message to be sent. Since callbacks can be dangerous, all locking mechanisms would be released before invoking the callback and it would be involved in a try-finally that would release the credit in case of an error. Since the credit is already reserved (has been consumed), then if the callback takes too long, the link socket functionality would not be affected.
+- Finally, another solution is for the socket or link socket specialization to protect the sending operation, including the message creation which requires synchronization, using a lock. When a non-blocking or blocking with timeout operation is requested, one would use `tryLock()` instead of `lock()`. This way the operation remains correct since the first thread to acquire the lock has not yet been able to acquire a permission to send, so the others will also not be able to.

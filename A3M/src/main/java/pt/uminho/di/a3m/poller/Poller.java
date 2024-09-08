@@ -374,7 +374,7 @@ public class Poller {
                 // in the ready list (the ones registered with level-triggered mode),
                 // have already been polled, so they must stay at the tail.
                 if(!ovflItem.isReady())
-                    IListNode.addFirst(ovflItem.getReadyLink(),readyList);
+                    IListNode.addFirst(ovflItem.getReadyLink(), readyList);
                 // get the next overflow item and deactivate the overflow link pointer
                 ovflItem = ovflItem.getOverflowLink().getAndSet(PollerItem.NOT_ACTIVE);
             }
@@ -457,7 +457,7 @@ public class Poller {
                 // not yet marked as ready, then add it to the ready list
                 // and wake up waiters
                 if(aEvents != 0 && !pItem.isReady()){
-                    IListNode.addLast(readyList, pItem.getReadyLink());
+                    IListNode.addLast(pItem.getReadyLink(), readyList);
                     if(hasWaiters())
                         waitQ.wakeUp(0,1,0,0);
                 }
@@ -516,7 +516,7 @@ public class Poller {
             try {
                 rlLock.writeLock().lock();
                 if(aEvents != 0 && !pItem.isReady()) {
-                    IListNode.addLast(readyList, pItem.getReadyLink());
+                    IListNode.addLast(pItem.getReadyLink(), readyList);
                     if (hasWaiters())
                         waitQ.wakeUp(0, 1, 0, 0);
                 }

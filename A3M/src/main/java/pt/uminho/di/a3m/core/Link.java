@@ -550,6 +550,9 @@ public class Link implements Pollable {
             // In case of a data message, permission from the flow control is required.
             if(payload.getType() != MsgType.DATA || hasOutgoingCredits()) {
                 dispatcher.onOutgoingMessage(this, payload);
+                // consume credit if of data type
+                if(payload.getType() == MsgType.DATA)
+                    tryConsumingCredit();
                 return true;
             }
             // return if timed out
@@ -573,6 +576,7 @@ public class Link implements Pollable {
                 // attempt to send the message again
                 if(hasOutgoingCredits())  {
                     dispatcher.onOutgoingMessage(this, payload);
+                    tryConsumingCredit();
                     ret = true;
                     break;
                 }

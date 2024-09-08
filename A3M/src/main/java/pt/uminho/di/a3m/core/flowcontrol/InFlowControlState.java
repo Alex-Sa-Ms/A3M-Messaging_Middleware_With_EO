@@ -8,15 +8,6 @@ public class InFlowControlState {
 
     /**
      * Create an instance that holds incoming flow control state,
-     * with the provided initial capacity.
-     * @param initialCapacity amount of messages willing to be queued at the same time
-     */
-    public InFlowControlState(int initialCapacity) {
-        this.capacity = initialCapacity;
-    }
-
-    /**
-     * Create an instance that holds incoming flow control state,
      * with the provided initial capacity and with batch size
      * adjusted using the given batch size percentage.
      * @param initialCapacity amount of messages willing to be queued at the same time
@@ -31,6 +22,15 @@ public class InFlowControlState {
         this.capacity = initialCapacity;
         this.batchSizePercentage = batchSizePercentage;
         batchSize = calculateBatchSize(initialCapacity, batchSizePercentage);
+    }
+
+    /**
+     * Create an instance that holds incoming flow control state,
+     * with the provided initial capacity.
+     * @param initialCapacity amount of messages willing to be queued at the same time
+     */
+    public InFlowControlState(int initialCapacity) {
+        this(initialCapacity, 0.05f);
     }
 
     private static void checkBatchSizePercentage(float batchSizePercentage){

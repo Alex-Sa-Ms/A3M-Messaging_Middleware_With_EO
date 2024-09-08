@@ -15,6 +15,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -241,7 +242,7 @@ class LinkSocketTest {
         // link socket0 to socket1
         linkSockets(0,1,true);
         // make socket0 send a sequence of messages and assert they arrive in order
-        int N = 1000;
+        int N = sockets[1].getOption("capacity", Integer.class);
         // send string messages with 0 until N - 1
         for (int i = 0; i < N; i++)
             sockets[0].send(String.valueOf(i).getBytes(), null, true);
@@ -251,6 +252,62 @@ class LinkSocketTest {
             arrMsg = sockets[1].receive(null, true);
             String msg = StandardCharsets.UTF_8.decode(ByteBuffer.wrap(arrMsg)).toString();
             assert msg.equals(String.valueOf(i));
+        }
+    }
+
+    @Test
+    void testOrderedReceiveMultipleReceivers() throws InterruptedException {
+        int N = 1000;
+        AtomicInteger counter = new AtomicInteger(0);
+        Thread[] threads = new Thread[nrSockets];
+        // activate random delay
+        dispatcher.setRandomDelay(true);
+
+        // link socket 0 to remaining sockets and create listening thread
+        for (int i = 1; i < nrSockets; i++) {
+            linkSockets(0, i, true);
+            int finalI = i;
+            threads[i] = new Thread(() -> {
+                byte[] arrMsg;
+                int last = -1;
+                // loop while all messages sent by socket0
+                // have not been received
+                while(counter.get() < N){
+                    try {
+                        // assert that new messages contain a value higher
+                        // than all messages previously received.
+                        arrMsg = sockets[finalI].receive(1000L, true);
+                        if(arrMsg != null) {
+                            String msg = StandardCharsets.UTF_8.decode(ByteBuffer.wrap(arrMsg)).toString();
+                            int parsed = Integer.parseInt(msg);
+                            assert parsed > last;
+                            last = parsed;
+                            counter.incrementAndGet();
+                        }
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+            });
+            threads[i].start();
+        }
+
+        // send string messages with 0 until N - 1
+        for (int i = 0; i < N; i++)
+            sockets[0].send(String.valueOf(i).getBytes(), null, true);
+
+        // wait for all threads to finish
+        for (int i = 1; i < nrSockets; i++) {
+            threads[i].join();
+        }
+
+        // sleep a bit to wait for batch messages to arrive
+        Thread.sleep(25);
+
+        // assert link sockets have all outgoing credits
+        for (int i = 1; i < nrSockets; i++) {
+            assert sockets[0].getLinkSocket(sids[i]).getOutgoingCredits()
+                    == sockets[i].getOption("capacity", Integer.class);
         }
     }
 
