@@ -70,10 +70,14 @@ public class SimpleSocket extends Socket {
     /** @return Wake function that notifies when an event happens to the link socket. */
     private final WaitQueueFunc linkWatcherWakeFunction = (entry, mode, flags, key) -> {
         int iKey = (int) key;
-        // if POLLHUP is received, remove the watcher.
+        // if POLLHUP is received, remove the watcher and
+        // make the pollers remove the link socket from the interest list
         if((iKey & PollFlags.POLLHUP) != 0) {
             entry.delete();
-            ((SimpleLinkSocket) entry.getPriv()).watcherWaitEntry = null;
+            SimpleLinkSocket sls = ((SimpleLinkSocket) entry.getPriv());
+            sls.watcherWaitEntry = null;
+            readPoller.delete(sls.getId());
+            writePoller.delete(sls.getId());
         }
         // if POLLOUT is received, notify a socket waiter with POLLOUT
         checkEventsAndNotifyWaiters(iKey, PollFlags.POLLOUT);
@@ -382,6 +386,8 @@ public class SimpleSocket extends Socket {
             if(getState() == SocketState.CLOSED)
                 throw new SocketClosedException();
 
+            // TODO - make it not register in the wait queue if the operation is non-blocking
+
             // queue the thread
             ps = new ParkStateSimpleSocket(
                     true,
@@ -395,9 +401,13 @@ public class SimpleSocket extends Socket {
 
         try {
             while(true) {
+                if(getState() == SocketState.CLOSED)
+                    throw new SocketClosedException();
+
                 payload = tryReceiving();
                 if (payload != null)
                     return payload;
+
                 boolean wokenUp = WaitQueueEntry.defaultWaitFunction(
                         ps.getWaitQueueEntry(), ps, deadline, true);
                 if(wokenUp) {
@@ -461,6 +471,9 @@ public class SimpleSocket extends Socket {
             getLock().readLock().lock();
             if (getState() == SocketState.CLOSED)
                 throw new SocketClosedException();
+
+            // TODO - make it not register in the wait queue if the operation is non-blocking
+
             // queue the thread
             ps = new ParkStateSimpleSocket(
                     true,
@@ -473,8 +486,12 @@ public class SimpleSocket extends Socket {
         }
         try {
             while (true) {
+                if(getState() == SocketState.CLOSED)
+                    throw new SocketClosedException();
+
                 sent = trySending(payload);
                 if (sent) return true;
+
                 boolean wokenUp = WaitQueueEntry.defaultWaitFunction(
                         ps.getWaitQueueEntry(), ps, deadline, true);
                 if (wokenUp) {

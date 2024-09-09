@@ -1,5 +1,6 @@
 package pt.uminho.di.a3m.core;
 
+import pt.uminho.di.a3m.auxiliary.Debugging;
 import pt.uminho.di.a3m.auxiliary.Timeout;
 import pt.uminho.di.a3m.core.messaging.Msg;
 import pt.uminho.di.a3m.core.messaging.MsgType;
@@ -556,10 +557,10 @@ public abstract class Socket implements Pollable {
                 return true;
             if (tmpState != SocketState.CLOSING)
                 closeInternal();
-            return (Poller.poll(this, PollFlags.POLLHUP, timeout) & PollFlags.POLLHUP) != 0;
         } finally {
             lock.writeLock().unlock();
         }
+        return (Poller.poll(this, PollFlags.POLLHUP, timeout) & PollFlags.POLLHUP) != 0;
     }
 
     /**
@@ -588,15 +589,18 @@ public abstract class Socket implements Pollable {
                 // set state to CLOSING
                 state.set(SocketState.CLOSING);
                 // Unlinking all links is required before closing the socket.
-                for (LinkSocket linkSocket : linkSockets.values())
+                for (LinkSocket linkSocket : linkSockets.values()) {
                     linkSocket.unlink();
+                    System.out.println(getId() + ": Unlinking with " + linkSocket.getPeerId());
+                }
             }
 
-            if (linkSockets.isEmpty()) {
+            if (!linkManager.hasLinks()) {
                 // perform custom closing procedures if socket is in cooked mode
                 if(cookedMode) destroy();
                 state.set(SocketState.CLOSED);
                 socketManager.closeSocket(this);
+                System.out.println(getId() + ": Signaled POLLHUP");
                 waitQ.wakeUp(0,0,0,PollFlags.POLLHUP | PollFlags.POLLFREE);
             }
         }
@@ -612,11 +616,18 @@ public abstract class Socket implements Pollable {
     public final void onLinkClosed(Link link) {
         try {
             lock.writeLock().lock();
+            Debugging.printlnOrdered(getId() + ": link closed with " + link.getDestId());
             LinkSocket linkSocket = linkSockets.remove(link.getDestId());
             customOnLinkClosed(linkSocket);
-            if (state.get() == SocketState.CLOSING && linkSockets.isEmpty())
+            Debugging.printlnOrdered(getId() + ": executed custonOnLinkClosed for " + link.getDestId());
+            if (state.get() == SocketState.CLOSING && !linkManager.hasLinks()) {
+                Debugging.printlnOrdered(getId() + ": invoking close internal after closed link " + link.getDestId());
                 closeInternal();
+                Debugging.printlnOrdered(getId() + ": invoked close internal after closed link " + link.getDestId());
+            }
+            Debugging.printlnOrdered(getId() + ": notifying wake any link waiters for " + link.getDestId());
             wakeAnyLinkWaitersIfNoLinks();
+            Debugging.printlnOrdered(getId() + ": notified wake any link waiters for " + link.getDestId());
         }finally {
             lock.writeLock().unlock();
         }

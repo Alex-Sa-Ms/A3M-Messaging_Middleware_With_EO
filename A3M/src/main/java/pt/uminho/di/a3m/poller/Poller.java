@@ -473,7 +473,7 @@ public class Poller {
 
     /**
      * Modifies events mask of a registered pollable.
-     * @param id identifier of the target of the modification
+     * @param pId identifier of the target of the modification
      * @param events new events mask
      * @return <p> > 0 if success
      *         <p> > PNOEXIST if pollable is not registered.
@@ -482,8 +482,8 @@ public class Poller {
      * i.e., if the flag is set in the new event mask or in the current event mask.
      * @throws PollerClosedException if poller is closed.
      */
-    public int modify(Object id, int events) throws PollerClosedException{
-        if(id == null)
+    public int modify(Object pId, int events) throws PollerClosedException{
+        if(pId == null)
             throw new IllegalArgumentException("Identifier is null.");
 
         // validates combination of flags
@@ -499,7 +499,7 @@ public class Poller {
 
             checkClosed();
 
-            PollerItem pItem = interestMap.get(id);
+            PollerItem pItem = interestMap.get(pId);
             if(pItem == null)
                 return PNOEXIST;
 
@@ -552,12 +552,26 @@ public class Poller {
      * @param p pollable to be deleted from the interest list
      * @return <p> > Number of remaining pollables being monitored. </p>
      *         <p> > PNOEXIST if pollable is not registered. </p>
+     * @throws IllegalArgumentException if pollable is null
+     * @throws PollerClosedException if poller is closed
+     */
+    public int delete(Pollable p) throws PollerClosedException {
+        if (p == null)
+            throw new IllegalArgumentException("Pollable is null.");
+        return delete(p.getId());
+    }
+
+    /**
+     * Deletes pollable from interest list
+     * @param pId identifier of the pollable to be deleted from the interest list
+     * @return <p> > Number of remaining pollables being monitored. </p>
+     *         <p> > PNOEXIST if pollable is not registered. </p>
      * @throws IllegalArgumentException if pollable is null        
      * @throws PollerClosedException if poller is closed
      */
-    public int delete(Pollable p) throws PollerClosedException{
-        if(p == null)
-            throw new IllegalArgumentException("Pollable is null.");
+    public int delete(Object pId) throws PollerClosedException{
+        if(pId == null)
+            throw new IllegalArgumentException("Identifier is null.");
 
         try {
             lock.lock();
@@ -565,7 +579,7 @@ public class Poller {
             checkClosed();
 
             // checks if pollable is registered
-            PollerItem pItem = interestMap.get(p.getId());
+            PollerItem pItem = interestMap.get(pId);
             if(pItem == null)
                 return PNOEXIST;
 
@@ -830,7 +844,7 @@ public class Poller {
      */
     private static List<WaitQueueEntry> _pollRegisterLoop(List<PollEvent<Pollable>> interestList, int maxEvents, PollCall pCall, List<PollEvent<Object>> rEvents) {
         List<WaitQueueEntry> waitTable = new ArrayList<>();
-        PollTable pt = new PollTable(~0, null, (p, wait, qpt) -> {
+        PollTable pt = new PollTable(PollFlags.POLLALL, null, (p, wait, qpt) -> {
             if (wait != null) {
                 PollCallEntry pce = new PollCallEntry(pCall, qpt.getKey());
                 // Add non-exclusive entry. Exclusive entries are not allowed,
@@ -956,6 +970,7 @@ public class Poller {
         // it to skip the parking.
         ps.parked.set(true);
 
+        // TODO - make it not register in the wait queues if the operation is non-blocking
         // register in pollable's wait queues
         List<WaitQueueEntry> waitTable = _pollRegisterLoop(interestList, maxEvents, pCall, rEvents);
 
@@ -975,7 +990,7 @@ public class Poller {
                 if(timedOut)
                     break;
                 // waits for timeout, interrupt signal or wake-up call
-                timedOut = WaitQueueEntry.parkStateWaitFunction(endTimeout, ps, true);
+                timedOut = !WaitQueueEntry.parkStateWaitFunction(endTimeout, ps, true);
                 // set parks state to true to make sure it if
                 // in the next iteration, waiting is only done
                 // if a permit for unparking has not been given yet

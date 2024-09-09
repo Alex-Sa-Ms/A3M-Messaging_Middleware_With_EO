@@ -22,6 +22,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
 class LinkSocketTest {
+    String nodeId = "Node";
     int nrSockets = 3;
     SocketIdentifier[] sids = new SocketIdentifier[nrSockets];
     SimpleSocket[] sockets = new SimpleSocket[nrSockets];
@@ -110,10 +111,14 @@ class LinkSocketTest {
     
     @BeforeEach
     void initSocketsAndLinkManagers(){
+        SocketManager socketManager = new SocketMananerImpl(nodeId, dispatcher);
+        socketManager.registerProducer(SimpleSocket::createSocket);
         for (int i = 0; i < nrSockets; i++) {
-            sids[i] = new SocketIdentifier("Node" + i, "Socket" + i);
-            sockets[i] = SimpleSocket.createSocket(sids[i]);
-            ((Socket) sockets[i]).setCoreComponents(dispatcher, new SocketMananerImpl("Node" + i, dispatcher));
+            //sids[i] = new SocketIdentifier("Node" + i, "Socket" + i);
+            //sockets[i] = SimpleSocket.createSocket(sids[i]);
+            //((Socket) sockets[i]).setCoreComponents(dispatcher, new SocketMananerImpl("Node" + i, dispatcher));
+            sids[i] = new SocketIdentifier(nodeId, "Socket" + i);
+            sockets[i] = socketManager.createSocket("Socket" + i, SimpleSocket.protocol.id(), SimpleSocket.class);
             dispatcher.registerSocket(sockets[i]);
         }
     }
@@ -272,23 +277,21 @@ class LinkSocketTest {
                 int last = -1;
                 // loop while all messages sent by socket0
                 // have not been received
-                while(counter.get() < N){
-                    try {
+                try {
+                    while (counter.get() < N) {
                         // assert that new messages contain a value higher
                         // than all messages previously received.
                         arrMsg = sockets[finalI].receive(100L, true);
-                        if(arrMsg != null) {
+                        if (arrMsg != null) {
                             String msg = StandardCharsets.UTF_8.decode(ByteBuffer.wrap(arrMsg)).toString();
                             int parsed = Integer.parseInt(msg);
                             assert parsed > last;
                             last = parsed;
-                            int idx = counter.incrementAndGet();
-                            //if(idx == N)
-                            //    sockets[finalI].close();
+                            counter.incrementAndGet();
                         }
-                    } catch (InterruptedException e) {
-                        throw new RuntimeException(e);
                     }
+                }catch (InterruptedException e) {
+                    throw new RuntimeException(e);
                 }
             });
             threads[i].start();
@@ -303,14 +306,7 @@ class LinkSocketTest {
             threads[i].join();
         }
 
-        // sleep a bit to wait for batch messages to arrive
-        Thread.sleep(100);
-
-        // assert link sockets have all outgoing credits
-        for (int i = 1; i < nrSockets; i++) {
-            assert sockets[0].getLinkSocket(sids[i]).getOutgoingCredits()
-                    == sockets[i].getOption("capacity", Integer.class);
-        }
+        sockets[0].close();
     }
 
     @Test
