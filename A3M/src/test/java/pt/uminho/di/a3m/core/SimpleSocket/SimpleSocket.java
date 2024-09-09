@@ -1,24 +1,26 @@
 package pt.uminho.di.a3m.core.SimpleSocket;
 
+import pt.uminho.di.a3m.auxiliary.Debugging;
 import pt.uminho.di.a3m.auxiliary.Timeout;
 import pt.uminho.di.a3m.core.*;
+import pt.uminho.di.a3m.core.exceptions.NoLinksException;
+import pt.uminho.di.a3m.core.exceptions.SocketClosedException;
 import pt.uminho.di.a3m.core.messaging.MsgType;
 import pt.uminho.di.a3m.core.messaging.Payload;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 import pt.uminho.di.a3m.core.messaging.payloads.BytePayload;
-import pt.uminho.di.a3m.poller.PollEvent;
-import pt.uminho.di.a3m.poller.PollFlags;
-import pt.uminho.di.a3m.poller.Poller;
+import pt.uminho.di.a3m.poller.*;
+import pt.uminho.di.a3m.waitqueue.ParkState;
+import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;
+import pt.uminho.di.a3m.waitqueue.WaitQueueFunc;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.Supplier;
 
 /**
  * Simple socket:
@@ -32,9 +34,9 @@ public class SimpleSocket extends Socket {
     final static private String protocolName = "SimpleTotalOrderSocket";
     final static public Protocol protocol = new Protocol(protocolName.hashCode(), protocolName);
     final static public Set<Protocol> compatProtocols = Collections.singleton(protocol);
+    private static final int CHECK_IF_NONE = 1; // wake up mode to inform when there aren't any links
     final private Poller readPoller = Poller.create();
     final private Poller writePoller = Poller.create();
-    final private Map<SocketIdentifier, Integer> orderCounters = new ConcurrentHashMap<>();
 
     protected SimpleSocket(SocketIdentifier sid) {
         super(sid);
@@ -54,6 +56,43 @@ public class SimpleSocket extends Socket {
         // empty because it does not require any special closing procedures
     }
 
+    /**
+     * Checks if the key contains any event of interest. If it does contain, then notify
+     * the events present in the intersection of the key with the events of interest mask
+     * @param key events available
+     * @param events events of interest
+     */
+    private void checkEventsAndNotifyWaiters(int key, int events){
+        int i = key & events;
+        if(i != 0) getWaitQueue().fairWakeUp(0, 1, 0, i);
+    }
+
+    /** @return Wake function that notifies when an event happens to the link socket. */
+    private final WaitQueueFunc linkWatcherWakeFunction = (entry, mode, flags, key) -> {
+        int iKey = (int) key;
+        // if POLLHUP is received, remove the watcher.
+        if((iKey & PollFlags.POLLHUP) != 0) {
+            entry.delete();
+            ((SimpleLinkSocket) entry.getPriv()).watcherWaitEntry = null;
+        }
+        // if POLLOUT is received, notify a socket waiter with POLLOUT
+        checkEventsAndNotifyWaiters(iKey, PollFlags.POLLOUT);
+        // if POLLIN is received, notify a socket waiter with POLLIN
+        checkEventsAndNotifyWaiters(iKey, PollFlags.POLLIN);
+        return 1;
+    };
+
+    /** @return Function that queues a link event watcher. */
+    private final PollQueueingFunc linkWatcherQueueFunction = (p, wait, pt) -> {
+        if(wait != null){
+            SimpleLinkSocket sls = (SimpleLinkSocket) pt.getPriv();
+            // register wait queue entry used to watch the credits
+            sls.watcherWaitEntry = wait;
+            // add the wait queue entry to the link socket's wait queue
+            wait.add(linkWatcherWakeFunction, sls);
+        }
+    };
+
     private void resubscribeReadEvent(LinkIdentifier linkId){
         readPoller.modify(linkId, PollFlags.POLLIN | PollFlags.POLLET | PollFlags.POLLONESHOT);
     }
@@ -64,26 +103,40 @@ public class SimpleSocket extends Socket {
 
     @Override
     protected void customOnLinkEstablished(LinkSocket linkSocket) {
+        // register a watcher of the link
+        int events = linkSocket.poll(
+                new PollTable(
+                        PollFlags.POLLALL,
+                        linkSocket,
+                        linkWatcherQueueFunction));
         // add link socket to pollers
-        readPoller.add(linkSocket, PollFlags.POLLIN | PollFlags.POLLET | PollFlags.POLLONESHOT);
-        writePoller.add(linkSocket, PollFlags.POLLOUT | PollFlags.POLLET | PollFlags.POLLONESHOT);
-        // add counter
-        orderCounters.put(linkSocket.getPeerId(), 0);
+        // TODO - REMAINDER OF HOW THIS PROBLEM WAS SOLVED (ORDER IN THE WAIT QUEUES MATTER)
+        //  (The pollers need to be notified before the link watcher,
+        //  because the link watcher acts on the assumption that the pollers have already been notified.
+        //  So, because non-exclusive insertions are made at the head of queue, the insertion of the link
+        //  watcher must be done before the insertions of the poller instances.)
+        readPoller.add(linkSocket, PollFlags.POLLIN /*| PollFlags.POLLET | PollFlags.POLLONESHOT*/);
+        writePoller.add(linkSocket, PollFlags.POLLOUT /*| PollFlags.POLLET | PollFlags.POLLONESHOT*/);
+        // notify if sending is immediately possible
+        checkEventsAndNotifyWaiters(events, PollFlags.POLLOUT);
+        // notify if receiving is immediately possible
+        checkEventsAndNotifyWaiters(events, PollFlags.POLLIN);
     }
 
     @Override
     protected void customOnLinkClosed(LinkSocket linkSocket) {
-        // remove link socket from pollers
-        readPoller.delete(linkSocket);
-        writePoller.delete(linkSocket);
-        // remove counter
-        orderCounters.remove(linkSocket.getPeerId());
+        // TODO -
+        //  1. Notify with different mode but without any events to
+        //      ensure only waiters that recognize the mode, do wake up.
+        //  2. Make waiters understand check this mode.
+        // Notify with CHECK_IF_NONE mode, so that waiters that
+        // require waking up when there aren't any links can do so.
+        if(countLinks() == 0)
+            getWaitQueue().wakeUp(CHECK_IF_NONE, 0, 0, 0);
     }
 
     @Override
     protected SocketMsg customOnIncomingMessage(SocketMsg msg) {
-        // notify waiters
-        getWaitQueue().fairWakeUp(0,1,0,PollFlags.POLLIN);
         // Return false because it does not use custom control messages,
         // and all data messages should be queued in the appropriate link's queue.
         return SocketMsgWithOrder.parseFrom(msg);
@@ -137,6 +190,7 @@ public class SimpleSocket extends Socket {
     public static class SimpleLinkSocket extends LinkSocket{
         int next = 0;
         Lock lock = new ReentrantLock();
+        WaitQueueEntry watcherWaitEntry = null;
 
         private BytePayload createDataPayload(byte[] payload){
             byte[] payloadWithOrder =
@@ -152,7 +206,6 @@ public class SimpleSocket extends Socket {
             if(locked) {
                 try {
                     boolean sent = super.send(createDataPayload(payload), 0L);
-                    System.out.println("Sent: dest=" + this.getPeerId() + ", next=" + next);
                     if (sent) next++;
                     return sent;
                 } finally {
@@ -208,44 +261,237 @@ public class SimpleSocket extends Socket {
         return new SimpleLinkSocket();
     }
 
-    // TODO - "notify if none" is not being used
-    @Override
-    public byte[] receive(Long timeout, boolean notifyIfNone) throws InterruptedException {
-        SocketMsg msg = null;
-        Long deadline = Timeout.calculateEndTime(timeout);
-        while(true) {
-            List<PollEvent<Object>> rlist = readPoller.await(deadline, 1);
-            if (rlist == null) return null; // if waiting timed out
-            PollEvent<Object> linkReady = rlist.getFirst();
-            LinkIdentifier linkId = (LinkIdentifier) rlist.getFirst().data;
-            if ((linkReady.events & PollFlags.POLLIN) != 0) {
-                LinkSocket linkSocket = getLinkSocket(linkId.destId());
-                if(linkSocket != null) {
-                    msg = linkSocket.receive(0L); // non-blocking receive
-                }
-            }
-            resubscribeReadEvent(linkId);
-            if (msg != null) return msg.getPayload();
+    private static class ParkStateSimpleSocket extends ParkState {
+        private final int events; // events of interest to the waiter
+        private final boolean notifyIfNone;
+        private WaitQueueEntry wait = null;
+
+        public ParkStateSimpleSocket(boolean parkState, boolean notifyIfNone) {
+            super(parkState);
+            this.notifyIfNone = notifyIfNone;
+            this.events = 0;
+        }
+
+        public ParkStateSimpleSocket(boolean parkState, int events, boolean notifyIfNone) {
+            super(parkState);
+            this.events = events;
+            this.notifyIfNone = notifyIfNone;
+        }
+
+        public int getEvents() {
+            return events;
+        }
+
+        public boolean isNotifyIfNone() {
+            return notifyIfNone;
+        }
+
+        public WaitQueueEntry getWaitQueueEntry() {
+            return wait;
+        }
+
+        public void setWaitQueueEntry(WaitQueueEntry wait) {
+            this.wait = wait;
         }
     }
 
+    private static final WaitQueueFunc directWaiterWakeFunc = (wait, mode, flags, key) -> {
+        int iKey = (int) key;
+        ParkStateSimpleSocket ps = (ParkStateSimpleSocket) wait.getPriv();
+        if((iKey & ps.getEvents()) != 0 ||
+                (mode == CHECK_IF_NONE && ps.isNotifyIfNone())) {
+            int ret = wait.parkStateWakeUp(ps);
+            return ret;
+        }
+        return 0;
+    };
+
+    private static final PollQueueingFunc directWaiterQueuingFunc = (p, wait, pt) -> {
+        if(wait != null){
+            wait.addExclusive(directWaiterWakeFunc, pt.getPriv());
+            ((ParkStateSimpleSocket) pt.getPriv()).setWaitQueueEntry(wait);
+        }
+    };
+
+    /**
+     * Used to get the socket identifier associated with a link that is
+     * ready for a certain event.
+     * <p></p>
+     * @param poller poller from which an event should be polled. Currently, used only
+     *               for readPoller and writePoller.
+     * @param event event of interest. Currently, used only for POLLIN or POLLOUT.
+     * @return identifier of the link that is ready for the requested event
+     * @implNote Assumes that the caller of this function will resubscribe the events
+     * after being done with the link.
+     */
+    private LinkIdentifier getLinkReady(Poller poller, int event) throws InterruptedException {
+        List<PollEvent<Object>> rlist = poller.await(1, 0L);
+        LinkIdentifier linkId = null;
+        if (rlist != null){
+            PollEvent<Object> linkReady = rlist.getFirst();
+            if((linkReady.events & event) != 0)
+                linkId = (LinkIdentifier) linkReady.data;
+        }
+        return linkId;
+    }
+
+    private LinkIdentifier getLinkReadyToReceive() throws InterruptedException {
+        return getLinkReady(readPoller, PollFlags.POLLIN);
+    }
+
+    private byte[] tryReceiving() throws InterruptedException {
+        LinkIdentifier linkId = getLinkReadyToReceive();
+        if (linkId != null) {
+            LinkSocket linkSocket = getLinkSocket(linkId.destId());
+            if (linkSocket != null) {
+                try {
+                    SocketMsg msg = linkSocket.receive(0L); // non-blocking receive
+                    if (msg != null)
+                        return msg.getPayload();
+                }finally {
+                    //resubscribeReadEvent(linkId);
+                    if(isReadyToReceive())
+                        getWaitQueue().fairWakeUp(0,1,0,PollFlags.POLLIN);
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Waits for a message to be received.
+     * @param timeout maximum time allowed for a message to be received. After such time
+     *                is elaped, the method must return null.
+     * @param notifyIfNone "true" when a NoLinksException is desirable to
+     *                     stop the waiting operation when there aren't any links.
+     * @return null if operation timed out. Non-null value if a message was received successfully.
+     * @throws InterruptedException .
+     * @throws SocketClosedException if socket is closed
+     * @throws NoLinksException if the "notify if none" flag is set
+     * and there aren't any links regardless of the state being established,
+     * linking, etc.
+     */
+    @Override
+    public byte[] receive(Long timeout, boolean notifyIfNone) throws InterruptedException {
+        byte[] payload;
+        Long deadline = Timeout.calculateEndTime(timeout);
+        ParkStateSimpleSocket ps;
+        try {
+            getLock().readLock().lock();
+
+            if(getState() == SocketState.CLOSED)
+                throw new SocketClosedException();
+
+            // queue the thread
+            ps = new ParkStateSimpleSocket(
+                    true,
+                    PollFlags.POLLIN | PollFlags.POLLERR | PollFlags.POLLHUP,
+                    notifyIfNone);
+            PollTable pt = new PollTable(PollFlags.POLLIN, ps, directWaiterQueuingFunc);
+            poll(pt);
+        } finally {
+            getLock().readLock().unlock();
+        }
+
+        try {
+            while(true) {
+                payload = tryReceiving();
+                if (payload != null)
+                    return payload;
+                boolean wokenUp = WaitQueueEntry.defaultWaitFunction(
+                        ps.getWaitQueueEntry(), ps, deadline, true);
+                if(wokenUp) {
+                    // if the "notify if none" flag is set,
+                    // and there aren't any links, notify with a
+                    // NoLinksException
+                    if (notifyIfNone && countLinks() == 0)
+                        throw new NoLinksException();
+                }
+
+                ps.parked.set(true);
+
+                if(!wokenUp && Timeout.hasTimedOut(deadline))
+                    return null;
+            }
+        } finally {
+            ps.getWaitQueueEntry().delete();
+        }
+    }
+
+    private LinkIdentifier getLinkReadyToSend() throws InterruptedException {
+        return getLinkReady(writePoller, PollFlags.POLLOUT);
+    }
+
+    private boolean trySending(byte[] payload) throws InterruptedException {
+        LinkIdentifier linkId = getLinkReadyToSend();
+        if (linkId != null) {
+            SimpleLinkSocket linkSocket =
+                    (SimpleLinkSocket) getLinkSocket(linkId.destId());
+            if (linkSocket != null) {
+                try { return linkSocket.trySend(payload); }
+                finally {
+                    //resubscribeWriteEvent(linkId);
+                    if(isReadyToSend())
+                        getWaitQueue().fairWakeUp(0,1,0,PollFlags.POLLOUT);
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Waits to send a message.
+     * @param timeout maximum time allowed for a message to be sent. After such time
+     *                is elaped, the method must return false.
+     * @param notifyIfNone "true" when a NoLinksException is desirable to
+     *                     stop the waiting operation when there aren't any links.
+     * @return false if operation timed out. True if a message was sent successfully.
+     * @throws InterruptedException .
+     * @throws SocketClosedException if socket is closed
+     * @throws NoLinksException if the "notify if none" flag is set
+     * and there aren't any links regardless of the state being established,
+     * linking, etc.
+     */
     @Override
     public boolean send(byte[] payload, Long timeout, boolean notifyIfNone) throws InterruptedException {
         boolean sent = false;
-        if(payload == null) throw new IllegalArgumentException("Payload is null.");
         Long deadline = Timeout.calculateEndTime(timeout);
-        while(true) {
-            List<PollEvent<Object>> wlist = writePoller.await(deadline, 1);
-            if (wlist == null) return false; // if waiting timed out
-            PollEvent<Object> linkReady = wlist.getFirst();
-            LinkIdentifier linkId = (LinkIdentifier) wlist.getFirst().data;
-            if ((linkReady.events & PollFlags.POLLOUT) != 0) {
-                SimpleLinkSocket linkSocket = (SimpleLinkSocket) getLinkSocket(linkId.destId());
-                if(linkSocket != null)
-                    sent = linkSocket.trySend(payload); // non-blocking send
+        ParkStateSimpleSocket ps;
+        try {
+            getLock().readLock().lock();
+            if (getState() == SocketState.CLOSED)
+                throw new SocketClosedException();
+            // queue the thread
+            ps = new ParkStateSimpleSocket(
+                    true,
+                    PollFlags.POLLOUT | PollFlags.POLLERR | PollFlags.POLLHUP,
+                    notifyIfNone);
+            PollTable pt = new PollTable(PollFlags.POLLOUT, ps, directWaiterQueuingFunc);
+            poll(pt);
+        } finally {
+            getLock().readLock().unlock();
+        }
+        try {
+            while (true) {
+                sent = trySending(payload);
+                if (sent) return true;
+                boolean wokenUp = WaitQueueEntry.defaultWaitFunction(
+                        ps.getWaitQueueEntry(), ps, deadline, true);
+                if (wokenUp) {
+                    // if the "notify if none" flag is set,
+                    // and there aren't any links, notify with a
+                    // NoLinksException
+                    if (notifyIfNone && countLinks() == 0)
+                        throw new NoLinksException();
+                }
+
+                ps.parked.set(true);
+
+                if (!wokenUp && Timeout.hasTimedOut(deadline))
+                    return false;
             }
-            resubscribeWriteEvent(linkId);
-            if (sent) return true;
+        } finally {
+            ps.getWaitQueueEntry().delete();
         }
     }
 
@@ -259,7 +505,7 @@ public class SimpleSocket extends Socket {
             if (rlist == null) return false; // if waiting timed out
             PollEvent<Object> linkReady = rlist.getFirst();
             LinkIdentifier linkId = (LinkIdentifier) rlist.getFirst().data;
-            resubscribeReadEvent(linkId);
+            //resubscribeReadEvent(linkId);
             if ((linkReady.events & PollFlags.POLLIN) != 0)
                 return true;
         }
@@ -276,7 +522,7 @@ public class SimpleSocket extends Socket {
             if (wlist == null) return false; // if waiting timed out
             PollEvent<Object> linkReady = wlist.getFirst();
             LinkIdentifier linkId = (LinkIdentifier) wlist.getFirst().data;
-            resubscribeWriteEvent(linkId);
+            //resubscribeWriteEvent(linkId);
             if ((linkReady.events & PollFlags.POLLOUT) != 0)
                 return true;
         }

@@ -276,13 +276,15 @@ class LinkSocketTest {
                     try {
                         // assert that new messages contain a value higher
                         // than all messages previously received.
-                        arrMsg = sockets[finalI].receive(1000L, true);
+                        arrMsg = sockets[finalI].receive(100L, true);
                         if(arrMsg != null) {
                             String msg = StandardCharsets.UTF_8.decode(ByteBuffer.wrap(arrMsg)).toString();
                             int parsed = Integer.parseInt(msg);
                             assert parsed > last;
                             last = parsed;
-                            counter.incrementAndGet();
+                            int idx = counter.incrementAndGet();
+                            //if(idx == N)
+                            //    sockets[finalI].close();
                         }
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);
@@ -302,7 +304,7 @@ class LinkSocketTest {
         }
 
         // sleep a bit to wait for batch messages to arrive
-        Thread.sleep(25);
+        Thread.sleep(100);
 
         // assert link sockets have all outgoing credits
         for (int i = 1; i < nrSockets; i++) {

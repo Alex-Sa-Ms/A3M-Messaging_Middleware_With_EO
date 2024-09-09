@@ -260,6 +260,11 @@ public abstract class Socket implements Pollable {
         }
     }
 
+    /** @return amount of links regardless of their state. */
+    public final int countLinks(){
+        return linkManager.countLinks();
+    }
+
     /**
      * Waits for a link to be established.
      * @param peerId peer's socket identifier
