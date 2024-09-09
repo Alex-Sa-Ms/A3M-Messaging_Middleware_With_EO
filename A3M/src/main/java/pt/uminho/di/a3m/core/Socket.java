@@ -446,8 +446,6 @@ public abstract class Socket implements Pollable {
             linkManager.handleMsg(msg);
     }
 
-    // TODO - how can a socket notify POLLOUT?
-
     private void onIncomingDataOrCustomControlMessage(SocketMsg msg){
         SocketIdentifier peerId = msg.getSrcId();
         LinkSocket linkSocket = getLinkSocket(peerId);

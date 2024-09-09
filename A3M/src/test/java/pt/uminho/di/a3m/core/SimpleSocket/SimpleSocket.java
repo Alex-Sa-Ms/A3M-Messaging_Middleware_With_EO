@@ -379,30 +379,39 @@ public class SimpleSocket extends Socket {
     public byte[] receive(Long timeout, boolean notifyIfNone) throws InterruptedException {
         byte[] payload;
         Long deadline = Timeout.calculateEndTime(timeout);
-        ParkStateSimpleSocket ps;
+        ParkStateSimpleSocket ps = null;
         try {
             getLock().readLock().lock();
 
             if(getState() == SocketState.CLOSED)
                 throw new SocketClosedException();
 
-            // TODO - make it not register in the wait queue if the operation is non-blocking
-
-            // queue the thread
-            ps = new ParkStateSimpleSocket(
-                    true,
-                    PollFlags.POLLIN | PollFlags.POLLERR | PollFlags.POLLHUP,
-                    notifyIfNone);
-            PollTable pt = new PollTable(PollFlags.POLLIN, ps, directWaiterQueuingFunc);
-            poll(pt);
+            // queue the thread if the operation is blocking
+            if(!Timeout.hasTimedOut(deadline)) {
+                // queue the thread
+                ps = new ParkStateSimpleSocket(
+                        true,
+                        PollFlags.POLLIN | PollFlags.POLLERR | PollFlags.POLLHUP,
+                        notifyIfNone);
+                PollTable pt = new PollTable(PollFlags.POLLIN, ps, directWaiterQueuingFunc);
+                poll(pt);
+            }
         } finally {
             getLock().readLock().unlock();
         }
+
+        // if operation is non-blocking, just attempt to receive
+        // and return the result.
+        if(ps == null) return tryReceiving();
 
         try {
             while(true) {
                 if(getState() == SocketState.CLOSED)
                     throw new SocketClosedException();
+
+                // checks if thread was interrupted
+                if(Thread.currentThread().isInterrupted())
+                    throw new InterruptedException();
 
                 payload = tryReceiving();
                 if (payload != null)
@@ -466,28 +475,37 @@ public class SimpleSocket extends Socket {
     public boolean send(byte[] payload, Long timeout, boolean notifyIfNone) throws InterruptedException {
         boolean sent = false;
         Long deadline = Timeout.calculateEndTime(timeout);
-        ParkStateSimpleSocket ps;
+        ParkStateSimpleSocket ps = null;
         try {
             getLock().readLock().lock();
             if (getState() == SocketState.CLOSED)
                 throw new SocketClosedException();
 
-            // TODO - make it not register in the wait queue if the operation is non-blocking
-
-            // queue the thread
-            ps = new ParkStateSimpleSocket(
-                    true,
-                    PollFlags.POLLOUT | PollFlags.POLLERR | PollFlags.POLLHUP,
-                    notifyIfNone);
-            PollTable pt = new PollTable(PollFlags.POLLOUT, ps, directWaiterQueuingFunc);
-            poll(pt);
+            // queue the thread if the operation is blocking
+            if(!Timeout.hasTimedOut(deadline)) {
+                ps = new ParkStateSimpleSocket(
+                        true,
+                        PollFlags.POLLOUT | PollFlags.POLLERR | PollFlags.POLLHUP,
+                        notifyIfNone);
+                PollTable pt = new PollTable(PollFlags.POLLOUT, ps, directWaiterQueuingFunc);
+                poll(pt);
+            }
         } finally {
             getLock().readLock().unlock();
         }
+
+        // if operation is non-blocking, just attempt to send
+        // and return the result.
+        if(ps == null) return trySending(payload);
+
         try {
             while (true) {
                 if(getState() == SocketState.CLOSED)
                     throw new SocketClosedException();
+
+                // checks if thread was interrupted
+                if(Thread.currentThread().isInterrupted())
+                    throw new InterruptedException();
 
                 sent = trySending(payload);
                 if (sent) return true;

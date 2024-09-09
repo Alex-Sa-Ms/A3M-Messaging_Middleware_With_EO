@@ -9,13 +9,7 @@ import pt.uminho.di.a3m.poller.Pollable;
 public class LinkSocket implements Pollable {
     private Link link = null;
     private LinkManager manager = null;
-    /* TODO - do something similar to the incoming queue?
-            1. Let subclass dictate the type of link socket if pretended.
-            2. Make link socket constructor private and use setter methods to define
-            the link and link manager variables.
-            3. There is no need for a supplier. Just test if the overriden-method returns
-            a non-null link socket. If it does not, just create a regular link socket.
-     */
+
     public LinkSocket(){}
 
     Link getLink() {
