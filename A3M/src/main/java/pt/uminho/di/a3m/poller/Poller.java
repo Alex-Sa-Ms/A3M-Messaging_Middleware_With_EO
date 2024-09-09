@@ -960,7 +960,14 @@ public class Poller {
         // initialize required variables
         List<PollEvent<Object>> rEvents = new ArrayList<>();
         PollCall pCall = new PollCall();
-        ParkState ps = pCall.ps;
+
+        // for non-blocking poll operations, fetch events and return,
+        // i.e. skip the queuing part
+        if(timedOut){
+            _pollFetchEventsLoop(interestList, 0, new PollTable(~0, null, null), pCall, maxEvents, rEvents);
+            return rEvents;
+        }
+
         // since the wait and wake functions do not have a locking
         // mechanism to properly synchronize, the parked state
         // is set to true preemptively so that if a pollable
@@ -968,9 +975,9 @@ public class Poller {
         // is not parked yet, it will still invoke unpark(), which will
         // result in the current thread receiving a permit that allows
         // it to skip the parking.
+        ParkState ps = pCall.ps;
         ps.parked.set(true);
 
-        // TODO - make it not register in the wait queues if the operation is non-blocking
         // register in pollable's wait queues
         List<WaitQueueEntry> waitTable = _pollRegisterLoop(interestList, maxEvents, pCall, rEvents);
 
