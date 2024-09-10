@@ -1,6 +1,5 @@
-package pt.uminho.di.a3m.core.SimpleSocket;
+package pt.uminho.di.a3m.sockets.SimpleSocket;
 
-import pt.uminho.di.a3m.auxiliary.Debugging;
 import pt.uminho.di.a3m.auxiliary.Timeout;
 import pt.uminho.di.a3m.core.*;
 import pt.uminho.di.a3m.core.exceptions.NoLinksException;
@@ -15,7 +14,6 @@ import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;
 import pt.uminho.di.a3m.waitqueue.WaitQueueFunc;
 
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.TimeUnit;

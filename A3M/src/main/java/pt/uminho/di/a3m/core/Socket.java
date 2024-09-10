@@ -784,10 +784,10 @@ public abstract class Socket {
 
     // ******** Polling ********* //
 
-    private static class SocketPoll implements Pollable {
+    private static class SocketPollable implements Pollable {
         final Socket socket;
 
-        public SocketPoll(Socket socket) {
+        public SocketPollable(Socket socket) {
             this.socket = socket;
         }
 
@@ -802,7 +802,7 @@ public abstract class Socket {
         }
     }
 
-    private final SocketPoll pollThis = new SocketPoll(this);
+    private final SocketPollable pollThis = new SocketPollable(this);
 
     /**
      * Default implementation only informs POLLERR and POLLHUP events.
@@ -832,7 +832,7 @@ public abstract class Socket {
      *           the wait queue of the pollable.
      * @return event mask
      */
-    public int poll(PollTable pt) {
+    protected int poll(PollTable pt) {
         lock.readLock().lock();
         try {
             if (!PollTable.pollDoesNotWait(pt)) {
@@ -844,5 +844,50 @@ public abstract class Socket {
         } finally {
             lock.readLock().unlock();
         }
+    }
+
+    /**
+     * Adds socket to poller.
+     * @param poller poller instance
+     * @param events events of interest
+     */
+    public void addToPoller(Poller poller, int events){
+        if(poller != null)
+            poller.add(pollThis, events);
+    }
+
+    /**
+     * Adds socket to poller.
+     * @param poller poller instance
+     * @param socket socket instance
+     * @param events events of interest
+     */
+    public static void addToPoller(Poller poller, Socket socket, int events){
+        if(poller != null && socket != null)
+            poller.add(socket.pollThis, events);
+    }
+
+    /**
+     * Individual poll of the socket.
+     * @param events events of interest
+     * @param timeout Time limit for polling events.
+     * @return available events
+     */
+    public int poll(int events, Long timeout) throws InterruptedException {
+       return Poller.poll(pollThis, events, timeout) & events;
+    }
+
+    /**
+     * Individual poll of the socket.
+     * @param socket socket instance
+     * @param events events of interest
+     * @param timeout Time limit for polling events.
+     * @return available events
+     */
+    public int poll(Socket socket, int events, Long timeout) throws InterruptedException {
+        if(socket != null)
+            return Poller.poll(pollThis, events, timeout) & events;
+        else
+            throw new IllegalArgumentException("Socket is null.");
     }
 }

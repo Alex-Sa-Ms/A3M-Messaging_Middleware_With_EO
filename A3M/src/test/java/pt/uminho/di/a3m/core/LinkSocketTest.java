@@ -1,6 +1,5 @@
 package pt.uminho.di.a3m.core;
 
-import com.google.protobuf.InvalidProtocolBufferException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import pt.uminho.di.a3m.auxiliary.Debugging;
@@ -19,12 +18,7 @@ import pt.uminho.di.a3m.poller.Poller;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 class LinkSocketTest {
@@ -33,75 +27,11 @@ class LinkSocketTest {
     int nrSockets = 3;
     SocketIdentifier[] sids = new SocketIdentifier[nrSockets];
     DummySocket[] sockets = new DummySocket[nrSockets];
-    LinkSocketTestDispatcher dispatcher = new LinkSocketTestDispatcher();
+    SocketTestingUtilities.DirectMessageDispatcher dispatcher = new SocketTestingUtilities.DirectMessageDispatcher();
 
     private void waitUntil(Supplier<Boolean> predicate) throws InterruptedException {
         while (!predicate.get())
             Thread.sleep(5);
-    }
-
-    /**
-     * Dispatches messages with random delay if the random delay flag is set.
-     */
-    private class LinkSocketTestDispatcher implements MessageDispatcher{
-        private final ScheduledExecutorService scheduler = new ScheduledThreadPoolExecutor(1);
-        private final Map<SocketIdentifier,Socket> sockets = new ConcurrentHashMap<>(); // link managers
-        private boolean randomDelay = false;
-        private final Random random = new Random(2024);
-        private final long minDelay = 0L; // min delay to dispatch a message in seconds
-        private final long maxDelay = 20L; // max delay (exclusive) to dispatch a message in seconds
-
-        public LinkSocketTestDispatcher() {}
-        public LinkSocketTestDispatcher(Socket s) {
-            registerSocket(s);
-        }
-
-        public void registerSocket(Socket s){
-            if(s != null)
-                sockets.put(s.getId(), s);
-        }
-
-        public void setRandomDelay(boolean randomDelay) {
-            this.randomDelay = randomDelay;
-        }
-
-        private void _dispatch(SocketMsg msg){
-            try {
-                if(msg != null){
-                    Socket socket = sockets.get(msg.getDestId());
-                    if(socket != null) {
-                        socket.onIncomingMessage(msg);
-                        try {
-                            Debugging.printlnOrdered(LinkManager.linkRelatedMsgToString(msg));
-                        } catch (InvalidProtocolBufferException ignored) {}
-                    }
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
-
-        @Override
-        public void dispatch(Msg msg) {
-            if(randomDelay) {
-                long delay = random.nextLong(minDelay, maxDelay);
-                scheduler.schedule(() -> _dispatch((SocketMsg) msg), delay, TimeUnit.MILLISECONDS);
-            }
-            else scheduler.execute(() -> _dispatch((SocketMsg) msg));
-        }
-
-        @Override
-        public AtomicReference<Msg> scheduleDispatch(Msg msg, long dispatchTime) {
-            AtomicReference<Msg> ref = new AtomicReference<>(msg);
-            long delay = Math.max(0L, dispatchTime - System.currentTimeMillis());
-            scheduler.schedule(() -> {
-                SocketMsg m = (SocketMsg) ref.getAndSet(null);
-                if(m != null) {
-                    this.dispatch(m);
-                }
-            }, delay, TimeUnit.MILLISECONDS);
-            return ref;
-        }
     }
 
     @BeforeEach
