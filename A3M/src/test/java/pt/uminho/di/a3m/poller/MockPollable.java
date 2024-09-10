@@ -129,53 +129,6 @@ public class MockPollable implements Pollable {
         }
     }
 
-    // Queuing function for direct waiters, i.e. for waiters
-    // that invoke methods of the instance directly, such as
-    // sendMsg() and receiveMsg(). Queues the waiters as exclusive
-    // using the park state present in the poll tables "priv" attribute.
-    private void queueDirectCalled(int events, ParkState ps){
-        WaitQueueEntry wait = waitQ.initEntry();
-        // TODO - auto delete wake function is not good for exclusive calls.
-        //  For exclusive entries, saying that it woke up successfully when
-        //  the event of interest was not received is not good. See how
-        //  the poller handles exclusive entries.
-        wait.addExclusive(WaitQueueEntry::autoDeleteWakeFunction,ps);
-    }
-
-    public boolean sendMsg(String msg, Long timeout){
-        // TODO - sendMsg() see problem of queuing above
-        /*Long endTime = Timeout.calculateEndTime(timeout);
-        try{
-            lock.lock();
-            if (sendCredits > 0) {
-                outQ.add(msg);
-                return true;
-            }
-            ParkState ps = new ParkState();
-            PollTable pt = new PollTable(PollFlags.POLLOUT, ps, directQingFunc());
-            pt.pollWait();
-            if(endTime == null) {
-                while(){
-
-                }
-
-            }else{
-
-            }
-            // throw exception if socket is closed and
-            // sending is no longer allowed (i.e. there are no credits)
-            if(closed.get())
-                throw new IllegalStateException("Socket is closed.");
-            // return false if message could not be sent
-            return false;
-        }finally {
-            lock.unlock();
-        }
-
-         */
-        return false;
-    }
-
     public String tryReceiveMsg(){
         try{
             lock.lock();
@@ -187,28 +140,6 @@ public class MockPollable implements Pollable {
         }finally {
             lock.unlock();
         }
-    }
-
-    public String receiveMsg(){
-        // TODO - receiveMsg()
-        /*
-        try{
-            lock.lock();
-            if(!inQ.isEmpty()){
-                return inQ.poll();
-            }
-            // throw exception if socket is closed and
-            // receiving is no longer possible
-            // (i.e. there are no messages to be received)
-            if(closed.get())
-                throw new IllegalStateException("Socket is closed.");
-            // return null if there aren't messages to be received
-            return null;
-        }finally {
-            lock.unlock();
-        }
-        */
-        return null;
     }
 
     public void close(){

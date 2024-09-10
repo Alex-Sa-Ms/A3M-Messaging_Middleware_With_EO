@@ -6,7 +6,6 @@ import pt.uminho.di.a3m.core.messaging.SocketMsg;
 import pt.uminho.di.a3m.poller.PollTable;
 import pt.uminho.di.a3m.poller.Pollable;
 
-// TODO - test this
 public class LinkSocket implements Pollable {
     private Link link = null;
     private LinkManager manager = null;

@@ -10,9 +10,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
-// TODO - make this class after having a functional middleware
-
-
 class SimpleSocketTest {
     String nodeId = "Node";
     int nrSockets = 3;

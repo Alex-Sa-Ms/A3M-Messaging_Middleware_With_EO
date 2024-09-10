@@ -111,12 +111,8 @@ public class SimpleSocket extends Socket {
                         PollFlags.POLLALL,
                         linkSocket,
                         linkWatcherQueueFunction));
-        // add link socket to pollers
-        // TODO - REMAINDER OF HOW THIS PROBLEM WAS SOLVED (ORDER IN THE WAIT QUEUES MATTER)
-        //  (The pollers need to be notified before the link watcher,
-        //  because the link watcher acts on the assumption that the pollers have already been notified.
-        //  So, because non-exclusive insertions are made at the head of queue, the insertion of the link
-        //  watcher must be done before the insertions of the poller instances.)
+        // add link socket to pollers (added after link watcher to ensure they are notified before
+        // the link watcher, since the link watcher assumes the pollers to be notified first)
         readPoller.add(linkSocket, PollFlags.POLLIN /*| PollFlags.POLLET | PollFlags.POLLONESHOT*/);
         writePoller.add(linkSocket, PollFlags.POLLOUT /*| PollFlags.POLLET | PollFlags.POLLONESHOT*/);
         // notify if sending is immediately possible
@@ -127,10 +123,6 @@ public class SimpleSocket extends Socket {
 
     @Override
     protected void customOnLinkClosed(LinkSocket linkSocket) {
-        // TODO -
-        //  1. Notify with different mode but without any events to
-        //      ensure only waiters that recognize the mode, do wake up.
-        //  2. Make waiters understand check this mode.
         // Notify with CHECK_IF_NONE mode, so that waiters that
         // require waking up when there aren't any links can do so.
         if(countLinks() == 0)
