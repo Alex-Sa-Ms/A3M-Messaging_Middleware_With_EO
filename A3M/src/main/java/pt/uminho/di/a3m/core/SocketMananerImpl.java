@@ -15,11 +15,21 @@ class SocketMananerImpl implements SocketManager{
     private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
     private final Map<String, Socket> sockets = new HashMap<>();
     private final Map<Integer, SocketProducer> producers = new ConcurrentHashMap<>();
-    private final MessageDispatcher dispatcher;
+    private MessageDispatcher dispatcher;
 
     public SocketMananerImpl(String nodeId, MessageDispatcher dispatcher) {
         this.nodeId = nodeId;
         this.dispatcher = dispatcher;
+    }
+
+    public SocketMananerImpl(String nodeId) {
+        this.nodeId = nodeId;
+        this.dispatcher = null;
+    }
+
+    public void setDispatcher(MessageDispatcher dispatcher) {
+        if(this.dispatcher == null)
+            this.dispatcher = dispatcher;
     }
 
     private SocketProducer _getProducer(int protocolId){

@@ -1,10 +1,9 @@
-package pt.uminho.di.a3m.sockets.SimpleSocket;
+package pt.uminho.di.a3m.sockets.simple_socket;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import pt.uminho.di.a3m.core.*;
 import pt.uminho.di.a3m.poller.PollFlags;
-import pt.uminho.di.a3m.poller.Poller;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -225,4 +224,6 @@ class SimpleSocketTest {
 
         sockets[0].close();
     }
+
+    // TODO - do more tests. Such as with "notify if none" flag, etc.
 }

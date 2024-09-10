@@ -3,41 +3,47 @@ package pt.uminho.di.a3m.core;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import haslab.eo.EOMiddleware;
-import haslab.eo.TransportAddress;
 import haslab.eo.msgs.ClientMsg;
 import pt.uminho.di.a3m.core.messaging.*;
 import pt.uminho.di.a3m.core.messaging.payloads.ErrorPayload;
 
-import java.io.IOException;
-import java.net.SocketException;
-import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Logger;
 
-// TODO - needs testing
-
-// This class should be closed before the exon instance,
-// but after closing all sockets.
+/**
+ * This class should be closed before the exon instance,
+ * but after closing all sockets.
+ */
 public class MessageManagementSystem implements MessageDispatcher{
-    final EOMiddleware eom;
-    final SocketManager sm;
-    final MessageProcessor processor;
+    private final EOMiddleware eom;
+    private SocketManager sm;
+    private final MessageProcessor processor;
 
     private volatile short state = CREATED;
-    private static final short CREATED = 1;
-    private static final short RUNNING = 0;
-    private static final short CLOSING = -1;
-    private static final short CLOSED = -2;
+    static final short CREATED = 1;
+    static final short RUNNING = 0;
+    static final short CLOSING = -1;
+    static final short CLOSED = -2;
 
     public MessageManagementSystem(EOMiddleware eom, SocketManager sm) {
         this.eom = eom;
         this.sm = sm;
         this.processor = new MessageProcessor();
+    }
+
+    public MessageManagementSystem(EOMiddleware eom) {
+        this(eom, null);
+    }
+
+    public void setSocketManager(SocketManager sm) {
+        if(this.sm == null) this.sm = sm;
+    }
+
+    short getState() {
+        return state;
     }
 
     public void start(){
@@ -50,8 +56,10 @@ public class MessageManagementSystem implements MessageDispatcher{
     }
 
     public void close(){
-        if(state == RUNNING)
+        if(state == RUNNING) {
             state = CLOSING;
+            processor.interrupt();
+        }
     }
 
     /**
@@ -63,9 +71,10 @@ public class MessageManagementSystem implements MessageDispatcher{
     public void closeAndWait(Long timeout) throws InterruptedException {
         if (state == RUNNING) {
             state = CLOSING;
+            processor.interrupt();
             if(timeout == null)
                 processor.join();
-            else
+            else if(timeout > 0L)
                 processor.join(timeout);
         }
     }
@@ -179,12 +188,17 @@ public class MessageManagementSystem implements MessageDispatcher{
     class MessageProcessor extends Thread {
         // events queue
         final Queue<Event> eventsQ = new PriorityQueue<>();
+        long timeout = Long.MAX_VALUE;
         // lock to synchronize insertions
         // final Lock lock = new ReentrantLock();
 
+        private void calculateAndSetTimeout(Event event){
+            timeout = event == null ? Long.MAX_VALUE
+                    : event.getEventTime() - System.currentTimeMillis();
+        }
+
         @Override
         public void run() {
-            long timeout = Long.MAX_VALUE;
             ClientMsg cMsg = null;
             while (state == RUNNING) {
                 // receive messages while not interrupted and
@@ -235,14 +249,13 @@ public class MessageManagementSystem implements MessageDispatcher{
                 // execute events that have reached their execution time
                 Event event;
                 while ((event = eventsQ.peek()) != null
-                        && System.currentTimeMillis() > event.getEventTime()) {
+                        && System.currentTimeMillis() >= event.getEventTime()) {
                     // remove event
                     eventsQ.poll();
                     event.execute(MessageManagementSystem.this);
                 }
                 // define new timeout
-                timeout = event == null ? Long.MAX_VALUE
-                        : event.getEventTime() - System.currentTimeMillis();
+                calculateAndSetTimeout(event);
             }
             // sets state to closed
             state = CLOSED;
@@ -250,6 +263,7 @@ public class MessageManagementSystem implements MessageDispatcher{
 
         public void addEvent(Event event) {
             eventsQ.add(event);
+            calculateAndSetTimeout(eventsQ.peek());
         }
 
         /*
