@@ -148,7 +148,7 @@ public class A3MMiddleware implements DiscoveryManager, SocketManagerPublic {
     public Socket createSocket(String tagId, int protocolId) {
         try {
             lock.lock();
-            if(state == RUNNING || state == CLOSING)
+            if(state == RUNNING)
                 return socketManager.createSocket(tagId, protocolId);
         } finally {
             lock.unlock();
@@ -160,7 +160,7 @@ public class A3MMiddleware implements DiscoveryManager, SocketManagerPublic {
     public <T extends Socket> T createSocket(String tagId, int protocolId, Class<T> socketClass) {
         try {
             lock.lock();
-            if(state == RUNNING || state == CLOSING)
+            if(state == RUNNING)
                 return socketManager.createSocket(tagId, protocolId, socketClass);
         } finally {
             lock.unlock();
@@ -172,7 +172,7 @@ public class A3MMiddleware implements DiscoveryManager, SocketManagerPublic {
     public Socket startSocket(String tagId, int protocolId) {
         try {
             lock.lock();
-            if(state == RUNNING || state == CLOSING)
+            if(state == RUNNING)
                 return socketManager.startSocket(tagId, protocolId);
         } finally {
             lock.unlock();
@@ -184,7 +184,7 @@ public class A3MMiddleware implements DiscoveryManager, SocketManagerPublic {
     public <T extends Socket> T startSocket(String tagId, int protocolId, Class<T> socketClass) {
         try {
             lock.lock();
-            if(state == RUNNING || state == CLOSING)
+            if(state == RUNNING)
                 return socketManager.startSocket(tagId, protocolId, socketClass);
         } finally {
             lock.unlock();
