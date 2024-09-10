@@ -3,10 +3,12 @@ package pt.uminho.di.a3m.sockets.simple_socket;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import pt.uminho.di.a3m.core.*;
+import pt.uminho.di.a3m.core.exceptions.NoLinksException;
 import pt.uminho.di.a3m.poller.PollFlags;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
@@ -220,6 +222,122 @@ class SimpleSocketTest {
         }
 
         sockets[0].close();
+    }
+
+    @Test
+    void receiveWithNotifyIfNone() throws InterruptedException {
+        // check that the exception is thrown immediately, when
+        // there aren't any links.
+        try{
+            sockets[0].receive(null, true);
+            assert false;
+        }catch (NoLinksException ignored){}
+
+        // set message delays to around 20ms, enabling the next
+        // receive call to not return immediately regardless of
+        // a link not being established
+        dispatcher.setDelays(20L, 25L);
+
+        // make socket1 not allow incoming link requests so that
+        // the no links exception is thrown when the request is received
+        // and the link is closed.
+        sockets[1].setOption("allowIncomingLinkRequests", false);
+        // start counting time to verify the exception was
+        // not thrown immediately.
+        long start = System.currentTimeMillis();
+        try{
+            sockets[0].link(sids[1]);
+            sockets[0].receive(null, true);
+        }catch (NoLinksException ignored){
+            // assert the time was at least 20 ms
+            assert System.currentTimeMillis() - start >= 20L;
+        }
+
+        // allow socket1 to accept incoming link requests
+        sockets[1].setOption("allowIncomingLinkRequests", true);
+
+        // create thread to wait for the link to be established,
+        // and send a message after the establishment.
+        new Thread(() -> {
+            try {
+                waitUntil(() -> sockets[1].isLinked(sids[0]));
+                sockets[1].send("Hello".getBytes(), 0L, false);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }).start();
+
+        try{
+            // check that the exception is not thrown
+            // because a link although not established,
+            // may be established in the future.
+            sockets[0].link(sids[1]);
+            assert !sockets[0].isLinked(sids[1]);
+            byte[] msg = sockets[0].receive(null, true);
+            assert msg != null;
+        }catch (NoLinksException nle){
+            assert false;
+        }
+    }
+
+    @Test
+    void sendWithNotifyIfNone() throws InterruptedException {
+        // check that the exception is thrown immediately, when
+        // there aren't any links.
+        try{
+            sockets[0].send("Hello".getBytes(), null, true);
+            assert false;
+        }catch (NoLinksException ignored){}
+
+        // set message delays to around 20ms, enabling the next
+        // send() call to not return immediately regardless of
+        // a link not being established
+        dispatcher.setDelays(20L, 25L);
+
+        // make socket1 not allow incoming link requests so that
+        // the no links exception is thrown when the request is received
+        // and the link is closed.
+        sockets[1].setOption("allowIncomingLinkRequests", false);
+        // start counting time to verify the exception was
+        // not thrown immediately.
+        long start = System.currentTimeMillis();
+        try{
+            sockets[0].link(sids[1]);
+            sockets[0].send("Hello".getBytes(), null, true);
+        }catch (NoLinksException ignored){
+            // assert the time was at least 20 ms
+            assert System.currentTimeMillis() - start >= 20L;
+        }
+
+        // allow socket1 to accept incoming link requests
+        sockets[1].setOption("allowIncomingLinkRequests", true);
+
+        // create thread to wait for the link to be established,
+        // and the reception of a message after the establishment.
+        AtomicBoolean received = new AtomicBoolean(false);
+        Thread receiver = new Thread(() -> {
+            try {
+                waitUntil(() -> sockets[1].isLinked(sids[0]));
+                if(sockets[1].receive(null, false) != null)
+                    received.set(true);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        });
+        receiver.start();
+
+        try{
+            // check that the exception is not thrown
+            // because a link although not established,
+            // may be established in the future.
+            sockets[0].link(sids[1]);
+            assert !sockets[0].isLinked(sids[1]);
+            sockets[0].send("Hello".getBytes(), null, true);
+            receiver.join();
+            assert received.get();
+        }catch (NoLinksException nle){
+            assert false;
+        }
     }
 
     // TODO - do more tests. Such as with "notify if none" flag, etc.

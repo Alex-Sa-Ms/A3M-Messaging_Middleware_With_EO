@@ -377,6 +377,10 @@ public class SimpleSocket extends Socket {
             if(getState() == SocketState.CLOSED)
                 throw new SocketClosedException();
 
+            // check if there are any links when the notifyIfNone flag is used
+            if(notifyIfNone && countLinks() == 0)
+                throw new NoLinksException();
+
             // queue the thread if the operation is blocking
             if(!Timeout.hasTimedOut(deadline)) {
                 // queue the thread
@@ -471,6 +475,10 @@ public class SimpleSocket extends Socket {
             getLock().readLock().lock();
             if (getState() == SocketState.CLOSED)
                 throw new SocketClosedException();
+
+            // check if there are any links when the notifyIfNone flag is used
+            if(notifyIfNone && countLinks() == 0)
+                throw new NoLinksException();
 
             // queue the thread if the operation is blocking
             if(!Timeout.hasTimedOut(deadline)) {

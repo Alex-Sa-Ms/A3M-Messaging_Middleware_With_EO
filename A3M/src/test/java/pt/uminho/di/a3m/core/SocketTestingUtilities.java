@@ -41,7 +41,13 @@ public class SocketTestingUtilities {
             this.randomDelay = randomDelay;
         }
 
+        /**
+         * Actives random delay and sets new delays.
+         * @param minDelay minimum delay
+         * @param maxDelay maximum delay (exclusive)
+         */
         public void setDelays(long minDelay, long maxDelay){
+            this.randomDelay = true;
             this.minDelay = minDelay;
             this.maxDelay = maxDelay;
         }

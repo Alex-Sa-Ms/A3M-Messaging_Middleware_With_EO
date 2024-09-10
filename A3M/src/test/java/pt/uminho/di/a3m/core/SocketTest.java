@@ -287,7 +287,6 @@ class SocketTest {
         sockets[1].setOption("allowIncomingLinkRequests", false);
         // set dispatcher delays to allow time between the refusal of the link request
         // and the start of the waiting for link any link establishment operation
-        dispatcher.setRandomDelay(true);
         dispatcher.setDelays(20L, 25L);
         // send link request to socket1
         sockets[0].link(sids[1]);
