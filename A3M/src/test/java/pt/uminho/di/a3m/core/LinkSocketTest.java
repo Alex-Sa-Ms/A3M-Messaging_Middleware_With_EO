@@ -14,6 +14,7 @@ import pt.uminho.di.a3m.core.messaging.payloads.BytePayload;
 import pt.uminho.di.a3m.poller.PollFlags;
 import pt.uminho.di.a3m.poller.PollTable;
 import pt.uminho.di.a3m.poller.Poller;
+import pt.uminho.di.a3m.sockets.DummySocket;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;

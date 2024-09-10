@@ -1,5 +1,6 @@
-package pt.uminho.di.a3m.core;
+package pt.uminho.di.a3m.sockets;
 
+import pt.uminho.di.a3m.core.*;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 
 import java.util.HashSet;
@@ -16,13 +17,13 @@ import java.util.function.Supplier;
  *      to test the linking and unlinking procedures.</li>
  * </ul>
  */
-public class DummySocket extends Socket{
+public class DummySocket extends Socket {
     // NOTE: The protocol must be static and final, however, for 
     // tests purposes, allowing the protocol to be defined is helpful
     private Protocol protocol;
     private final Set<Protocol> compatProtocols = new HashSet<>();
 
-    protected DummySocket(SocketIdentifier sid, Protocol protocol) {
+    public DummySocket(SocketIdentifier sid, Protocol protocol) {
         super(sid);
         this.protocol = protocol;
         this.compatProtocols.add(this.protocol);

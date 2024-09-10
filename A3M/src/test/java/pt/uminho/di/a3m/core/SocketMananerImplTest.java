@@ -3,7 +3,7 @@ package pt.uminho.di.a3m.core;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import pt.uminho.di.a3m.core.messaging.Msg;
-import pt.uminho.di.a3m.core.messaging.SocketMsg;
+import pt.uminho.di.a3m.sockets.DummySocket;
 
 import java.util.concurrent.atomic.AtomicReference;
 

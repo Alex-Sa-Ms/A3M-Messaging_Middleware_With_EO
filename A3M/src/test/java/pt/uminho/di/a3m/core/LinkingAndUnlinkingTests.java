@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import pt.uminho.di.a3m.core.messaging.*;
 import pt.uminho.di.a3m.core.messaging.payloads.BytePayload;
+import pt.uminho.di.a3m.sockets.DummySocket;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -71,6 +72,14 @@ class LinkingAndUnlinkingTests {
         }
     }
 
+    private LinkManager getLinkManager(Socket socket){
+        return socket.linkManager;
+    }
+
+    private void setCoreComponents(Socket socket, MessageDispatcher messageDispatcher, SocketManager socketManager){
+        socket.setCoreComponents(messageDispatcher, socketManager);
+    }
+
     @BeforeEach
     void initSocketsAndLinkManagers(){
         protocol = new Protocol(12345, "Protocol12345");
@@ -78,21 +87,21 @@ class LinkingAndUnlinkingTests {
         // create socket and link manager 1
         sid1 = new SocketIdentifier("NodeA", "SocketA");
         socket1 = new DummySocket(sid1, protocol);
-        lm1 = socket1.linkManager;
+        lm1 = getLinkManager(socket1);
         // create socket and link manager 2
         sid2 = new SocketIdentifier("NodeB", "SocketB");
         socket2 = new DummySocket(sid2, protocol);
-        lm2 = socket2.linkManager;
+        lm2 = getLinkManager(socket2);
         // create message dispatcher
         DirectDispatcherToLinkManager messageDispatcher = new DirectDispatcherToLinkManager();
         messageDispatcher.registerLinkManager(sid1, lm1);
         messageDispatcher.registerLinkManager(sid2, lm2);
         // set custom message dispatcher to send socket1 messages
         // directly to the socket2's link manager
-        socket1.setCoreComponents(messageDispatcher, null);
+        setCoreComponents(socket1, messageDispatcher, null);
         // set custom message dispatcher to send socket2 messages
         // directly to the socket1's link manager
-        socket2.setCoreComponents(messageDispatcher, null);
+        setCoreComponents(socket2, messageDispatcher, null);
     }
 
     private void waitUntil(Supplier<Boolean> predicate) throws InterruptedException {
@@ -393,7 +402,7 @@ class LinkingAndUnlinkingTests {
         // msgs that have been sent.
         AtomicReference<SocketMsg> unlinkMsg = new AtomicReference<>(null);
         AtomicInteger linkMsgsSent = new AtomicInteger(0);
-        socket2.setCoreComponents(new DirectDispatcherToLinkManager(sid1, lm1){
+        setCoreComponents(socket2, new DirectDispatcherToLinkManager(sid1, lm1){
             @Override
             public void dispatch(Msg msg) {
                 if(msg.getType() == MsgType.UNLINK)
@@ -514,7 +523,7 @@ class LinkingAndUnlinkingTests {
         // and inform when an UNLINK message has been sent
         AtomicReference<SocketMsg> linkreplyMsg = new AtomicReference<>(null);
         AtomicInteger unlinkMsgsSent = new AtomicInteger(0);
-        socket1.setCoreComponents(new DirectDispatcherToLinkManager(sid2, lm2){
+        setCoreComponents(socket1, new DirectDispatcherToLinkManager(sid2, lm2){
             @Override
             public void dispatch(Msg msg) {
                 if(msg.getType() == MsgType.LINKREPLY)
@@ -557,7 +566,7 @@ class LinkingAndUnlinkingTests {
         // and inform when an UNLINK message has been sent
         AtomicReference<SocketMsg> linkreplyMsg = new AtomicReference<>(null);
         AtomicInteger unlinkMsgsSent = new AtomicInteger(0);
-        socket1.setCoreComponents(new DirectDispatcherToLinkManager(sid2, lm2){
+        setCoreComponents(socket1, new DirectDispatcherToLinkManager(sid2, lm2){
             @Override
             public void dispatch(Msg msg) {
                 if(msg.getType() == MsgType.LINKREPLY)
@@ -604,7 +613,7 @@ class LinkingAndUnlinkingTests {
         // and inform when an UNLINK message has been sent
         AtomicReference<SocketMsg> linkreplyMsg = new AtomicReference<>(null);
         AtomicInteger unlinkMsgsSent = new AtomicInteger(0);
-        socket1.setCoreComponents(new DirectDispatcherToLinkManager(sid2, lm2){
+        setCoreComponents(socket1, new DirectDispatcherToLinkManager(sid2, lm2){
             @Override
             public void dispatch(Msg msg) {
                 if(msg.getType() == MsgType.LINKREPLY)
@@ -655,7 +664,7 @@ class LinkingAndUnlinkingTests {
         // and inform when a LINKREPLY message has been sent
         AtomicReference<SocketMsg> linkMsg = new AtomicReference<>(null);
         AtomicInteger linkReplyMsgsSent = new AtomicInteger(0);
-        socket1.setCoreComponents(new DirectDispatcherToLinkManager(sid2, lm2){
+        setCoreComponents(socket1, new DirectDispatcherToLinkManager(sid2, lm2){
             @Override
             public void dispatch(Msg msg) {
                 if(msg.getType() == MsgType.LINK)
@@ -702,7 +711,7 @@ class LinkingAndUnlinkingTests {
         // and inform when a LINKREPLY message has been sent
         AtomicReference<SocketMsg> linkMsg = new AtomicReference<>(null);
         AtomicInteger linkReplyMsgsSent = new AtomicInteger(0);
-        socket1.setCoreComponents(new DirectDispatcherToLinkManager(sid2, lm2){
+        setCoreComponents(socket1, new DirectDispatcherToLinkManager(sid2, lm2){
             @Override
             public void dispatch(Msg msg) {
                 if(msg.getType() == MsgType.LINK)
@@ -758,7 +767,7 @@ class LinkingAndUnlinkingTests {
         // and inform when a LINKREPLY message has been sent
         AtomicReference<SocketMsg> linkMsg = new AtomicReference<>(null);
         AtomicInteger linkReplyMsgsSent = new AtomicInteger(0);
-        socket2.setCoreComponents(new DirectDispatcherToLinkManager(sid1, lm1){
+        setCoreComponents(socket2, new DirectDispatcherToLinkManager(sid1, lm1){
             @Override
             public void dispatch(Msg msg) {
                 if(msg.getType() == MsgType.LINK)
@@ -796,7 +805,7 @@ class LinkingAndUnlinkingTests {
         // and inform when a LINKREPLY message has been sent
         AtomicReference<SocketMsg> linkMsg = new AtomicReference<>(null);
         AtomicInteger linkReplyMsgsSent = new AtomicInteger(0);
-        socket2.setCoreComponents(new DirectDispatcherToLinkManager(sid1, lm1){
+        setCoreComponents(socket2, new DirectDispatcherToLinkManager(sid1, lm1){
             @Override
             public void dispatch(Msg msg) {
                 if(msg.getType() == MsgType.LINK)
@@ -922,7 +931,7 @@ class LinkingAndUnlinkingTests {
     void dataOrControlMsgConfirmingLinkEstablishment(byte msgType) throws InterruptedException {
         // change socket1 dispatcher to catch the LINKREPLY message
         AtomicReference<SocketMsg> linkMsg = new AtomicReference<>(null);
-        socket1.setCoreComponents(new DirectDispatcherToLinkManager(sid2, lm2){
+        setCoreComponents(socket1, new DirectDispatcherToLinkManager(sid2, lm2){
             @Override
             public void dispatch(Msg msg) {
                 if(msg.getType() == MsgType.LINKREPLY)
