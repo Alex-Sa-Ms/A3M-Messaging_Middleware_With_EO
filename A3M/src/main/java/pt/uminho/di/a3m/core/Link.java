@@ -590,7 +590,7 @@ public class Link implements Pollable {
         int events = 0;
         if(outFCS.hasCredits())
             events |= PollFlags.POLLOUT;
-        if(inMsgQ.peek() != null)
+        if(inMsgQ != null && inMsgQ.peek() != null)
             events |= PollFlags.POLLIN;
         if(state == LinkState.CLOSED)
             events |= PollFlags.POLLHUP;

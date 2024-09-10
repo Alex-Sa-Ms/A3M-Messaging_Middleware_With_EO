@@ -22,8 +22,8 @@ public class SocketTestingUtilities {
         private final Map<SocketIdentifier, Socket> sockets = new ConcurrentHashMap<>(); // link managers
         private boolean randomDelay = false;
         private final Random random = new Random(2024);
-        private final long minDelay = 0L; // min delay to dispatch a message in seconds
-        private final long maxDelay = 20L; // max delay (exclusive) to dispatch a message in seconds
+        private long minDelay = 0L; // min delay to dispatch a message in seconds
+        private long maxDelay = 20L; // max delay (exclusive) to dispatch a message in seconds
 
         public DirectMessageDispatcher() {
         }
@@ -39,6 +39,11 @@ public class SocketTestingUtilities {
 
         public void setRandomDelay(boolean randomDelay) {
             this.randomDelay = randomDelay;
+        }
+
+        public void setDelays(long minDelay, long maxDelay){
+            this.minDelay = minDelay;
+            this.maxDelay = maxDelay;
         }
 
         private void _dispatch(SocketMsg msg) {

@@ -1,6 +1,7 @@
 package pt.uminho.di.a3m.core;
 
 import pt.uminho.di.a3m.auxiliary.Timeout;
+import pt.uminho.di.a3m.core.exceptions.NoLinksException;
 import pt.uminho.di.a3m.core.messaging.Msg;
 import pt.uminho.di.a3m.core.messaging.MsgType;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
@@ -114,6 +115,8 @@ public abstract class Socket {
      * Set exception that led to the error of the socket.
      * The socket state is changed to ERROR.
      * @param error exception that led to the error.
+     * @implNote Does not notify waiters. The caller of the function
+     * must do so if required.
      */
     protected final void setError(Exception error) {
         this.error = error;
@@ -159,10 +162,6 @@ public abstract class Socket {
     public static class OptionEntry{
         String option;
         Object value;
-        public OptionEntry(String option) {
-            this.option = option;
-            this.value = null;
-        }
         public OptionEntry(String option, Object value) {
             this.option = option;
             this.value = value;
@@ -180,6 +179,7 @@ public abstract class Socket {
      * @return cast value associated with the option or "null" if the option does
      * not have a value associated.
      * @param <Option> class of the option value
+     * @throws IllegalArgumentException if the option does not exist or the option class provided is null.
      * @throws ClassCastException if the value is not null and its class does not match
      * the requested class.
      */
@@ -236,6 +236,7 @@ public abstract class Socket {
      * getting the option.
      * @param option identifier of the option
      * @param value value to be "set" to the option
+     * @throws IllegalArgumentException if the option does not exist
      */
     public final <Option> void setOption(String option, Option value){
         try {
@@ -403,6 +404,7 @@ public abstract class Socket {
      *                     when there aren't any links (regardless of the link states).
      * @return socket identifier of the first peer with which a link is established. 'null' if there isn't
      * one and the "notifyIfNone" flag is not set.
+     * @throws NoLinksException if there aren't any links and the "notify of none" flag is set
      */
     private SocketIdentifier auxWaitForAnyLinkEstablishment(boolean notifyIfNone){
         lock.readLock().lock();
@@ -412,7 +414,7 @@ public abstract class Socket {
             if(!linkSockets.isEmpty())
                 return linkSockets.keySet().iterator().next();
             if(notifyIfNone && !linkManager.hasLinks())
-                throw new IllegalStateException("There isn't any link to wait for.");
+                throw new NoLinksException();
             return null;
         } finally {
             lock.readLock().unlock();
@@ -428,7 +430,8 @@ public abstract class Socket {
      * @return socket identifier of a peer that is established. null if operation timed out
      * before a link was established.
      * @throws InterruptedException if thread was interrupted during the waiting operation.
-     * @throws IllegalStateException if socket is closed or if there isn't any link regardless of the state.
+     * @throws IllegalStateException if socket is closed.
+     * @throws NoLinksException if there aren't any links and the "notify of none" flag is set
      */
     public final SocketIdentifier waitForAnyLinkEstablishment(Long timeout, boolean notifyIfNone) throws InterruptedException {
         Long deadline = Timeout.calculateEndTime(timeout);
@@ -653,7 +656,6 @@ public abstract class Socket {
                 // Unlinking all links is required before closing the socket.
                 for (LinkSocket linkSocket : linkSockets.values()) {
                     linkSocket.unlink();
-                    System.out.println(getId() + ": Unlinking with " + linkSocket.getPeerId());
                 }
             }
 
@@ -662,7 +664,6 @@ public abstract class Socket {
                 if(cookedMode) destroy();
                 state.set(SocketState.CLOSED);
                 socketManager.closeSocket(this);
-                System.out.println(getId() + ": Signaled POLLHUP");
                 waitQ.wakeUp(0,0,0,PollFlags.POLLHUP | PollFlags.POLLFREE);
             }
         }
