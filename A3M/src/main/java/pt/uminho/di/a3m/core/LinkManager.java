@@ -8,6 +8,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
@@ -15,7 +16,6 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.function.Predicate;
 import java.util.logging.Logger;
 
-import pt.uminho.di.a3m.core.Link.LinkState;
 import pt.uminho.di.a3m.core.messaging.payloads.CoreMessages;
 import pt.uminho.di.a3m.core.messaging.payloads.ErrorPayload;
 import pt.uminho.di.a3m.core.messaging.payloads.SerializableMap;
@@ -284,7 +284,8 @@ public class LinkManager implements Link.LinkDispatcher {
             }
             case MsgType.DATA -> {
                 type = "DATA";
-                payload = String.valueOf(StandardCharsets.UTF_8.decode(ByteBuffer.wrap(msg.getPayload())));
+                if(msg.getPayload() != null)
+                    payload = String.valueOf(StandardCharsets.UTF_8.decode(ByteBuffer.wrap(msg.getPayload())));
             }
             case MsgType.ERROR -> {
                 type = "ERROR";
@@ -293,7 +294,8 @@ public class LinkManager implements Link.LinkDispatcher {
             }
             default -> {
                 type += String.valueOf(Byte.toUnsignedInt(msg.getType()));
-                payload = String.valueOf(StandardCharsets.UTF_8.decode(ByteBuffer.wrap(msg.getPayload())));
+                if(msg.getPayload() != null)
+                    payload = String.valueOf(StandardCharsets.UTF_8.decode(ByteBuffer.wrap(msg.getPayload())));
             }
         }
 
@@ -432,8 +434,10 @@ public class LinkManager implements Link.LinkDispatcher {
      * @return link with 'null' state
      */
     private Link createLink(SocketIdentifier peerId){
-        int capacity = socket.getOption("capacity", Integer.class);
-        Link link = new Link(socket.getId(), peerId, clock, capacity, this);
+        Object[] options = socket.getOptions(List.of("capacity", "batchSizePercentage"));
+        int capacity = options[0] != null && options[0] instanceof Integer ? (int) options[0] : 0;
+        float batchSizePercentage = options[1] != null && options[1] instanceof Float ? (float) options[1] : 0.05f;
+        Link link = new Link(socket.getId(), peerId, clock, capacity, batchSizePercentage, this);
         links.put(peerId, link);
         // The clock identifiers are provided in an increasing order,
         // as a form of causal consistency.

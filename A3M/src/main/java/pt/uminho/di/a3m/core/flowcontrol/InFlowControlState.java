@@ -98,7 +98,7 @@ public class InFlowControlState {
         // If the current batch equals or surpasses the new batch size,
         // credits must be sent to the peer
         int toSend = 0;
-        if(batch >= batchSize){
+        if(batchSize > 0 && batch >= batchSize){
             // gets remaining of dividing the current batch
             // by the new batch size
             int remaining = batch % batchSize;

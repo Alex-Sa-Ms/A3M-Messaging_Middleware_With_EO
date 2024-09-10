@@ -96,11 +96,27 @@ public class DummySocket extends Socket{
 
     @Override
     protected SocketMsg customOnIncomingMessage(SocketMsg msg) {
-        return null;
+        return msg;
+    }
+
+    private Supplier<Queue<SocketMsg>> inQueueSupplier = null;
+
+    public void setInQueueSupplier(Supplier<Queue<SocketMsg>> inQueueSupplier) {
+        this.inQueueSupplier = inQueueSupplier;
     }
 
     @Override
     protected Queue<SocketMsg> createIncomingQueue(int peerProtocolId) {
-        return null;
+        return inQueueSupplier != null ? inQueueSupplier.get() : null;
+    }
+
+    /**
+     * Exposes link socket
+     * @param peerId peer's socket identifier
+     * @return link socket associated with the given identifier, or "null" if
+     * there isn't a link socket associated to that identifier.
+     */
+    public LinkSocket linkSocket(SocketIdentifier peerId){
+        return getLinkSocket(peerId);
     }
 }

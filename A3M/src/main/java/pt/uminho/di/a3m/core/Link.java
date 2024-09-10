@@ -16,8 +16,6 @@ import pt.uminho.di.a3m.waitqueue.WaitQueue;
 import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;
 import pt.uminho.di.a3m.waitqueue.WaitQueueFunc;
 
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -39,18 +37,6 @@ import java.util.concurrent.atomic.AtomicReference;
  *  <p>Wait queue lock is the lock used to ensure consistency when queuing and waking up waiters.</p>
  */
 public class Link implements Pollable {
-    public enum LinkState {
-        // When waiting for the peer's answer regarding the link establishment.
-        // If a LINK message from the peer has been received, then any data/control
-        // message can make the link progress to established.
-        LINKING,
-        // when waiting for an unlink message to close the link
-        UNLINKING,
-        // when wanting to cancel a linking process
-        CANCELLING,
-        ESTABLISHED,
-        CLOSED;
-    }
 
     private final LinkIdentifier id;
     private LinkState state = LinkState.LINKING;
@@ -64,12 +50,12 @@ public class Link implements Pollable {
      * @param initialCapacity initial amount of credits provided to the sender
      * @param dispatcher link observer
      */
-    public Link(LinkIdentifier id, int clockId, int initialCapacity, LinkDispatcher dispatcher) {
+    public Link(LinkIdentifier id, int clockId, int initialCapacity, float batchSizePercentage, LinkDispatcher dispatcher) {
         if(!LinkIdentifier.isValid(id))
             throw new IllegalArgumentException("Not a valid link identifier.");
         this.id = id;
         this.clockId = clockId;
-        this.inFCS = new InFlowControlState(initialCapacity);
+        this.inFCS = new InFlowControlState(initialCapacity, batchSizePercentage);
         this.dispatcher = dispatcher;
     }
 
@@ -81,8 +67,8 @@ public class Link implements Pollable {
      * @param initialCapacity initial amount of credits provided to the sender
      * @param dispatcher link observer
      */
-    public Link(SocketIdentifier ownerId, SocketIdentifier peerId, int clockId, int initialCapacity, LinkDispatcher dispatcher) {
-        this(new LinkIdentifier(ownerId, peerId), clockId, initialCapacity, dispatcher);
+    public Link(SocketIdentifier ownerId, SocketIdentifier peerId, int clockId, int initialCapacity, float batchSizePercentage, LinkDispatcher dispatcher) {
+        this(new LinkIdentifier(ownerId, peerId), clockId, initialCapacity, batchSizePercentage, dispatcher);
     }
 
     public LinkIdentifier getId() {
@@ -426,6 +412,8 @@ public class Link implements Pollable {
      * @param deadline waiting limit to poll an incoming message
      * @return available incoming message or "null" if the operation timed out
      * without a message becoming available.
+     * @throws LinkClosedException when the link is closed and there are no more messages
+     * to be received.
      * @apiNote Caller must not hold socket lock as it will result in a deadlock
      * when a blocking operation with a non-expired deadline is requested.
      */

@@ -237,21 +237,22 @@ public class SimpleSocket extends Socket {
          * @throws InterruptedException
          */
         public boolean send(byte[] payload, Long deadline) throws InterruptedException {
-            boolean locked;
-            if(deadline == null){
-                lock.lock();
-                locked = true;
-            } else
-                locked = lock.tryLock(Timeout.calculateTimeout(deadline), TimeUnit.MILLISECONDS);
-            if(locked) {
-                try {
+            boolean locked = false;
+            try {
+                if (deadline == null) {
+                    lock.lock();
+                    locked = true;
+                } else
+                    locked = lock.tryLock(Timeout.calculateTimeout(deadline), TimeUnit.MILLISECONDS);
+
+                if (locked) {
                     boolean sent = super.send(createDataPayload(payload), deadline);
-                    if(sent) next++;
+                    if (sent) next++;
                     return sent;
-                } finally {
-                    lock.unlock();
-                }
-            }else return false;
+                } else return false;
+            }finally {
+                if(locked) lock.unlock();
+            }
         }
 
         @Override

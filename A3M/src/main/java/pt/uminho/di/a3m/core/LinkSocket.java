@@ -1,5 +1,6 @@
 package pt.uminho.di.a3m.core;
 
+import pt.uminho.di.a3m.core.exceptions.LinkClosedException;
 import pt.uminho.di.a3m.core.messaging.Payload;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 import pt.uminho.di.a3m.poller.PollTable;
@@ -47,7 +48,7 @@ public class LinkSocket implements Pollable {
         return link.getDestId();
     }
 
-    public final Link.LinkState getState(){
+    public final LinkState getState(){
         return link.getState();
     }
 
@@ -64,6 +65,8 @@ public class LinkSocket implements Pollable {
      * @param deadline waiting limit to poll an incoming message
      * @return available incoming message or "null" if the operation timed out
      * without a message becoming available.
+     * @throws LinkClosedException when the link is closed and there are no more messages
+     * to be received.
      * @apiNote Caller must not hold socket lock as it will result in a deadlock
      * when a blocking operation with a non-expired deadline is requested.
      */

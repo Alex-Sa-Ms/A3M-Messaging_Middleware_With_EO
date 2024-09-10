@@ -1,6 +1,5 @@
 package pt.uminho.di.a3m.core;
 
-import pt.uminho.di.a3m.auxiliary.Debugging;
 import pt.uminho.di.a3m.auxiliary.Timeout;
 import pt.uminho.di.a3m.core.messaging.Msg;
 import pt.uminho.di.a3m.core.messaging.MsgType;
@@ -20,8 +19,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-// TODO - i need to hide LinkSocket and Socket poll(pt).
-
 /**
  * Abstract socket class that defines the basic behavior of a socket.
  * A subclass must implement all the abstract methods obedying the instructions
@@ -31,7 +28,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * messages, so, the subclass may override this method and make it throw the
  * java.lang.UnsupportedOperationException.
  */
-public abstract class Socket implements Pollable {
+public abstract class Socket {
     private final SocketIdentifier sid;
     private SocketManager socketManager = null;
     private MessageDispatcher dispatcher = null;
@@ -159,6 +156,22 @@ public abstract class Socket implements Pollable {
         return options;
     }
 
+    public static class OptionEntry{
+        String option;
+        Object value;
+        public OptionEntry(String option) {
+            this.option = option;
+            this.value = null;
+        }
+        public OptionEntry(String option, Object value) {
+            this.option = option;
+            this.value = value;
+        }
+        public Object getValue() {
+            return value;
+        }
+    }
+
     /**
      * Gets socket option. If not a default socket option,
      * lets the custom socket logic handle the retrieval.
@@ -186,6 +199,36 @@ public abstract class Socket implements Pollable {
     }
 
     /**
+     * Retrieves multiple socket options. Invalid options have a 'null' value
+     * associated in the returned array.
+     * @param optionsList list of options
+     * @return array of values associated with the options.
+     * The values are matched with the options through the position.
+     */
+    public final Object[] getOptions(List<String> optionsList){
+        if(optionsList == null)
+            throw new IllegalArgumentException("List is null");
+        lock.readLock().lock();
+        try {
+            Object[] values = new Object[optionsList.size()];
+            String option;
+            for (int i = 0; i < optionsList.size(); i++) {
+                option = optionsList.get(i);
+                if(option != null){
+                    OptionHandler<?> handler = options.get(option);
+                    if(handler != null) {
+                        try { values[i] = handler.get(); }
+                        catch (Exception ignored) {}
+                    }
+                }
+            }
+            return values;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
      * If there is a handler associated with the
      * option, invoke the set() method of the handler,
      * using the provided value. If there isn't a handler,
@@ -202,6 +245,27 @@ public abstract class Socket implements Pollable {
                 handler.set(value);
             else
                 throw new IllegalArgumentException("Option does not exist.");
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Sets multiple socket options. Ignores invalid options.
+     * @param optionPairs list of pairs of option and value to be set.
+     */
+    public final void setOptions(List<OptionEntry> optionPairs){
+        lock.writeLock().lock();
+        try {
+            for (OptionEntry entry : optionPairs){
+                if(entry != null && entry.option != null){
+                    OptionHandler<?> handler = options.get(entry.option);
+                    if(handler != null) {
+                        try { handler.set(entry.value); }
+                        catch (Exception ignored){}
+                    }
+                }
+            }
         } finally {
             lock.writeLock().unlock();
         }
@@ -558,7 +622,7 @@ public abstract class Socket implements Pollable {
         } finally {
             lock.writeLock().unlock();
         }
-        return (Poller.poll(this, PollFlags.POLLHUP, timeout) & PollFlags.POLLHUP) != 0;
+        return (Poller.poll(pollThis, PollFlags.POLLHUP, timeout) & PollFlags.POLLHUP) != 0;
     }
 
     /**
@@ -614,18 +678,12 @@ public abstract class Socket implements Pollable {
     public final void onLinkClosed(Link link) {
         try {
             lock.writeLock().lock();
-            Debugging.printlnOrdered(getId() + ": link closed with " + link.getDestId());
             LinkSocket linkSocket = linkSockets.remove(link.getDestId());
             customOnLinkClosed(linkSocket);
-            Debugging.printlnOrdered(getId() + ": executed custonOnLinkClosed for " + link.getDestId());
             if (state.get() == SocketState.CLOSING && !linkManager.hasLinks()) {
-                Debugging.printlnOrdered(getId() + ": invoking close internal after closed link " + link.getDestId());
                 closeInternal();
-                Debugging.printlnOrdered(getId() + ": invoked close internal after closed link " + link.getDestId());
             }
-            Debugging.printlnOrdered(getId() + ": notifying wake any link waiters for " + link.getDestId());
             wakeAnyLinkWaitersIfNoLinks();
-            Debugging.printlnOrdered(getId() + ": notified wake any link waiters for " + link.getDestId());
         }finally {
             lock.writeLock().unlock();
         }
@@ -726,6 +784,26 @@ public abstract class Socket implements Pollable {
 
     // ******** Polling ********* //
 
+    private static class SocketPoll implements Pollable {
+        final Socket socket;
+
+        public SocketPoll(Socket socket) {
+            this.socket = socket;
+        }
+
+        @Override
+        public Object getId() {
+            return socket.getId();
+        }
+
+        @Override
+        public int poll(PollTable pt) {
+            return socket.poll(pt);
+        }
+    }
+
+    private final SocketPoll pollThis = new SocketPoll(this);
+
     /**
      * Default implementation only informs POLLERR and POLLHUP events.
      * <p>Specializations of this class are encouraged to override this method to
@@ -754,14 +832,13 @@ public abstract class Socket implements Pollable {
      *           the wait queue of the pollable.
      * @return event mask
      */
-    @Override
     public int poll(PollTable pt) {
         lock.readLock().lock();
         try {
             if (!PollTable.pollDoesNotWait(pt)) {
                 WaitQueueEntry wait =
                         state.get() != SocketState.CLOSED ? waitQ.initEntry() : null;
-                pt.pollWait(this, wait);
+                pt.pollWait(pollThis, wait);
             }
             return getAvailableEventsMask();
         } finally {

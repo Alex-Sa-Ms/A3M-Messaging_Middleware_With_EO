@@ -249,7 +249,7 @@ class LinkingAndUnlinkingTests {
             // state is asserted
             lm2.writeLock().lock();
             lm1.unlink(sid2);
-            assert lm1.isLinkState(sid2,ls -> ls == Link.LinkState.UNLINKING);
+            assert lm1.isLinkState(sid2,ls -> ls == LinkState.UNLINKING);
         } finally {
             lm2.writeLock().unlock();
         }
@@ -269,7 +269,7 @@ class LinkingAndUnlinkingTests {
             lm1.link(sid2);
             assert lm1.isLinking(sid2);
             lm1.unlink(sid2);
-            assert lm1.isLinkState(sid2,ls -> ls == Link.LinkState.CANCELLING);
+            assert lm1.isLinkState(sid2,ls -> ls == LinkState.CANCELLING);
         } finally {
             lm2.writeLock().unlock();
         }
@@ -451,7 +451,7 @@ class LinkingAndUnlinkingTests {
         // assert that socket2 is in a LINKING state
         assert lm2.isLinking(sid1);
         // assert that socket1 is in CANCELLING state
-        assert lm1.isLinkState(sid2, ls -> ls == Link.LinkState.CANCELLING);
+        assert lm1.isLinkState(sid2, ls -> ls == LinkState.CANCELLING);
         // release socket2 to enable the handling of the LINK msg
         lm2.writeLock().unlock();
         // release lm1's lock and check that eventually
@@ -473,7 +473,7 @@ class LinkingAndUnlinkingTests {
         // socket1 is in CANCELLING state
         lm1.link(sid2);
         lm1.unlink(sid2);
-        assert lm1.isLinkState(sid2, ls -> ls == Link.LinkState.CANCELLING);
+        assert lm1.isLinkState(sid2, ls -> ls == LinkState.CANCELLING);
         // acquire lm1's lock
         lm1.writeLock().lock();
         // release socket2 to enable the handling of the LINK msg
@@ -481,7 +481,7 @@ class LinkingAndUnlinkingTests {
         // wait a bit for the negative LINKREPLY message to be sent to socket1
         Thread.sleep(50);
         // assert socket1 is still in CANCELLING state
-        assert lm1.isLinkState(sid2, ls -> ls == Link.LinkState.CANCELLING);
+        assert lm1.isLinkState(sid2, ls -> ls == LinkState.CANCELLING);
         // release lm1's lock and check that eventually
         // the link is closed
         lm1.writeLock().unlock();
@@ -578,7 +578,7 @@ class LinkingAndUnlinkingTests {
         assert lm2.isLinking(sid1);
         // make socket2 change to a CANCELLING state by invoking unlink()
         lm2.unlink(sid1);
-        assert lm2.isLinkState(sid1, ls -> ls == Link.LinkState.CANCELLING);
+        assert lm2.isLinkState(sid1, ls -> ls == LinkState.CANCELLING);
         // make socket1 change an UNLINK msg
         lm1.unlink(sid2);
         // If an UNLINK message is received when in CANCELLING state,
@@ -723,7 +723,7 @@ class LinkingAndUnlinkingTests {
         lm2.unlink(sid1);
         // assert socket1 is LINKING and socket2 is CANCELLING
         assert lm1.isLinking(sid2);
-        assert lm2.isLinkState(sid1, ls -> ls == Link.LinkState.CANCELLING);
+        assert lm2.isLinkState(sid1, ls -> ls == LinkState.CANCELLING);
         System.out.println("----------1----------");
         // acquire lm2's lock to prevent immediate handling of socket1's LINKREPLY msg
         lm2.writeLock().lock();
@@ -741,7 +741,7 @@ class LinkingAndUnlinkingTests {
         lm2.writeLock().unlock();
         Thread.sleep(50);
         assert lm1.isLinking(sid2);
-        assert lm2.isLinkState(sid1, ls -> ls == Link.LinkState.CANCELLING);
+        assert lm2.isLinkState(sid1, ls -> ls == LinkState.CANCELLING);
         // Feed the socket1's LINK msg to socket2
         // and check that the link is eventually
         // closed on both sides.
