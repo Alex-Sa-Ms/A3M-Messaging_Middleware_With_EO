@@ -447,11 +447,11 @@ public abstract class Socket {
         wait.add(WaitQueueEntry::defaultWakeFunction, ps);
         try {
             while (true) {
-                ps.parked.set(true);
+                ps.setParkState(true);
                 sid = auxWaitForAnyLinkEstablishment(notifyIfNone);
                 if (sid != null) return sid;
                 if(Timeout.hasTimedOut(deadline)) return null;
-                WaitQueueEntry.parkStateWaitFunction(deadline, ps, true);
+                WaitQueueEntry.parkStateWaitUntilFunction(deadline, ps, true);
             }
         }finally { wait.delete(); }
     }

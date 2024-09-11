@@ -27,7 +27,7 @@ class ConfigurableSocketTest {
     @BeforeEach
     void initSocketsAndLinkManagers(){
         SocketManager socketManager = SocketTestingUtilities.createSocketManager(nodeId, dispatcher);
-        socketManager.registerProducer(ConfigurableSocket::createSocket);
+        socketManager.registerProducer(ConfigurableSocket::new);
         for (int i = 0; i < nrSockets; i++) {
             //sids[i] = new SocketIdentifier("Node" + i, "Socket" + i);
             //sockets[i] = SimpleSocket.createSocket(sids[i]);

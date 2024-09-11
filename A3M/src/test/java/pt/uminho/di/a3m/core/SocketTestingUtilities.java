@@ -5,6 +5,8 @@ import pt.uminho.di.a3m.auxiliary.Debugging;
 import pt.uminho.di.a3m.core.messaging.Msg;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
@@ -92,5 +94,10 @@ public class SocketTestingUtilities {
 
     public static SocketManager createSocketManager(String nodeId, MessageDispatcher messageDispatcher){
         return new SocketMananerImpl(nodeId, messageDispatcher);
+    }
+
+    public static String decodeByteArrayToString(byte[] arrMsg){
+        if(arrMsg == null) return null;
+        else return StandardCharsets.UTF_8.decode(ByteBuffer.wrap(arrMsg)).toString();
     }
 }

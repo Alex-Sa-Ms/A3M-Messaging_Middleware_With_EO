@@ -116,7 +116,11 @@ public class MessageManagementSystem implements MessageDispatcher{
             // So the message should be queued immediately.
             assert success;
         } catch (Exception e) {
+            // TODO - maybe handling the InterruptedException must be passed above? Should it attempt to send
+            //  again and then throw the exception?
             Logger.getAnonymousLogger().severe(Arrays.toString(e.getStackTrace()));
+            if(Thread.currentThread() != processor)
+                throw new RuntimeException(e);
         }
     }
 

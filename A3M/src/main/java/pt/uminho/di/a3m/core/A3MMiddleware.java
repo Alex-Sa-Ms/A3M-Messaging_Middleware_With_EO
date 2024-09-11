@@ -4,11 +4,10 @@ import haslab.eo.EOMiddleware;
 import haslab.eo.TransportAddress;
 import haslab.eo.associations.DiscoveryManager;
 import haslab.eo.associations.DiscoveryService;
-import pt.uminho.di.a3m.sockets.simple_socket.SimpleSocket;
+import pt.uminho.di.a3m.sockets.SocketsTable;
 
 import java.net.SocketException;
 import java.net.UnknownHostException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -19,6 +18,7 @@ public class A3MMiddleware implements DiscoveryManager, SocketManagerPublic {
     private final MessageManagementSystem mms;
     private int state = CREATED;
     private Lock lock = new ReentrantLock();
+    private static int defaultN = 100;
 
     // ****** Middleware possible states ****** //
     public static final int CREATED = 0;
@@ -32,18 +32,20 @@ public class A3MMiddleware implements DiscoveryManager, SocketManagerPublic {
      * @param address IP address for the datagram socket. May be null for a wildcard address.
      * @param port port number for a datagram socket
      * @param N Exon middleware related value. This value determines
-     *          the maximum number of slots to be requested to a node at a time.
+     *          the maximum number of slots to be requested to a node at a time. If "null",
+     *          the default value of 100 is used.
      * @param socketProducers list of socket producers. If the provided list is null or empty,
      *                        the default collection of producers is used.
      * @throws SocketException if there is a problem creating the underlying datagram socket
      */
-    public A3MMiddleware(String nodeId, String address, int port, int N, List<SocketProducer> socketProducers) throws SocketException, UnknownHostException {
-        this.eom = EOMiddleware.start(nodeId, address, port, N);
+    public A3MMiddleware(String nodeId, String address, int port, Integer N, List<SocketProducer> socketProducers) throws SocketException, UnknownHostException {
+        if(N == null) N = defaultN;
+        this.eom = EOMiddleware.start(nodeId, address, port, Integer.MAX_VALUE / 2, N);
         this.socketManager = new SocketMananerImpl(nodeId);
         this.mms = new MessageManagementSystem(eom, this.socketManager);
         this.socketManager.setDispatcher(this.mms);
         if(socketProducers == null || socketProducers.isEmpty())
-            socketProducers = defaultProducers;
+            socketProducers = SocketsTable.getDefaultProducers();
         registerSocketProducers(socketProducers);
     }
 
@@ -69,7 +71,7 @@ public class A3MMiddleware implements DiscoveryManager, SocketManagerPublic {
      * @throws SocketException if there is a problem creating the underlying datagram socket
      */
     public A3MMiddleware(String nodeId, int port, int N) throws SocketException, UnknownHostException {
-        this(nodeId, null, port, 100);
+        this(nodeId, null, port, N);
     }
 
     /**
@@ -79,7 +81,7 @@ public class A3MMiddleware implements DiscoveryManager, SocketManagerPublic {
      * @throws SocketException if there is a problem creating the underlying datagram socket
      */
     public A3MMiddleware(String nodeId, int port) throws SocketException, UnknownHostException {
-        this(nodeId, port, 100);
+        this(nodeId, port, defaultN);
     }
 
     public void start(){
@@ -204,14 +206,7 @@ public class A3MMiddleware implements DiscoveryManager, SocketManagerPublic {
             socketManager.closeSocket(tagId);
     }
 
-    private static final List<SocketProducer> defaultProducers =
-            List.of(SimpleSocket::createSocket);
-
-    public static List<SocketProducer> getDefaultProducers() {
-        return new ArrayList<>(defaultProducers);
-    }
-
-    private void registerSocketProducers(List<SocketProducer> producers){
+    public void registerSocketProducers(List<SocketProducer> producers){
         if(producers != null)
             for (SocketProducer producer : producers)
                 socketManager.registerProducer(producer);

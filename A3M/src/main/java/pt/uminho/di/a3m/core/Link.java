@@ -442,28 +442,27 @@ public class Link implements Pollable {
             ps = (Link.ParkStateWithEvents) wait.getPriv();
         }
 
-        while (true) {
-            if (timedOut || getState() == LinkState.CLOSED)
-                break;
-            if (Thread.currentThread().isInterrupted()) {
-                wait.delete();
-                throw new InterruptedException();
+        try {
+            while (true) {
+                if (timedOut || getState() == LinkState.CLOSED)
+                    break;
+                // Wait until woken up
+                WaitQueueEntry.defaultWaitUntilFunction(wait, ps, deadline, true);
+                synchronized (this){
+                    // attempt to poll a message
+                    msg = tryPollingMessage();
+                    if (msg != null) break;
+                    // if a message was not available and the operation has not
+                    // timed out, sets parked state to true preemptively,
+                    // so that a notification is not missed
+                    timedOut = Timeout.hasTimedOut(deadline);
+                    if (!timedOut) ps.setParkState(true);
+                }
             }
-            // Wait until woken up
-            WaitQueueEntry.defaultWaitFunction(wait, ps, deadline, true);
-            synchronized (this){
-                // attempt to poll a message
-                msg = tryPollingMessage();
-                if (msg != null) break;
-                // if a message was not available and the operation has not
-                // timed out, sets parked state to true preemptively,
-                // so that a notification is not missed
-                timedOut = Timeout.hasTimedOut(deadline);
-                if (!timedOut) ps.parked.set(true);
-            }
+        } finally {
+            // delete entry since a hanging wait queue entry is not desired.
+            wait.delete();
         }
-        // delete entry since a hanging wait queue entry is not desired.
-        wait.delete();
         return msg;
     }
     
@@ -555,32 +554,32 @@ public class Link implements Pollable {
             ps = (ParkStateWithEvents) wait.getPriv();
         }
 
-        while (true) {
-            if (timedOut || getState() == LinkState.CLOSED)
-                break;
-            if (Thread.currentThread().isInterrupted()) {
-                wait.delete();
-                throw new InterruptedException();
-            }
-            // Wait until woken up
-            WaitQueueEntry.defaultWaitFunction(wait, ps, deadline, true);
-            synchronized (this){
-                // attempt to send the message again
-                if(hasOutgoingCredits())  {
-                    dispatcher.onOutgoingMessage(this, payload);
-                    tryConsumingCredit();
-                    ret = true;
+        try {
+            while (true) {
+                if (timedOut || getState() == LinkState.CLOSED)
                     break;
+                // Wait until woken up
+                WaitQueueEntry.defaultWaitUntilFunction(wait, ps, deadline, true);
+                synchronized (this){
+                    // attempt to send the message again
+                    if(hasOutgoingCredits())  {
+                        dispatcher.onOutgoingMessage(this, payload);
+                        tryConsumingCredit();
+                        ret = true;
+                        break;
+                    }
+                    // if permission to send the message was not granted and
+                    // the operation has not timed out,sets parked state to
+                    // true preemptively, so that a notification is not missed
+                    timedOut = Timeout.hasTimedOut(deadline);
+                    if (!timedOut) ps.setParkState(true);
                 }
-                // if permission to send the message was not granted and
-                // the operation has not timed out,sets parked state to
-                // true preemptively, so that a notification is not missed
-                timedOut = Timeout.hasTimedOut(deadline);
-                if (!timedOut) ps.parked.set(true);
             }
+        } finally {
+            // delete entry since a hanging wait queue entry is not desired.
+            wait.delete();
         }
-        // delete entry since a hanging wait queue entry is not desired.
-        wait.delete();
+
         return ret;
     }
 

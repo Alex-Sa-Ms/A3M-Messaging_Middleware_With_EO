@@ -2,7 +2,6 @@ package pt.uminho.di.a3m.waitqueue;
 
 import org.junit.jupiter.api.Test;
 import pt.uminho.di.a3m.list.IListNode;
-import pt.uminho.di.a3m.list.ListNode;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -278,8 +277,12 @@ class WaitQueueTest {
                 entry.add(WaitQueueEntry::autoDeleteWakeFunction, new ParkState());
                 // If the thread was successfully woken up,
                 // informs that using the "woken" atomic variable
-                if(WaitQueueEntry.defaultWaitFunctionTimeout(entry))
-                    woken.incrementAndGet();
+                try {
+                    if(WaitQueueEntry.defaultWaitFunction(entry))
+                        woken.incrementAndGet();
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
             };
             new Thread(task).start();
         }
@@ -327,8 +330,12 @@ class WaitQueueTest {
                 entry.addExclusive(WaitQueueEntry::autoDeleteWakeFunction, new ParkState());
                 // If the thread was successfully woken up,
                 // informs that using the "woken" atomic variable
-                if(WaitQueueEntry.defaultWaitFunctionTimeout(entry))
-                    woken.incrementAndGet();
+                try {
+                    if(WaitQueueEntry.defaultWaitFunction(entry))
+                        woken.incrementAndGet();
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
             };
             new Thread(task).start();
         }
@@ -380,8 +387,12 @@ class WaitQueueTest {
                     entry.addExclusive(WaitQueueEntry::autoDeleteWakeFunction, new ParkState());
                 // If the thread was successfully woken up,
                 // informs that using the "woken" atomic variable
-                if(WaitQueueEntry.defaultWaitFunctionTimeout(entry))
-                    woken.incrementAndGet();
+                try {
+                    if(WaitQueueEntry.defaultWaitFunction(entry))
+                        woken.incrementAndGet();
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
             };
             new Thread(task).start();
         }
@@ -426,8 +437,12 @@ class WaitQueueTest {
                     entry.addExclusive(WaitQueueEntry::autoDeleteWakeFunction, new ParkState());
                 // If the thread was successfully woken up,
                 // informs that using the "woken" atomic variable
-                if(WaitQueueEntry.defaultWaitFunctionTimeout(entry))
-                    woken.incrementAndGet();
+                try {
+                    if(WaitQueueEntry.defaultWaitFunction(entry))
+                        woken.incrementAndGet();
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
             };
             new Thread(task).start();
         }
@@ -499,8 +514,12 @@ class WaitQueueTest {
                     entry.addExclusive(WaitQueueEntry::defaultWakeFunction, new ParkState());
                 // If the thread was successfully woken up,
                 // informs that using the "woken" atomic variable
-                if(WaitQueueEntry.defaultWaitFunctionTimeout(entry))
-                    woken.incrementAndGet();
+                try {
+                    if(WaitQueueEntry.defaultWaitFunction(entry))
+                        woken.incrementAndGet();
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
             };
             new Thread(task).start();
         }
@@ -572,10 +591,14 @@ class WaitQueueTest {
                     entry.addExclusive(WaitQueueEntry::defaultWakeFunction, new ParkState());
                 // If the thread was successfully woken up,
                 // informs that using the "woken" atomic variable
-                if(WaitQueueEntry.defaultWaitFunctionTimeout(entry)) {
-                    woken.incrementAndGet();
-                    if((entry.getWaitFlags() & WaitQueueFlags.EXCLUSIVE) != 0)
-                        lastWokenExcl.set(entry);
+                try {
+                    if(WaitQueueEntry.defaultWaitFunction(entry)) {
+                        woken.incrementAndGet();
+                        if((entry.getWaitFlags() & WaitQueueFlags.EXCLUSIVE) != 0)
+                            lastWokenExcl.set(entry);
+                    }
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
                 }
             };
             new Thread(task).start();
@@ -689,10 +712,14 @@ class WaitQueueTest {
                     entry.addExclusive(WaitQueueEntry::autoDeleteWakeFunction, new ParkState());
                 // If the thread was successfully woken up,
                 // informs that using the "woken" atomic variable
-                if(WaitQueueEntry.defaultWaitFunctionTimeout(entry)) {
-                    woken.incrementAndGet();
-                    if((entry.getWaitFlags() & WaitQueueFlags.EXCLUSIVE) != 0)
-                        exclEntries.put(entry,true);
+                try {
+                    if(WaitQueueEntry.defaultWaitFunction(entry)) {
+                        woken.incrementAndGet();
+                        if((entry.getWaitFlags() & WaitQueueFlags.EXCLUSIVE) != 0)
+                            exclEntries.put(entry,true);
+                    }
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
                 }
             };
             new Thread(task).start();

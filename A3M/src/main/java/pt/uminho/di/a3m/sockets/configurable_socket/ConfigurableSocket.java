@@ -8,6 +8,7 @@ import pt.uminho.di.a3m.core.messaging.MsgType;
 import pt.uminho.di.a3m.core.messaging.Payload;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 import pt.uminho.di.a3m.core.messaging.payloads.BytePayload;
+import pt.uminho.di.a3m.core.options.ImmutableOptionHandler;
 import pt.uminho.di.a3m.poller.*;
 import pt.uminho.di.a3m.waitqueue.ParkState;
 import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;
@@ -39,10 +40,11 @@ public class ConfigurableSocket extends Socket {
     private final boolean orderData;
 
     /**
-     * Creates simple socket with a combination of the following capabilities:
+     * Creates a socket with a combination of the following capabilities:
      *  <p>- Be able to receive data messages (reads == true);
      *  <p>- Be able to send data messages (writes == true);
-     *  <p>- Data messages must be ordered. (This assumes the compatible sockets send/receive with order)
+     *  <p>- Data messages must be ordered (orderData == true).
+     *  (This assumes the compatible sockets send/receive with order)
      * <p>The socket must be able to read and/or write. Choosing not to have both
      * (i.e. setting reads and writes to false) will result in an exception.</p>
      * @param sid identifier of the socket
@@ -52,14 +54,16 @@ public class ConfigurableSocket extends Socket {
      * @throws IllegalArgumentException The socket must have at least the read or write capability,
      * therefore, this exception is thrown if both "reads" and "writes" parameters are false.
      */
-    protected ConfigurableSocket(SocketIdentifier sid, boolean reads, boolean writes, boolean orderData) {
+    public ConfigurableSocket(SocketIdentifier sid, boolean reads, boolean writes, boolean orderData) {
         super(sid);
         if(!(reads || writes))
             throw new IllegalArgumentException("Socket must at least be able to read or write.");
 
         if(reads) readPoller = Poller.create();
-        // if reading is not possible, set capacity to 0
-        else setOption("capacity", 0);
+        else {
+            // if reading is not possible, set capacity to 0 and make it unchangeable
+            registerOption("capacity", new ImmutableOptionHandler<>(0));
+        }
 
         if(writes) writePoller = Poller.create();
 
@@ -67,20 +71,11 @@ public class ConfigurableSocket extends Socket {
     }
 
     /**
-     * Creates simple socket with read and write capabilities and that
-     * ensures FIFO ordering.
+     * Creates a socket with read, write and FIFO ordering capabilities.
      * @param sid identifier of the socket
      */
-    ConfigurableSocket(SocketIdentifier sid) {
+    public ConfigurableSocket(SocketIdentifier sid) {
         this(sid, true, true, true);
-    }
-
-    /**
-     * Creates simple socket instance with read and write capabilities.
-     * @param sid identifier of the socket
-     */
-    public static ConfigurableSocket createSocket(SocketIdentifier sid){
-        return new ConfigurableSocket(sid);
     }
 
     @Override
@@ -144,6 +139,11 @@ public class ConfigurableSocket extends Socket {
     //    writePoller.modify(linkId, PollFlags.POLLOUT | PollFlags.POLLET | PollFlags.POLLONESHOT);
     //}
 
+    /**
+     * If a subclass decides to override this method,
+     * its implementation must call this method.
+     * @param linkSocket link socket of the newly established link
+     */
     @Override
     protected void customOnLinkEstablished(LinkSocket linkSocket) {
         // register a watcher of the link
@@ -166,6 +166,11 @@ public class ConfigurableSocket extends Socket {
         }
     }
 
+    /**
+     * If a subclass decides to override this method,
+     * its implementation must call this method.
+     * @param linkSocket link socket of the closed link
+     */
     @Override
     protected void customOnLinkClosed(LinkSocket linkSocket) {
         // Notify with CHECK_IF_NONE mode, so that waiters that
@@ -174,6 +179,12 @@ public class ConfigurableSocket extends Socket {
             getWaitQueue().wakeUp(CHECK_IF_NONE, 0, 0, 0);
     }
 
+    /**
+     * If a subclass decides to override this method,
+     * its implementation must call this method for the
+     * data messages with order to be parsed.
+     * @param msg incoming message to be handled
+     */
     @Override
     protected SocketMsg customOnIncomingMessage(SocketMsg msg) {
         // Custom control messages are ignored
@@ -340,7 +351,7 @@ public class ConfigurableSocket extends Socket {
     }
 
     @Override
-    protected LinkSocket createLinkSocketInstance(int peerProtocolId) {
+    protected SimpleLinkSocket createLinkSocketInstance(int peerProtocolId) {
         if(orderData)
             return new SimpleLinkSocketWithOrder();
         else
@@ -498,16 +509,13 @@ public class ConfigurableSocket extends Socket {
                 if(getState() == SocketState.CLOSED)
                     throw new SocketClosedException();
 
-                // checks if thread was interrupted
-                if(Thread.currentThread().isInterrupted())
-                    throw new InterruptedException();
-
                 payload = tryReceiving();
                 if (payload != null)
                     return payload;
 
-                boolean wokenUp = WaitQueueEntry.defaultWaitFunction(
+                boolean wokenUp = WaitQueueEntry.defaultWaitUntilFunction(
                         ps.getWaitQueueEntry(), ps, deadline, true);
+
                 if(wokenUp) {
                     // if the "notify if none" flag is set,
                     // and there aren't any links, notify with a
@@ -516,7 +524,7 @@ public class ConfigurableSocket extends Socket {
                         throw new NoLinksException();
                 }
 
-                ps.parked.set(true);
+                ps.setParkState(true);
 
                 if(!wokenUp && Timeout.hasTimedOut(deadline))
                     return null;
@@ -607,7 +615,7 @@ public class ConfigurableSocket extends Socket {
                 sent = trySendingDataMsg(payload);
                 if (sent) return true;
 
-                boolean wokenUp = WaitQueueEntry.defaultWaitFunction(
+                boolean wokenUp = WaitQueueEntry.defaultWaitUntilFunction(
                         ps.getWaitQueueEntry(), ps, deadline, true);
                 if (wokenUp) {
                     // if the "notify if none" flag is set,
@@ -617,7 +625,7 @@ public class ConfigurableSocket extends Socket {
                         throw new NoLinksException();
                 }
 
-                ps.parked.set(true);
+                ps.setParkState(true);
 
                 if (!wokenUp && Timeout.hasTimedOut(deadline))
                     return false;
@@ -636,7 +644,7 @@ public class ConfigurableSocket extends Socket {
         if(readPoller == null) return false;
 
         while(true) {
-            List<PollEvent<Object>> rlist = readPoller.await(0L, 1);
+            List<PollEvent<Object>> rlist = readPoller.awaitUntil(1, 0L);
             if (rlist == null) return false; // if waiting timed out
             PollEvent<Object> linkReady = rlist.getFirst();
             //LinkIdentifier linkId = (LinkIdentifier) rlist.getFirst().data;
@@ -655,7 +663,7 @@ public class ConfigurableSocket extends Socket {
         if(writePoller == null) return false;
 
         while(true) {
-            List<PollEvent<Object>> wlist = writePoller.await(0L, 1);
+            List<PollEvent<Object>> wlist = writePoller.awaitUntil(1, 0L);
             if (wlist == null) return false; // if waiting timed out
             PollEvent<Object> linkReady = wlist.getFirst();
             //LinkIdentifier linkId = (LinkIdentifier) wlist.getFirst().data;

@@ -599,20 +599,20 @@ public class Poller {
 
     /**
      * @param maxEvents maximum number of events that should be returned
-     * @param endTimeout deadline allocated to wait for events. Obtained using System.currentTimeMillis().
-     *                 null to wait until there are events to return.
+     * @param deadline  deadline allocated to wait for events. Obtained using System.currentTimeMillis().
+     *                  null to wait until there are events to return.
      * @return <p> > list of pairs of pollable id and mask of available events for that pollable.
-     *         <p> > null if timed out
-     * @throws InterruptedException if thread was interrupted during the invocation of this method.
+     * <p> > null if timed out
+     * @throws InterruptedException     if thread was interrupted during the invocation of this method.
      * @throws IllegalArgumentException if the maximum number of events is not a positive value.
-     * @throws PollerClosedException if poller is closed
+     * @throws PollerClosedException    if poller is closed
      */
-    public List<PollEvent<Object>> await(Long endTimeout, int maxEvents) throws InterruptedException, PollerClosedException {
+    public List<PollEvent<Object>> awaitUntil(int maxEvents, Long deadline) throws InterruptedException, PollerClosedException {
         if(maxEvents <= 0)
             throw new IllegalArgumentException("Maximum number of events must be a positive value.");
 
         List<PollEvent<Object>> rEvents;
-        boolean timedOut = Objects.equals(endTimeout,0L);
+        boolean timedOut = Objects.equals(deadline,0L);
         ParkState ps = new ParkState(true);
 
         // Racy call. If a non-blocking operation was requested,
@@ -653,7 +653,7 @@ public class Poller {
                         // the accumulation of an unparked permit. This is required
                         // because a synchronization mechanism is not used during
                         // the time between adding this entry and wait function that follows
-                        ps.parked.set(true);
+                        ps.setParkState(true);
                         wait.addExclusive(WaitQueueEntry::autoDeleteWakeFunction, ps);
                     }
                 } finally {
@@ -663,9 +663,16 @@ public class Poller {
                 lock.unlock();
             }
 
-            // waits until it times out or is woken up
-            if(!ready)
-                timedOut = !WaitQueueEntry.defaultWaitFunction(wait, null, endTimeout, true);
+            try {
+                // waits until it times out or is woken up
+                if(!ready)
+                    timedOut = !WaitQueueEntry.defaultWaitUntilFunction(wait, null, deadline, true);
+            } catch (InterruptedException ie){
+                if(!wait.isDeleted()) {
+                    wait.delete();
+                    throw ie;
+                }
+            }
 
             // sets ready to true, to try and check if there
             // are events ready, even if the waiting operation timed out
@@ -698,7 +705,7 @@ public class Poller {
      */
     public List<PollEvent<Object>> await(int maxEvents, Long timeout) throws InterruptedException, PollerClosedException {
         Long endTimeout = calculateEndTime(timeout);
-        return await(endTimeout, maxEvents);
+        return awaitUntil(maxEvents, endTimeout);
     }
 
     public List<PollEvent<Object>> await(int maxEvents) throws InterruptedException, PollerClosedException {
@@ -976,7 +983,7 @@ public class Poller {
         // result in the current thread receiving a permit that allows
         // it to skip the parking.
         ParkState ps = pCall.ps;
-        ps.parked.set(true);
+        ps.setParkState(true);
 
         // register in pollable's wait queues
         List<WaitQueueEntry> waitTable = _pollRegisterLoop(interestList, maxEvents, pCall, rEvents);
@@ -984,38 +991,32 @@ public class Poller {
         // Waits for events in a loop, if at least one pollable
         // allowed adding a poll hook (pollables may be closed to polling)
         // and if no event was retrieved during the register loop
-        if(!waitTable.isEmpty() && rEvents.isEmpty()) {
-            PollTable pt = new PollTable(~0, null, null);
-            while (true) {
-                // checks if thread was interrupted
-                if(Thread.currentThread().isInterrupted()) {
-                    // delete wait queue entries (poll hooks)
-                    waitTable.forEach(WaitQueueEntry::delete);
-                    throw new InterruptedException();
+        try {
+            if(!waitTable.isEmpty() && rEvents.isEmpty()) {
+                PollTable pt = new PollTable(~0, null, null);
+                while (true) {
+                    // breaks from the waiting loop if timed out
+                    if(timedOut) break;
+                    // waits for timeout, interrupt signal or wake-up call
+                    timedOut = !WaitQueueEntry.parkStateWaitUntilFunction(endTimeout, ps, true);
+                    // set parks state to true to make sure it if
+                    // in the next iteration, waiting is only done
+                    // if a permit for unparking has not been given yet
+                    ps.setParkState(true);
+                    // iterates over all pollables to fetch available events
+                    _pollFetchEventsLoop(interestList, 0, pt, pCall, maxEvents, rEvents);
+                    // exits the loop if there are events available to be retrieved
+                    if(!rEvents.isEmpty())
+                        break;
                 }
-                // breaks from the waiting loop if timed out
-                if(timedOut)
-                    break;
-                // waits for timeout, interrupt signal or wake-up call
-                timedOut = !WaitQueueEntry.parkStateWaitFunction(endTimeout, ps, true);
-                // set parks state to true to make sure it if
-                // in the next iteration, waiting is only done
-                // if a permit for unparking has not been given yet
-                ps.parked.set(true);
-                // iterates over all pollables to fetch available events 
-                _pollFetchEventsLoop(interestList, 0, pt, pCall, maxEvents, rEvents);
-                // exits the loop if there are events available to be retrieved
-                if(!rEvents.isEmpty())
-                    break;
+                // sets parked to false, so that no more wake-up calls
+                // are done to a completed poll
+                ps.setParkState(false);
             }
-            // sets parked to false, so that no more wake-up calls
-            // are done to a completed poll
-            ps.parked.set(false);
+        } finally {
+            // delete wait queue entries (poll hooks)
+            waitTable.forEach(WaitQueueEntry::delete);
         }
-
-        // delete wait queue entries (poll hooks)
-        waitTable.forEach(WaitQueueEntry::delete);
-
         return rEvents;
     }
 
