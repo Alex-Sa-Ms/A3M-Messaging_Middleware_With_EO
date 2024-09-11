@@ -1,4 +1,4 @@
-package pt.uminho.di.a3m.sockets.simple_socket;
+package pt.uminho.di.a3m.sockets.configurable_socket;
 
 import pt.uminho.di.a3m.auxiliary.Timeout;
 import pt.uminho.di.a3m.core.*;
@@ -21,27 +21,66 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Simple socket:
+ * Configurable socket:
  * <ul>
- *     <li>Requires total ordering of data messages.</li>
- *     <li>Sends message to the first available receiver.</li>
- *     <li>Receives message from the first available sender.</li>
+ *     <li>Enables FIFO ordering of data messages.</li>
+ *     <li>Allows disabling sending/receiving of messages.</li>
+ *     <li>Sends/Receives data messages using round-robin, but skipping
+ *     destinations that are not available for the operations.</li>
  * </ul>
  */
-public class SimpleSocket extends Socket {
-    final static private String protocolName = "SimpleTotalOrderSocket";
+public class ConfigurableSocket extends Socket {
+    final static private String protocolName = "ConfigurableSocket";
     final static public Protocol protocol = new Protocol(protocolName.hashCode(), protocolName);
     final static public Set<Protocol> compatProtocols = Collections.singleton(protocol);
     private static final int CHECK_IF_NONE = 1; // wake up mode to inform when there aren't any links
-    final private Poller readPoller = Poller.create();
-    final private Poller writePoller = Poller.create();
+    private Poller readPoller = null;
+    private Poller writePoller = null;
+    private final boolean orderData;
 
-    protected SimpleSocket(SocketIdentifier sid) {
+    /**
+     * Creates simple socket with a combination of the following capabilities:
+     *  <p>- Be able to receive data messages (reads == true);
+     *  <p>- Be able to send data messages (writes == true);
+     *  <p>- Data messages must be ordered. (This assumes the compatible sockets send/receive with order)
+     * <p>The socket must be able to read and/or write. Choosing not to have both
+     * (i.e. setting reads and writes to false) will result in an exception.</p>
+     * @param sid identifier of the socket
+     * @param reads if socket should be able to read
+     * @param writes if socket should be able to write
+     * @param orderData if socket should ensure FIFO order of data messages.
+     * @throws IllegalArgumentException The socket must have at least the read or write capability,
+     * therefore, this exception is thrown if both "reads" and "writes" parameters are false.
+     */
+    protected ConfigurableSocket(SocketIdentifier sid, boolean reads, boolean writes, boolean orderData) {
         super(sid);
+        if(!(reads || writes))
+            throw new IllegalArgumentException("Socket must at least be able to read or write.");
+
+        if(reads) readPoller = Poller.create();
+        // if reading is not possible, set capacity to 0
+        else setOption("capacity", 0);
+
+        if(writes) writePoller = Poller.create();
+
+        this.orderData = orderData;
     }
 
-    public static SimpleSocket createSocket(SocketIdentifier sid){
-        return new SimpleSocket(sid);
+    /**
+     * Creates simple socket with read and write capabilities and that
+     * ensures FIFO ordering.
+     * @param sid identifier of the socket
+     */
+    ConfigurableSocket(SocketIdentifier sid) {
+        this(sid, true, true, true);
+    }
+
+    /**
+     * Creates simple socket instance with read and write capabilities.
+     * @param sid identifier of the socket
+     */
+    public static ConfigurableSocket createSocket(SocketIdentifier sid){
+        return new ConfigurableSocket(sid);
     }
 
     @Override
@@ -65,7 +104,7 @@ public class SimpleSocket extends Socket {
         if(i != 0) getWaitQueue().fairWakeUp(0, 1, 0, i);
     }
 
-    /** @return Wake function that notifies when an event happens to the link socket. */
+    /** Wake function that notifies when an event happens to the link socket. */
     private final WaitQueueFunc linkWatcherWakeFunction = (entry, mode, flags, key) -> {
         int iKey = (int) key;
         // if POLLHUP is received, remove the watcher and
@@ -73,35 +112,37 @@ public class SimpleSocket extends Socket {
         if((iKey & PollFlags.POLLHUP) != 0) {
             entry.delete();
             SimpleLinkSocket sls = ((SimpleLinkSocket) entry.getPriv());
-            sls.watcherWaitEntry = null;
-            readPoller.delete(sls.getId());
-            writePoller.delete(sls.getId());
+            sls.setWatcherWaitEntry(null);
+            if(readPoller != null) readPoller.delete(sls.getId());
+            if(writePoller != null) writePoller.delete(sls.getId());
         }
-        // if POLLOUT is received, notify a socket waiter with POLLOUT
-        checkEventsAndNotifyWaiters(iKey, PollFlags.POLLOUT);
         // if POLLIN is received, notify a socket waiter with POLLIN
-        checkEventsAndNotifyWaiters(iKey, PollFlags.POLLIN);
+        if(readPoller != null)
+            checkEventsAndNotifyWaiters(iKey, PollFlags.POLLIN);
+        // if POLLOUT is received, notify a socket waiter with POLLOUT
+        if(writePoller != null)
+            checkEventsAndNotifyWaiters(iKey, PollFlags.POLLOUT);
         return 1;
     };
 
-    /** @return Function that queues a link event watcher. */
+    /** Function that queues a link event watcher. */
     private final PollQueueingFunc linkWatcherQueueFunction = (p, wait, pt) -> {
         if(wait != null){
             SimpleLinkSocket sls = (SimpleLinkSocket) pt.getPriv();
             // register wait queue entry used to watch the credits
-            sls.watcherWaitEntry = wait;
+            sls.setWatcherWaitEntry(wait);
             // add the wait queue entry to the link socket's wait queue
             wait.add(linkWatcherWakeFunction, sls);
         }
     };
 
-    private void resubscribeReadEvent(LinkIdentifier linkId){
-        readPoller.modify(linkId, PollFlags.POLLIN | PollFlags.POLLET | PollFlags.POLLONESHOT);
-    }
+    //private void resubscribeReadEvent(LinkIdentifier linkId){
+    //    readPoller.modify(linkId, PollFlags.POLLIN | PollFlags.POLLET | PollFlags.POLLONESHOT);
+    //}
 
-    private void resubscribeWriteEvent(LinkIdentifier linkId){
-        writePoller.modify(linkId, PollFlags.POLLOUT | PollFlags.POLLET | PollFlags.POLLONESHOT);
-    }
+    //private void resubscribeWriteEvent(LinkIdentifier linkId){
+    //    writePoller.modify(linkId, PollFlags.POLLOUT | PollFlags.POLLET | PollFlags.POLLONESHOT);
+    //}
 
     @Override
     protected void customOnLinkEstablished(LinkSocket linkSocket) {
@@ -113,12 +154,16 @@ public class SimpleSocket extends Socket {
                         linkWatcherQueueFunction));
         // add link socket to pollers (added after link watcher to ensure they are notified before
         // the link watcher, since the link watcher assumes the pollers to be notified first)
-        readPoller.add(linkSocket, PollFlags.POLLIN /*| PollFlags.POLLET | PollFlags.POLLONESHOT*/);
-        writePoller.add(linkSocket, PollFlags.POLLOUT /*| PollFlags.POLLET | PollFlags.POLLONESHOT*/);
-        // notify if sending is immediately possible
-        checkEventsAndNotifyWaiters(events, PollFlags.POLLOUT);
-        // notify if receiving is immediately possible
-        checkEventsAndNotifyWaiters(events, PollFlags.POLLIN);
+        if(readPoller != null){
+            readPoller.add(linkSocket, PollFlags.POLLIN /*| PollFlags.POLLET | PollFlags.POLLONESHOT*/);
+            // notify if receiving is immediately possible
+            checkEventsAndNotifyWaiters(events, PollFlags.POLLIN);
+        }
+        if(writePoller != null) {
+            writePoller.add(linkSocket, PollFlags.POLLOUT /*| PollFlags.POLLET | PollFlags.POLLONESHOT*/);
+            // notify if sending is immediately possible
+            checkEventsAndNotifyWaiters(events, PollFlags.POLLOUT);
+        }
     }
 
     @Override
@@ -131,9 +176,15 @@ public class SimpleSocket extends Socket {
 
     @Override
     protected SocketMsg customOnIncomingMessage(SocketMsg msg) {
-        // Return false because it does not use custom control messages,
-        // and all data messages should be queued in the appropriate link's queue.
-        return SocketMsgWithOrder.parseFrom(msg);
+        // Custom control messages are ignored
+        if(msg == null || msg.getType() != MsgType.DATA) return null;
+        // All data messages should be queued in the appropriate link's queue.
+        else {
+            if(orderData)
+                return SocketMsgWithOrder.parseFrom(msg);
+            else
+                return msg;
+        }
     }
 
     @Override
@@ -152,8 +203,7 @@ public class SimpleSocket extends Socket {
         return Integer.compare(s1.getOrder(),s2.getOrder());
     };
 
-    @Override
-    protected Queue<SocketMsg> createIncomingQueue(int peerProtocolId) {
+    private Queue<SocketMsg> createIncomingQueueWithOrder(){
         return new PriorityQueue<>(orderComparator){
             private int next = 0;
 
@@ -181,12 +231,35 @@ public class SimpleSocket extends Socket {
         };
     }
 
-    public static class SimpleLinkSocket extends LinkSocket{
-        int next = 0;
-        Lock lock = new ReentrantLock();
-        WaitQueueEntry watcherWaitEntry = null;
+    @Override
+    protected Queue<SocketMsg> createIncomingQueue(int peerProtocolId) {
+        if(orderData)
+            return createIncomingQueueWithOrder();
+        else
+            return new LinkedList<>();
+    }
 
-        private BytePayload createDataPayload(byte[] payload){
+    protected static class SimpleLinkSocket extends LinkSocket{
+        private WaitQueueEntry watcherWaitEntry = null;
+
+        WaitQueueEntry getWatcherWaitEntry() {
+            return watcherWaitEntry;
+        }
+
+        void setWatcherWaitEntry(WaitQueueEntry watcherWaitEntry) {
+            this.watcherWaitEntry = watcherWaitEntry;
+        }
+
+        public boolean trySend(Payload payload) throws InterruptedException {
+            return send(payload, 0L);
+        }
+    }
+
+    protected static class SimpleLinkSocketWithOrder extends SimpleLinkSocket{
+        int next = 0;
+        Lock orderLock = new ReentrantLock();
+
+        protected BytePayload createDataPayloadWithOrder(byte[] payload){
             byte[] payloadWithOrder =
                     ByteBuffer.allocate(payload.length + 4) // allocate space for payload plus order number
                               .putInt(next) // put order number
@@ -195,17 +268,27 @@ public class SimpleSocket extends Socket {
             return new BytePayload(MsgType.DATA, payloadWithOrder);
         }
 
-        public boolean trySend(byte[] payload) throws InterruptedException {
-            boolean locked = lock.tryLock();
+        public boolean trySendDataWithOrder(byte[] payload) throws InterruptedException {
+            boolean locked = orderLock.tryLock();
             if(locked) {
                 try {
-                    boolean sent = super.send(createDataPayload(payload), 0L);
+                    boolean sent = super.send(createDataPayloadWithOrder(payload), 0L);
                     if (sent) next++;
                     return sent;
                 } finally {
-                    lock.unlock();
+                    orderLock.unlock();
                 }
             }else return false;
+        }
+
+        @Override
+        public boolean trySend(Payload payload) throws InterruptedException {
+            if(payload == null)
+                throw new IllegalArgumentException("Payload is null.");
+            if(payload.getType() == MsgType.DATA)
+                return trySendDataWithOrder(payload.getPayload());
+            else
+                return super.trySend(payload);
         }
 
         /**
@@ -221,39 +304,47 @@ public class SimpleSocket extends Socket {
          * for lock acquisition using tryLock. If acquiring the lock is not possible during the provided
          * timeout or deadline, then the reason behind this incapability, most likely, is that the link
          * is being throttled by the flow control.
-         * @param payload
-         * @param deadline
-         * @return
-         * @throws InterruptedException
+         * @param payload message content to send
+         * @param deadline .
+         * @return true if the message was sent. false, if the operation timed out.
+         * @throws InterruptedException if the thread was interrupted while waiting.
          */
-        public boolean send(byte[] payload, Long deadline) throws InterruptedException {
+        public boolean sendDataWithOrder(byte[] payload, Long deadline) throws InterruptedException {
             boolean locked = false;
             try {
                 if (deadline == null) {
-                    lock.lock();
+                    orderLock.lock();
                     locked = true;
                 } else
-                    locked = lock.tryLock(Timeout.calculateTimeout(deadline), TimeUnit.MILLISECONDS);
+                    locked = orderLock.tryLock(Timeout.calculateTimeout(deadline), TimeUnit.MILLISECONDS);
 
                 if (locked) {
-                    boolean sent = super.send(createDataPayload(payload), deadline);
+                    boolean sent = super.send(createDataPayloadWithOrder(payload), deadline);
                     if (sent) next++;
                     return sent;
                 } else return false;
             }finally {
-                if(locked) lock.unlock();
+                if(locked) orderLock.unlock();
             }
         }
 
         @Override
         public boolean send(Payload payload, Long deadline) throws InterruptedException {
-            throw new UnsupportedOperationException();
+            if(payload == null)
+                throw new IllegalArgumentException("Payload is null.");
+            if(payload.getType() == MsgType.DATA)
+                return sendDataWithOrder(payload.getPayload(), deadline);
+            else
+                return super.send(payload, deadline);
         }
     }
 
     @Override
     protected LinkSocket createLinkSocketInstance(int peerProtocolId) {
-        return new SimpleLinkSocket();
+        if(orderData)
+            return new SimpleLinkSocketWithOrder();
+        else
+            return new SimpleLinkSocket();
     }
 
     private static class ParkStateSimpleSocket extends ParkState {
@@ -295,8 +386,7 @@ public class SimpleSocket extends Socket {
         ParkStateSimpleSocket ps = (ParkStateSimpleSocket) wait.getPriv();
         if((iKey & ps.getEvents()) != 0 ||
                 (mode == CHECK_IF_NONE && ps.isNotifyIfNone())) {
-            int ret = wait.parkStateWakeUp(ps);
-            return ret;
+            return wait.parkStateWakeUp(ps);
         }
         return 0;
     };
@@ -368,6 +458,10 @@ public class SimpleSocket extends Socket {
      */
     @Override
     public byte[] receive(Long timeout, boolean notifyIfNone) throws InterruptedException {
+        // if read poller is null, then the socket cannot receive messages
+        if(readPoller == null)
+            throw new UnsupportedOperationException("Socket does not allow receiving data messages.");
+
         byte[] payload;
         Long deadline = Timeout.calculateEndTime(timeout);
         ParkStateSimpleSocket ps = null;
@@ -436,13 +530,13 @@ public class SimpleSocket extends Socket {
         return getLinkReady(writePoller, PollFlags.POLLOUT);
     }
 
-    private boolean trySending(byte[] payload) throws InterruptedException {
+    private boolean trySendingDataMsg(byte[] payload) throws InterruptedException {
         LinkIdentifier linkId = getLinkReadyToSend();
         if (linkId != null) {
             SimpleLinkSocket linkSocket =
                     (SimpleLinkSocket) getLinkSocket(linkId.destId());
             if (linkSocket != null) {
-                try { return linkSocket.trySend(payload); }
+                try { return linkSocket.trySend(new BytePayload(MsgType.DATA, payload)); }
                 finally {
                     //resubscribeWriteEvent(linkId);
                     if(isReadyToSend())
@@ -468,6 +562,10 @@ public class SimpleSocket extends Socket {
      */
     @Override
     public boolean send(byte[] payload, Long timeout, boolean notifyIfNone) throws InterruptedException {
+        // if write poller is null, then the socket cannot send messages
+        if(writePoller == null)
+            throw new UnsupportedOperationException("Socket does not allow sending data messages.");
+
         boolean sent = false;
         Long deadline = Timeout.calculateEndTime(timeout);
         ParkStateSimpleSocket ps = null;
@@ -495,7 +593,7 @@ public class SimpleSocket extends Socket {
 
         // if operation is non-blocking, just attempt to send
         // and return the result.
-        if(ps == null) return trySending(payload);
+        if(ps == null) return trySendingDataMsg(payload);
 
         try {
             while (true) {
@@ -506,7 +604,7 @@ public class SimpleSocket extends Socket {
                 if(Thread.currentThread().isInterrupted())
                     throw new InterruptedException();
 
-                sent = trySending(payload);
+                sent = trySendingDataMsg(payload);
                 if (sent) return true;
 
                 boolean wokenUp = WaitQueueEntry.defaultWaitFunction(
@@ -534,11 +632,14 @@ public class SimpleSocket extends Socket {
      * @return true if there is a link available for receive.
      */
     private boolean isReadyToReceive() throws InterruptedException {
+        // if read poller is null, then the socket cannot receive messages
+        if(readPoller == null) return false;
+
         while(true) {
             List<PollEvent<Object>> rlist = readPoller.await(0L, 1);
             if (rlist == null) return false; // if waiting timed out
             PollEvent<Object> linkReady = rlist.getFirst();
-            LinkIdentifier linkId = (LinkIdentifier) rlist.getFirst().data;
+            //LinkIdentifier linkId = (LinkIdentifier) rlist.getFirst().data;
             //resubscribeReadEvent(linkId);
             if ((linkReady.events & PollFlags.POLLIN) != 0)
                 return true;
@@ -550,12 +651,14 @@ public class SimpleSocket extends Socket {
      * @return true if there is a link available to send.
      */
     private boolean isReadyToSend() throws InterruptedException {
-        boolean ready = false;
+        // if write poller is null, then the socket cannot send messages
+        if(writePoller == null) return false;
+
         while(true) {
             List<PollEvent<Object>> wlist = writePoller.await(0L, 1);
             if (wlist == null) return false; // if waiting timed out
             PollEvent<Object> linkReady = wlist.getFirst();
-            LinkIdentifier linkId = (LinkIdentifier) wlist.getFirst().data;
+            //LinkIdentifier linkId = (LinkIdentifier) wlist.getFirst().data;
             //resubscribeWriteEvent(linkId);
             if ((linkReady.events & PollFlags.POLLOUT) != 0)
                 return true;
@@ -582,7 +685,7 @@ public class SimpleSocket extends Socket {
      * @return link socket associated with the given identifier, or "null" if
      * there isn't a link socket associated to that identifier.
      */
-    public SimpleLinkSocket linkSocket(SocketIdentifier peerId){
+    SimpleLinkSocket linkSocket(SocketIdentifier peerId){
         return (SimpleLinkSocket) getLinkSocket(peerId);
     }
 }

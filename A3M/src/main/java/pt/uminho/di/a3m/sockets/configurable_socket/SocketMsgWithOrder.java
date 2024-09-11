@@ -1,4 +1,4 @@
-package pt.uminho.di.a3m.sockets.simple_socket;
+package pt.uminho.di.a3m.sockets.configurable_socket;
 
 import pt.uminho.di.a3m.core.SocketIdentifier;
 import pt.uminho.di.a3m.core.messaging.Payload;

@@ -1,4 +1,4 @@
-package pt.uminho.di.a3m.sockets.simple_socket;
+package pt.uminho.di.a3m.sockets.configurable_socket;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -12,11 +12,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
-class SimpleSocketTest {
+class ConfigurableSocketTest {
     String nodeId = "Node";
     int nrSockets = 3;
     SocketIdentifier[] sids = new SocketIdentifier[nrSockets];
-    SimpleSocket[] sockets = new SimpleSocket[nrSockets];
+    ConfigurableSocket[] sockets = new ConfigurableSocket[nrSockets];
     SocketTestingUtilities.DirectMessageDispatcher dispatcher = new SocketTestingUtilities.DirectMessageDispatcher();
 
     private void waitUntil(Supplier<Boolean> predicate) throws InterruptedException {
@@ -27,13 +27,13 @@ class SimpleSocketTest {
     @BeforeEach
     void initSocketsAndLinkManagers(){
         SocketManager socketManager = SocketTestingUtilities.createSocketManager(nodeId, dispatcher);
-        socketManager.registerProducer(SimpleSocket::createSocket);
+        socketManager.registerProducer(ConfigurableSocket::createSocket);
         for (int i = 0; i < nrSockets; i++) {
             //sids[i] = new SocketIdentifier("Node" + i, "Socket" + i);
             //sockets[i] = SimpleSocket.createSocket(sids[i]);
             //((Socket) sockets[i]).setCoreComponents(dispatcher, new SocketMananerImpl("Node" + i, dispatcher));
             sids[i] = new SocketIdentifier(nodeId, "Socket" + i);
-            sockets[i] = socketManager.createSocket("Socket" + i, SimpleSocket.protocol.id(), SimpleSocket.class);
+            sockets[i] = socketManager.createSocket("Socket" + i, ConfigurableSocket.protocol.id(), ConfigurableSocket.class);
             dispatcher.registerSocket(sockets[i]);
         }
     }
@@ -80,7 +80,7 @@ class SimpleSocketTest {
         assert linkSocket != null;
         assert linkSocket.getOwnerId().equals(sids[i]);
         assert linkSocket.getPeerId().equals(sids[j]);
-        assert linkSocket.getPeerProtocolId() == SimpleSocket.protocol.id();
+        assert linkSocket.getPeerProtocolId() == ConfigurableSocket.protocol.id();
         assert linkSocket.getState() == linkState;
         assert linkSocket.getCapacity() == sockets[i].getOption("capacity", Integer.class);
         assert linkSocket.getOutgoingCredits() == sockets[j].getOption("capacity", Integer.class);;
