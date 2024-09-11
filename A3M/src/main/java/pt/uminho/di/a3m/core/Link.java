@@ -19,6 +19,10 @@ import pt.uminho.di.a3m.waitqueue.WaitQueueFunc;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicReference;
 
+// TODO - should the wait queue be exposed by link socket as protected,
+//  to allow more custom signaling, such as if bailing an exclusive send
+//  or receive happens?
+
 /**
  * <b>Locking mechanisms</b>
  * <p>There are three locking mechanisms used with Link objects:</p>
@@ -480,23 +484,23 @@ public class Link implements Pollable {
 
     synchronized void adjustOutgoingCredits(int credits){
         outFCS.applyCreditVariation(credits);
-        // Waiters can only be notified when there are available
-        // credits. Therefore, if current amount of credits is
-        // equal or superior to the amount of positive credits
-        // received, wake up waiters up to the received amount of credits.
-        // Else, wake up only the amount of waiters that the available
-        // credits allow.
-        int wakeUps = Math.min(outFCS.getCredits(), credits);
-        if(wakeUps > 0)
-            waitQ.fairWakeUp(0, wakeUps, 0, PollFlags.POLLOUT);
+        // Waiters can only be notified when positive credits are received
+        // and when the resulting amount of available credits is positive.
+        if(credits > 0 && outFCS.getCredits() > 0)
+            waitQ.fairWakeUp(0, 1 /* wakeUps */, 0, PollFlags.POLLOUT);
     }
 
     /**
      * Tries consuming an outgoing credit to enable a message to be sent.
+     * If the consumption was possible, and there are still credits left,
+     * then notify waiters with the POLLOUT event.
      * @return true if a credit was consumed. false, if a credit could not be consumed.
      */
     private boolean tryConsumingCredit(){
-        return outFCS.trySend();
+        boolean consumed = outFCS.trySend();
+        if(consumed && outFCS.hasCredits())
+            waitQ.fairWakeUp(0, 1, 0, PollFlags.POLLOUT);
+        return consumed;
     }
 
     /**
@@ -676,8 +680,13 @@ public class Link implements Pollable {
             // link to be established, so waking up the
             // bare minimum of exclusive waiters is required
             // when there aren't credits to wake up waiters.
-            int wakeUps = Math.max(outCredits, 1);
-            waitQ.fairWakeUp(0, wakeUps, 0, PollFlags.POLLOUT);
+            if(outCredits > 0)
+                waitQ.fairWakeUp(0, 1, 0, PollFlags.POLLOUT);
+            else
+                // do non-fair wake up, to wake up exclusive threads
+                // and let the exclusive waiter that won't be able to
+                // send a message remain in its position.
+                waitQ.wakeUp(0, 1, 0, PollFlags.POLLOUT);
         }
     }
 

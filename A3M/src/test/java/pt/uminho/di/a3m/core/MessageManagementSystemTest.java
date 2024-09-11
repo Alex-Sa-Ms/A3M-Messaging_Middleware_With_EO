@@ -3,7 +3,7 @@ package pt.uminho.di.a3m.core;
 import haslab.eo.EOMiddleware;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import pt.uminho.di.a3m.sockets.simple_socket.SimpleSocket;
+import pt.uminho.di.a3m.sockets.configurable_socket.ConfigurableSocket;
 
 import java.net.SocketException;
 import java.net.UnknownHostException;
@@ -17,7 +17,7 @@ class MessageManagementSystemTest {
     MessageManagementSystem mms;
     int nrSockets = 3;
     SocketIdentifier[] sids = new SocketIdentifier[nrSockets];
-    SimpleSocket[] sockets = new SimpleSocket[nrSockets];
+    ConfigurableSocket[] sockets = new ConfigurableSocket[nrSockets];
 
     @BeforeEach
     void init() throws SocketException, UnknownHostException {
@@ -25,10 +25,10 @@ class MessageManagementSystemTest {
         mms = new MessageManagementSystem(eom);
         sm = SocketTestingUtilities.createSocketManager(nodeId, mms);
         mms.setSocketManager(sm);
-        sm.registerProducer(SimpleSocket::createSocket);
+        sm.registerProducer(ConfigurableSocket::createSocket);
         for (int i = 0; i < nrSockets; i++) {
             sids[i] = new SocketIdentifier(nodeId, "Socket" + i);
-            sockets[i] = sm.createSocket("Socket" + i, SimpleSocket.protocol.id(), SimpleSocket.class);
+            sockets[i] = sm.createSocket("Socket" + i, ConfigurableSocket.protocol.id(), ConfigurableSocket.class);
         }
     }
 

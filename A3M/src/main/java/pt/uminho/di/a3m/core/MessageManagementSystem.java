@@ -236,8 +236,9 @@ public class MessageManagementSystem implements MessageDispatcher{
                                         socket.onIncomingMessage(socketMsg);
                                     }
                                 }
-                            } catch (InvalidProtocolBufferException e) {
-                                // ignored malformed messages
+                            } catch (Exception e) {
+                                // ignored malformed messages and behavior
+                                e.printStackTrace();
                             }
                         }
                     } catch (InterruptedException ignored) {
