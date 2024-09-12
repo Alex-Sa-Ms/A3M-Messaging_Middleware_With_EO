@@ -297,12 +297,11 @@ public class Link implements Pollable {
     synchronized void queueIncomingMessage(SocketMsg msg){
         // do not add if closed
         if(state != LinkState.CLOSED) {
-            boolean wake = inMsgQ.peek() == null;
             // add new message to incoming messages queue
             try {
                 inMsgQ.add(msg);
                 // notify waiters
-                if(wake && inMsgQ.peek() != null)
+                if(inMsgQ.peek() != null)
                     waitQ.fairWakeUp(0, 1, 0, PollFlags.POLLIN);
             }catch (Exception e){
                 e.printStackTrace();
@@ -316,7 +315,8 @@ public class Link implements Pollable {
      */
     synchronized void acknowledgeDeliverAndIncrementBatch(){
         if(state != LinkState.CLOSED){
-            inFCS.deliver();
+            int batch = inFCS.deliver();
+            sendCredits(batch);
         }
     }
 
@@ -329,15 +329,15 @@ public class Link implements Pollable {
     private synchronized SocketMsg tryPollingMessage(){
         SocketMsg msg = inMsgQ.poll();
         if(SocketMsg.isType(msg, MsgType.DATA)) {
-            // notify waiters when polling is possible
-            if(inMsgQ.peek() != null)
-                waitQ.fairWakeUp(0,1,0,PollFlags.POLLIN);
             // if a message was polled,
             // "mark" the message as delivered and
             // send a credits batch when required
             int batch = inFCS.deliver();
             if(state != LinkState.CLOSED)
                 sendCredits(batch);
+            // notify waiters when polling is possible
+            if(inMsgQ.peek() != null)
+                waitQ.fairWakeUp(0,1,0,PollFlags.POLLIN);
         }
         return msg;
     }
@@ -462,6 +462,8 @@ public class Link implements Pollable {
         } finally {
             // delete entry since a hanging wait queue entry is not desired.
             wait.delete();
+            if(hasAvailableIncomingMessages())
+                waitQ.fairWakeUp(0,1,0,PollFlags.POLLIN);
         }
         return msg;
     }
@@ -539,11 +541,8 @@ public class Link implements Pollable {
                 throw new LinkClosedException();
             // If message is a control message, then it can be dispatched immediately.
             // In case of a data message, permission from the flow control is required.
-            if(payload.getType() != MsgType.DATA || hasOutgoingCredits()) {
+            if(payload.getType() != MsgType.DATA || tryConsumingCredit()) {
                 dispatcher.onOutgoingMessage(this, payload);
-                // consume credit if of data type
-                if(payload.getType() == MsgType.DATA)
-                    tryConsumingCredit();
                 return true;
             }
             // return if timed out
@@ -562,9 +561,8 @@ public class Link implements Pollable {
                 WaitQueueEntry.defaultWaitUntilFunction(wait, ps, deadline, true);
                 synchronized (this){
                     // attempt to send the message again
-                    if(hasOutgoingCredits())  {
+                    if(tryConsumingCredit())  {
                         dispatcher.onOutgoingMessage(this, payload);
-                        tryConsumingCredit();
                         ret = true;
                         break;
                     }

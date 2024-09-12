@@ -533,12 +533,10 @@ public abstract class Socket {
         if(cookedMode){
             SocketMsg rMsg = customOnIncomingMessage(msg);
             if(msg.getType() == MsgType.DATA){
-               if(rMsg == null || rMsg.getType() != MsgType.DATA) {
-                   linkSocket.getLink().acknowledgeDeliverAndIncrementBatch();
-               }
-               else{
+               if(rMsg != null && rMsg.getType() == MsgType.DATA)
                    linkSocket.getLink().queueIncomingMessage(rMsg);
-               }
+               else
+                   linkSocket.getLink().acknowledgeDeliverAndIncrementBatch();
             }
         }
         // If socket is in RAW mode, then queue message immediately

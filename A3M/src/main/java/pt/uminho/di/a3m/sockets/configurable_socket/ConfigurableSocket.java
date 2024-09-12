@@ -191,10 +191,14 @@ public class ConfigurableSocket extends Socket {
         if(msg == null || msg.getType() != MsgType.DATA) return null;
         // All data messages should be queued in the appropriate link's queue.
         else {
-            if(orderData)
-                return SocketMsgWithOrder.parseFrom(msg);
-            else
-                return msg;
+            if(readPoller == null)
+                return null;
+            else {
+                if (orderData)
+                    return SocketMsgWithOrder.parseFrom(msg);
+                else
+                    return msg;
+            }
         }
     }
 

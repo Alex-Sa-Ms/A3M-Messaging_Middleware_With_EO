@@ -44,7 +44,7 @@ public class Msg{
     }
 
     public static boolean isType(Msg msg, byte type){
-        return msg != null && msg.type == type;
+        return msg != null && msg.getType() == type;
     }
 
     private void setType(byte type){

@@ -156,8 +156,8 @@ public class InFlowControlState {
     public int deliver(){
         int toSend = 0;
         batch++;
-        if(batch == batchSize){
-            toSend = batchSize;
+        if(batch >= batchSize){
+            toSend = batch;
             batch = 0;
         }
         return toSend;

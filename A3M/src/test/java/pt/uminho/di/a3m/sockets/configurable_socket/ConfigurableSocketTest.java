@@ -340,5 +340,4 @@ class ConfigurableSocketTest {
         }
     }
 
-    // TODO - do more tests. Such as with "notify if none" flag, etc.
 }
