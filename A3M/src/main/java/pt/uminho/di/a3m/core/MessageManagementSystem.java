@@ -82,8 +82,8 @@ public class MessageManagementSystem implements MessageDispatcher{
     public void closeAndWait() throws InterruptedException {
         if (state == RUNNING) {
             state = CLOSING;
-            if (processor != null)
-                processor.join();
+            processor.interrupt();
+            processor.join();
         }
     }
 
