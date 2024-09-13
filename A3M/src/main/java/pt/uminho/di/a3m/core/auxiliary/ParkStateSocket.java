@@ -1,4 +1,4 @@
-package pt.uminho.di.a3m.sockets.auxiliary;
+package pt.uminho.di.a3m.core.auxiliary;
 
 import pt.uminho.di.a3m.waitqueue.ParkState;
 import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;

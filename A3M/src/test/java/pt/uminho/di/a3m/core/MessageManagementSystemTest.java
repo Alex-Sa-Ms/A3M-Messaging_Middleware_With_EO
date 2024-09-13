@@ -58,9 +58,10 @@ class MessageManagementSystemTest {
         mms.start();
         assert mms.getState() == MessageManagementSystem.RUNNING;
         mms.closeAndWait(0L);
-        // This assertion could also be CLOSED, however,
-        // it is very improbable that such case happens.
-        assert mms.getState() == MessageManagementSystem.CLOSING;
+        // This assertion can be CLOSED, but it is very
+        // improbable that such case happens.
+        assert mms.getState() == MessageManagementSystem.CLOSING
+                || mms.getState() == MessageManagementSystem.CLOSED;
     }
 
     @Test

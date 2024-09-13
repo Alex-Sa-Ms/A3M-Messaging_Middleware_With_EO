@@ -1,6 +1,7 @@
 package pt.uminho.di.a3m.sockets;
 
 import pt.uminho.di.a3m.core.*;
+import pt.uminho.di.a3m.core.messaging.Payload;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 
 import java.util.HashSet;
@@ -55,6 +56,16 @@ public class DummySocket extends Socket {
         return new HashSet<>(compatProtocols);
     }
 
+    @Override
+    protected SocketMsg tryReceiving() throws InterruptedException {
+        return null;
+    }
+
+    @Override
+    protected boolean trySending(Payload payload) throws InterruptedException {
+        return false;
+    }
+
     public void setProtocol(Protocol protocol) {
         this.protocol = protocol;
     }
@@ -65,16 +76,6 @@ public class DummySocket extends Socket {
             this.compatProtocols.addAll(compatProtocols);
         else
             this.compatProtocols.add(protocol);
-    }
-
-    @Override
-    public byte[] receive(Long timeout, boolean notifyIfNone) throws InterruptedException {
-        return new byte[0];
-    }
-
-    @Override
-    public boolean send(byte[] payload, Long timeout, boolean notifyIfNone) throws InterruptedException {
-        return false;
     }
 
     @Override

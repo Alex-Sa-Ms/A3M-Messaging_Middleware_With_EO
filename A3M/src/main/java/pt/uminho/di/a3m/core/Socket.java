@@ -1,24 +1,30 @@
 package pt.uminho.di.a3m.core;
 
 import pt.uminho.di.a3m.auxiliary.Timeout;
+import pt.uminho.di.a3m.core.auxiliary.ParkStateSocket;
+import pt.uminho.di.a3m.core.exceptions.LinkClosedException;
 import pt.uminho.di.a3m.core.exceptions.NoLinksException;
+import pt.uminho.di.a3m.core.exceptions.SocketClosedException;
 import pt.uminho.di.a3m.core.messaging.Msg;
 import pt.uminho.di.a3m.core.messaging.MsgType;
+import pt.uminho.di.a3m.core.messaging.Payload;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
+import pt.uminho.di.a3m.core.messaging.payloads.BytePayload;
 import pt.uminho.di.a3m.core.options.GenericOptionHandler;
 import pt.uminho.di.a3m.core.options.OptionHandler;
-import pt.uminho.di.a3m.poller.PollFlags;
-import pt.uminho.di.a3m.poller.PollTable;
-import pt.uminho.di.a3m.poller.Pollable;
-import pt.uminho.di.a3m.poller.Poller;
+import pt.uminho.di.a3m.poller.*;
+import pt.uminho.di.a3m.sockets.auxiliary.LinkSocketWatched;
 import pt.uminho.di.a3m.waitqueue.ParkState;
 import pt.uminho.di.a3m.waitqueue.WaitQueue;
 import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;
+import pt.uminho.di.a3m.waitqueue.WaitQueueFunc;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+import static pt.uminho.di.a3m.core.auxiliary.ParkStateSocket.CHECK_IF_NONE;
 
 /**
  * Abstract socket class that defines the basic behavior of a socket.
@@ -717,6 +723,29 @@ public abstract class Socket {
         return queue;
     }
 
+    /**
+     * Using a poller with link-related objects (link, link socket, and any other object
+     * that monitors are returns the link identifier), gets the socket identifier of a peer
+     * which is ready for a certain event.
+     * @param linkPoller poller of link-related objects from which an event should be polled.
+     * @param event event of interest
+     * @return identifier of the link that is ready for the requested event
+     */
+    protected LinkIdentifier getLinkReady(Poller linkPoller, int event) throws InterruptedException {
+        List<PollEvent<Object>> rlist;
+        LinkIdentifier linkId = null;
+        int maxIters = linkPoller.size(); // prevent infinite iteration
+        for (int i = 0; linkId == null && i < maxIters ; i++) {
+            rlist = linkPoller.await(1, 0L);
+            if(rlist != null){
+                PollEvent<Object> linkReady = rlist.getFirst();
+                if((linkReady.events & event) != 0)
+                    linkId = (LinkIdentifier) linkReady.data;
+            }
+        }
+        return linkId;
+    }
+
     // ********** Abstract socket methods ********** //
     protected abstract void init();
 
@@ -786,12 +815,263 @@ public abstract class Socket {
      */
     public abstract Set<Protocol> getCompatibleProtocols();
 
-    public byte[] receive(Long timeout, boolean notifyIfNone) throws InterruptedException {
-        throw new UnsupportedOperationException();
+    // ******** Receiving ********* //
+
+    private static final WaitQueueFunc directWaiterWakeFunc = (wait, mode, flags, key) -> {
+        int iKey = (int) key;
+        ParkStateSocket ps = (ParkStateSocket) wait.getPriv();
+        if((iKey & ps.getEvents()) != 0 ||
+                (mode == CHECK_IF_NONE && ps.isNotifyIfNone())) {
+            return wait.parkStateWakeUp(ps);
+        }
+        return 0;
+    };
+
+    private static final PollQueueingFunc directWaiterQueuingFunc = (p, wait, pt) -> {
+        if(wait != null){
+            wait.addExclusive(directWaiterWakeFunc, pt.getPriv());
+            ((ParkStateSocket) pt.getPriv()).setWaitQueueEntry(wait);
+        }
+    };
+
+    /**
+     * Used by receive()/receiveMsg() to attempt to receive a message.
+     * @return null if there isn't a message available to be received.
+     * Non-null value, otherwise.
+     */
+    protected abstract SocketMsg tryReceiving() throws InterruptedException;
+
+    /**
+     * Waits for a message to be received.
+     * @param timeout maximum time allowed for a message to be received. After such time
+     *                is elaped, the method must return null.
+     * @param notifyIfNone "true" when a NoLinksException is desirable to
+     *                     stop the waiting operation when there aren't any links.
+     * @return null if operation timed out. Non-null value if a message was received successfully.
+     * @throws InterruptedException .
+     * @throws SocketClosedException if socket is closed
+     * @throws NoLinksException if the "notify if none" flag is set
+     * and there aren't any links regardless of the state being established,
+     * linking, etc.
+     */
+    protected SocketMsg receiveMsg(Long timeout, boolean notifyIfNone) throws InterruptedException {
+        SocketMsg msg;
+        Long deadline = Timeout.calculateEndTime(timeout);
+        ParkStateSocket ps = null;
+        try {
+            getLock().readLock().lock();
+
+            if(getState() == SocketState.CLOSED)
+                throw new SocketClosedException();
+
+            // check if there are any links when the notifyIfNone flag is used
+            if(notifyIfNone && countLinks() == 0)
+                throw new NoLinksException();
+
+            // queue the thread if the operation is blocking
+            if(!Timeout.hasTimedOut(deadline)) {
+                // queue the thread
+                ps = new ParkStateSocket(
+                        true,
+                        PollFlags.POLLIN | PollFlags.POLLERR | PollFlags.POLLHUP,
+                        notifyIfNone);
+                PollTable pt = new PollTable(PollFlags.POLLIN, ps, directWaiterQueuingFunc);
+                poll(pt);
+            }
+        } finally {
+            getLock().readLock().unlock();
+        }
+
+        // if operation is non-blocking, just attempt to receive
+        // and return the result.
+        if(ps == null) return tryReceiving();
+
+        try {
+            while(true) {
+                if(getState() == SocketState.CLOSED)
+                    throw new SocketClosedException();
+
+                msg = tryReceiving();
+                if (msg != null) return msg;
+
+                boolean wokenUp = WaitQueueEntry.defaultWaitUntilFunction(
+                        ps.getWaitQueueEntry(), ps, deadline, true);
+
+                if(wokenUp) {
+                    // if the "notify if none" flag is set,
+                    // and there aren't any links, notify with a
+                    // NoLinksException
+                    if (notifyIfNone && countLinks() == 0)
+                        throw new NoLinksException();
+                }
+
+                ps.setParkState(true);
+
+                if(!wokenUp && Timeout.hasTimedOut(deadline))
+                    return null;
+            }
+        } finally {
+            ps.getWaitQueueEntry().delete();
+        }
     }
 
+    /**
+     * Waits for a message to be received.
+     * @implNote Uses "receive(timeout, notifyIfNone) : SocketMsg".
+     * @param timeout maximum time allowed for a message to be received. After such time
+     *                is elaped, the method must return null.
+     * @param notifyIfNone "true" when a NoLinksException is desirable to
+     *                     stop the waiting operation when there aren't any links.
+     * @return null if operation timed out. Non-null value if a message was received successfully.
+     * @throws InterruptedException .
+     * @throws SocketClosedException if socket is closed
+     * @throws NoLinksException if the "notify if none" flag is set
+     * and there aren't any links regardless of the state being established,
+     * linking, etc.
+     */
+    public byte[] receive(Long timeout, boolean notifyIfNone) throws InterruptedException{
+        SocketMsg msg = receiveMsg(timeout, notifyIfNone);
+        return msg != null ? msg.getPayload() : null;
+    }
+
+    /**
+     * Waits for a message to be received.
+     * @apiNote Assumes that notifying when there aren't any links is not desirable.
+     * @see Socket#receive(Long, boolean)
+     */
+    public byte[] receive(Long timeout) throws InterruptedException{
+        return receive(timeout, false);
+    }
+
+    /**
+     * Waits for a message to be received.
+     * @apiNote Assumes the operation should be blocking
+     * and that notifying when there aren't any links is not desirable.
+     * @see Socket#receive(Long, boolean)
+     */
+    public byte[] receive() throws InterruptedException{
+        return receive(null, false);
+    }
+
+    // ******** Sending ********* //
+
+    protected abstract boolean trySending(Payload payload) throws InterruptedException;
+
+    /**
+     * Waits to send a payload.
+     * @param payload Content and its type that should be sent.
+     * @param timeout maximum time allowed for a message to be sent. After such time
+     *                is elaped, the method must return false.
+     * @param notifyIfNone "true" when a NoLinksException is desirable to
+     *                     stop the waiting operation when there aren't any links.
+     * @return false if operation timed out. True if a message was sent successfully.
+     * @throws InterruptedException if the thread was interrupted while sending.
+     * @throws SocketClosedException if socket is closed
+     * @throws NoLinksException if the "notify if none" flag is set
+     * and there aren't any links regardless of the state being established,
+     * linking, etc.
+     */
+    public boolean sendPayload(Payload payload, Long timeout, boolean notifyIfNone) throws InterruptedException {
+        if(payload == null)
+            throw new IllegalArgumentException("Payload must not be null.");
+
+        boolean sent = false;
+        Long deadline = Timeout.calculateEndTime(timeout);
+        ParkStateSocket ps = null;
+        try {
+            getLock().readLock().lock();
+            if (getState() == SocketState.CLOSED)
+                throw new SocketClosedException();
+
+            // check if there are any links when the notifyIfNone flag is used
+            if(notifyIfNone && countLinks() == 0)
+                throw new NoLinksException();
+
+            // queue the thread if the operation is blocking
+            if(!Timeout.hasTimedOut(deadline)) {
+                ps = new ParkStateSocket(
+                        true,
+                        PollFlags.POLLOUT | PollFlags.POLLERR | PollFlags.POLLHUP,
+                        notifyIfNone);
+                PollTable pt = new PollTable(PollFlags.POLLOUT, ps, directWaiterQueuingFunc);
+                poll(pt);
+            }
+        } finally {
+            getLock().readLock().unlock();
+        }
+
+        // if operation is non-blocking, just attempt to send
+        // and return the result.
+        if(ps == null) return trySending(payload);
+
+        try {
+            while (true) {
+                if(getState() == SocketState.CLOSED)
+                    throw new SocketClosedException();
+
+                // checks if thread was interrupted
+                if(Thread.currentThread().isInterrupted())
+                    throw new InterruptedException();
+
+                sent = trySending(payload);
+                if (sent) return true;
+
+                boolean wokenUp = WaitQueueEntry.defaultWaitUntilFunction(
+                        ps.getWaitQueueEntry(), ps, deadline, true);
+                if (wokenUp) {
+                    // if the "notify if none" flag is set,
+                    // and there aren't any links, notify with a
+                    // NoLinksException
+                    if (notifyIfNone && countLinks() == 0)
+                        throw new NoLinksException();
+                }
+
+                ps.setParkState(true);
+
+                if (!wokenUp && Timeout.hasTimedOut(deadline))
+                    return false;
+            }
+        } finally {
+            ps.getWaitQueueEntry().delete();
+        }
+    }
+
+    /**
+     * Waits to send a data payload.
+     * @param payload Content that should be sent.
+     * @param timeout maximum time allowed for a message to be sent. After such time
+     *                is elaped, the method must return false.
+     * @param notifyIfNone "true" when a NoLinksException is desirable to
+     *                     stop the waiting operation when there aren't any links.
+     * @return false if operation timed out. True if a message was sent successfully.
+     * @implNote uses sendPayload().
+     * @throws InterruptedException if the thread was interrupted while sending.
+     * @throws SocketClosedException if socket is closed
+     * @throws NoLinksException if the "notify if none" flag is set
+     * and there aren't any links regardless of the state being established,
+     * linking, etc.
+     */
     public boolean send(byte[] payload, Long timeout, boolean notifyIfNone) throws InterruptedException {
-        throw new UnsupportedOperationException();
+        return sendPayload(new BytePayload(MsgType.DATA, payload),timeout, notifyIfNone);
+    }
+
+    /**
+     * Waits to send a data payload.
+     * @apiNote Assumes that notifying when there aren't any links is not desirable.
+     * @see Socket#send(byte[], Long, boolean)
+     */
+    public boolean send(byte[] payload, Long timeout) throws InterruptedException {
+        return sendPayload(new BytePayload(MsgType.DATA, payload),timeout, false);
+    }
+
+    /**
+     * Waits to send a data payload.
+     * @apiNote Assumes that the operation should be blocking and that
+     * notifying when there aren't any links is not desirable.
+     * @see Socket#send(byte[], Long, boolean)
+     */
+    public boolean send(byte[] payload) throws InterruptedException {
+        return sendPayload(new BytePayload(MsgType.DATA, payload), null, false);
     }
 
     // ******** Polling ********* //
