@@ -29,6 +29,11 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * messages, so, the subclass may override this method and make it throw the
  * java.lang.UnsupportedOperationException.
  */
+// TODO - "CREATED" state is not preventing behavior. Make restrictions to not allow
+//  actions such as linking, unlinking, sending/receiving messages, etc when the socket
+//  is in CREATED state. Also, either make the start() method add the socket to the socket
+//  manager (might be the best option) or make the MMS check if the socket's state is different
+//  then "CREATED" to deliver the message, otherwise, treat the socket if it does not exist.
 public abstract class Socket {
     private final SocketIdentifier sid;
     private SocketManager socketManager = null;
@@ -38,6 +43,7 @@ public abstract class Socket {
     final ReadWriteLock lock = new ReentrantReadWriteLock();
     final WaitQueue waitQ = new WaitQueue();
     private Exception error = null;
+    private SocketState preErrorState = null;
 
     /**
      * Initialize socket.
@@ -119,8 +125,15 @@ public abstract class Socket {
      * must do so if required.
      */
     protected final void setError(Exception error) {
+        this.preErrorState = state.getAndSet(SocketState.ERROR);
         this.error = error;
-        this.state.set(SocketState.ERROR);
+    }
+
+    protected final void resetErrorState(){
+        if(this.state.compareAndSet(SocketState.ERROR, preErrorState)){
+            this.error = null;
+            this.preErrorState = null;
+        }
     }
 
     // ******** Socket Options ******** //
@@ -291,11 +304,11 @@ public abstract class Socket {
     final LinkManager linkManager = new LinkManager(this, lock);
     private final Map<SocketIdentifier, LinkSocket> linkSockets = new HashMap<>(); // maps peer socket identifiers to link sockets
 
-    public final void link(SocketIdentifier peerId){
+    public void link(SocketIdentifier peerId){
         linkManager.link(peerId);
     }
 
-    public final void unlink(SocketIdentifier peerId){
+    public void unlink(SocketIdentifier peerId){
         linkManager.unlink(peerId);
     }
 

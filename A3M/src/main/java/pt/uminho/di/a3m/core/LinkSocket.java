@@ -86,6 +86,7 @@ public class LinkSocket implements Pollable {
      * @throws IllegalArgumentException If the payload is null or if the payload type
      * corresponds to a reserved type other than DATA.
      * @throws InterruptedException If thread was interrupted.
+     * @throws LinkClosedException If the link was closed.
      * @apiNote Caller must not hold socket lock as it will result in a deadlock
      * when a blocking operation with a non-expired deadline is requested.
      */

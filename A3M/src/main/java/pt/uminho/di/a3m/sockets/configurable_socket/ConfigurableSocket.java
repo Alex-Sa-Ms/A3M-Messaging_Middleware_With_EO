@@ -2,6 +2,7 @@ package pt.uminho.di.a3m.sockets.configurable_socket;
 
 import pt.uminho.di.a3m.auxiliary.Timeout;
 import pt.uminho.di.a3m.core.*;
+import pt.uminho.di.a3m.core.exceptions.LinkClosedException;
 import pt.uminho.di.a3m.core.exceptions.NoLinksException;
 import pt.uminho.di.a3m.core.exceptions.SocketClosedException;
 import pt.uminho.di.a3m.core.messaging.MsgType;
@@ -85,7 +86,8 @@ public class ConfigurableSocket extends Socket {
 
     @Override
     protected void destroy() {
-        // empty because it does not require any special closing procedures
+        if(readPoller != null) readPoller.close();
+        if(writePoller != null) writePoller.close();
     }
 
     /**
@@ -256,16 +258,18 @@ public class ConfigurableSocket extends Socket {
      *               for readPoller and writePoller.
      * @param event event of interest. Currently, used only for POLLIN or POLLOUT.
      * @return identifier of the link that is ready for the requested event
-     * @implNote Assumes that the caller of this function will resubscribe the events
-     * after being done with the link.
      */
     private LinkIdentifier getLinkReady(Poller poller, int event) throws InterruptedException {
-        List<PollEvent<Object>> rlist = poller.await(1, 0L);
+        List<PollEvent<Object>> rlist;
         LinkIdentifier linkId = null;
-        if (rlist != null){
-            PollEvent<Object> linkReady = rlist.getFirst();
-            if((linkReady.events & event) != 0)
-                linkId = (LinkIdentifier) linkReady.data;
+        int maxIters = poller.size(); // prevent infinite iteration
+        for (int i = 0; linkId == null && i < maxIters ; i++) {
+            rlist = poller.await(1, 0L);
+            if(rlist != null){
+                PollEvent<Object> linkReady = rlist.getFirst();
+                if((linkReady.events & event) != 0)
+                    linkId = (LinkIdentifier) linkReady.data;
+            }
         }
         return linkId;
     }
@@ -275,23 +279,25 @@ public class ConfigurableSocket extends Socket {
     }
 
     private byte[] tryReceiving() throws InterruptedException {
-        LinkIdentifier linkId = getLinkReadyToReceive();
-        if (linkId != null) {
+        byte[] ret = null;
+        LinkIdentifier linkId;
+        while (ret == null && (linkId = getLinkReadyToReceive()) != null) {
             LinkSocket linkSocket = getLinkSocket(linkId.destId());
             if (linkSocket != null) {
                 try {
                     SocketMsg msg = linkSocket.receive(0L); // non-blocking receive
-                    if (msg != null)
-                        return msg.getPayload();
-                }finally {
-                    //resubscribeReadEvent(linkId);
-                    if(isReadyToReceive())
-                        getWaitQueue().fairWakeUp(0,1,0,PollFlags.POLLIN);
-                }
+                    if (msg != null) {
+                        ret = msg.getPayload();
+                        if(isReadyToReceive())
+                            getWaitQueue().fairWakeUp(0,1,0,PollFlags.POLLIN);
+                    }
+                }catch (LinkClosedException ignored) {}
             }
         }
-        return null;
+        return ret;
     }
+
+    // TODO - Maybe extract the receive(), send(), getLinkReadyForEvent() since they are useful for other sockets
 
     /**
      * Waits for a message to be received.
@@ -378,20 +384,20 @@ public class ConfigurableSocket extends Socket {
     }
 
     private boolean trySendingDataMsg(byte[] payload) throws InterruptedException {
-        LinkIdentifier linkId = getLinkReadyToSend();
-        if (linkId != null) {
+        boolean sent = false;
+        LinkIdentifier linkId;
+        while (!sent && (linkId = getLinkReadyToSend()) != null) {
             LinkSocketWatched linkSocket =
                     (LinkSocketWatched) getLinkSocket(linkId.destId());
             if (linkSocket != null) {
-                try { return linkSocket.trySend(new BytePayload(MsgType.DATA, payload)); }
-                finally {
-                    //resubscribeWriteEvent(linkId);
-                    if(isReadyToSend())
-                        getWaitQueue().fairWakeUp(0,1,0,PollFlags.POLLOUT);
-                }
+                try {
+                    sent = linkSocket.trySend(new BytePayload(MsgType.DATA, payload));
+                    if(sent && isReadyToSend())
+                            getWaitQueue().fairWakeUp(0, 1, 0, PollFlags.POLLOUT);
+                }catch (LinkClosedException ignored){}
             }
         }
-        return false;
+        return sent;
     }
 
     /**
@@ -412,6 +418,9 @@ public class ConfigurableSocket extends Socket {
         // if write poller is null, then the socket cannot send messages
         if(writePoller == null)
             throw new UnsupportedOperationException("Socket does not allow sending data messages.");
+
+        if(payload == null)
+            throw new IllegalArgumentException("Payload must not be null.");
 
         boolean sent = false;
         Long deadline = Timeout.calculateEndTime(timeout);
@@ -481,16 +490,7 @@ public class ConfigurableSocket extends Socket {
     private boolean isReadyToReceive() throws InterruptedException {
         // if read poller is null, then the socket cannot receive messages
         if(readPoller == null) return false;
-
-        while(true) {
-            List<PollEvent<Object>> rlist = readPoller.awaitUntil(1, 0L);
-            if (rlist == null) return false; // if waiting timed out
-            PollEvent<Object> linkReady = rlist.getFirst();
-            //LinkIdentifier linkId = (LinkIdentifier) rlist.getFirst().data;
-            //resubscribeReadEvent(linkId);
-            if ((linkReady.events & PollFlags.POLLIN) != 0)
-                return true;
-        }
+        return getLinkReadyToReceive() != null;
     }
 
     /**
@@ -500,16 +500,7 @@ public class ConfigurableSocket extends Socket {
     private boolean isReadyToSend() throws InterruptedException {
         // if write poller is null, then the socket cannot send messages
         if(writePoller == null) return false;
-
-        while(true) {
-            List<PollEvent<Object>> wlist = writePoller.awaitUntil(1, 0L);
-            if (wlist == null) return false; // if waiting timed out
-            PollEvent<Object> linkReady = wlist.getFirst();
-            //LinkIdentifier linkId = (LinkIdentifier) wlist.getFirst().data;
-            //resubscribeWriteEvent(linkId);
-            if ((linkReady.events & PollFlags.POLLOUT) != 0)
-                return true;
-        }
+        return getLinkReadyToSend() != null;
     }
 
     @Override
