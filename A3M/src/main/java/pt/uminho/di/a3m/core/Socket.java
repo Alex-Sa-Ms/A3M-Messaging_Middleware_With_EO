@@ -697,9 +697,13 @@ public abstract class Socket {
         try {
             lock.writeLock().lock();
             LinkSocket linkSocket = linkSockets.remove(link.getDestId());
-            customOnLinkClosed(linkSocket);
-            if (state.get() == SocketState.CLOSING && !linkManager.hasLinks()) {
-                closeInternal();
+            if(linkSocket != null) customOnLinkClosed(linkSocket);
+            if (!linkManager.hasLinks()) {
+                // Notify with CHECK_IF_NONE mode, so that waiters that
+                // require waking up when there aren't any links can do so.
+                getWaitQueue().wakeUp(CHECK_IF_NONE, 0, 0, 0);
+                if(state.get() == SocketState.CLOSING)
+                    closeInternal();
             }
             wakeAnyLinkWaitersIfNoLinks();
         }finally {

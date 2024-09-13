@@ -1,15 +1,12 @@
 package pt.uminho.di.a3m.sockets.configurable_socket;
 
-import pt.uminho.di.a3m.auxiliary.Timeout;
 import pt.uminho.di.a3m.core.*;
-import pt.uminho.di.a3m.core.auxiliary.ParkStateSocket;
 import pt.uminho.di.a3m.core.exceptions.LinkClosedException;
 import pt.uminho.di.a3m.core.exceptions.NoLinksException;
 import pt.uminho.di.a3m.core.exceptions.SocketClosedException;
 import pt.uminho.di.a3m.core.messaging.MsgType;
 import pt.uminho.di.a3m.core.messaging.Payload;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
-import pt.uminho.di.a3m.core.messaging.payloads.BytePayload;
 import pt.uminho.di.a3m.core.options.ImmutableOptionHandler;
 import pt.uminho.di.a3m.poller.*;
 import pt.uminho.di.a3m.sockets.auxiliary.*;
@@ -18,8 +15,6 @@ import pt.uminho.di.a3m.waitqueue.WaitQueueFunc;
 
 import java.util.*;
 import java.util.function.ToIntFunction;
-
-import static pt.uminho.di.a3m.core.auxiliary.ParkStateSocket.CHECK_IF_NONE;
 
 // TODO - Implement fair queueing? Round-robin is a type of fair queueing but just in terms of
 //  the number of messages handled. Ask professor about this.
@@ -105,15 +100,6 @@ public class ConfigurableSocket extends Socket {
     /** Wake function that notifies when an event happens to the link socket. */
     private final WaitQueueFunc linkWatcherWakeFunction = (entry, mode, flags, key) -> {
         int iKey = (int) key;
-        // if POLLHUP is received, remove the watcher and
-        // make the pollers remove the link socket from the interest list
-        if((iKey & PollFlags.POLLHUP) != 0) {
-            entry.delete();
-            LinkSocketWatched lsw = ((LinkSocketWatched) entry.getPriv());
-            lsw.setWatcherWaitEntry(null);
-            if(readPoller != null) readPoller.delete(lsw.getId());
-            if(writePoller != null) writePoller.delete(lsw.getId());
-        }
         // if POLLIN is received, notify a socket waiter with POLLIN
         if(readPoller != null)
             checkEventsAndNotifyWaiters(iKey, PollFlags.POLLIN);
@@ -176,10 +162,14 @@ public class ConfigurableSocket extends Socket {
      */
     @Override
     protected void customOnLinkClosed(LinkSocket linkSocket) {
-        // Notify with CHECK_IF_NONE mode, so that waiters that
-        // require waking up when there aren't any links can do so.
-        if(countLinks() == 0)
-            getWaitQueue().wakeUp(CHECK_IF_NONE, 0, 0, 0);
+        //remove the watcher and make the pollers remove
+        // the link socket from the interest list
+        LinkSocketWatched lsw = (LinkSocketWatched) linkSocket;
+        WaitQueueEntry wait = lsw.getWatcherWaitEntry();
+        if(wait != null) wait.delete();
+        lsw.setWatcherWaitEntry(null);
+        if(readPoller != null) readPoller.delete(lsw.getId());
+        if(writePoller != null) writePoller.delete(lsw.getId());
     }
 
     /**
