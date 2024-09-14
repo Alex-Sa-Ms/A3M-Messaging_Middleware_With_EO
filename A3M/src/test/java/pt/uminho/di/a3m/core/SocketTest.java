@@ -35,7 +35,7 @@ class SocketTest {
         socketManager.registerProducer(sid -> new DummySocket(sid, dummyProtocol));
         for (int i = 0; i < nrSockets; i++) {
             sids[i] = new SocketIdentifier(nodeId, "Socket" + i);
-            sockets[i] = socketManager.createSocket("Socket" + i, dummyProtocol.id(), DummySocket.class);
+            sockets[i] = socketManager.startSocket("Socket" + i, dummyProtocol.id(), DummySocket.class);
             dispatcher.registerSocket(sockets[i]);
         }
     }

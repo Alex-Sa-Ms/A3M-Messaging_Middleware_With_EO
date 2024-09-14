@@ -28,7 +28,7 @@ class MessageManagementSystemTest {
         sm.registerProducer(ConfigurableSocket::new);
         for (int i = 0; i < nrSockets; i++) {
             sids[i] = new SocketIdentifier(nodeId, "Socket" + i);
-            sockets[i] = sm.createSocket("Socket" + i, ConfigurableSocket.protocol.id(), ConfigurableSocket.class);
+            sockets[i] = sm.startSocket("Socket" + i, ConfigurableSocket.protocol.id(), ConfigurableSocket.class);
         }
     }
 

@@ -35,11 +35,8 @@ import static pt.uminho.di.a3m.core.auxiliary.ParkStateSocket.CHECK_IF_NONE;
  * messages, so, the subclass may override this method and make it throw the
  * java.lang.UnsupportedOperationException.
  */
-// TODO - "CREATED" state is not preventing behavior. Make restrictions to not allow
-//  actions such as linking, unlinking, sending/receiving messages, etc when the socket
-//  is in CREATED state. Also, either make the start() method add the socket to the socket
-//  manager (might be the best option) or make the MMS check if the socket's state is different
-//  then "CREATED" to deliver the message, otherwise, treat the socket if it does not exist.
+// TODO - make state volatile? Might be faster than having an atomic reference that is only
+//    changed when holding the write lock.
 public abstract class Socket {
     private final SocketIdentifier sid;
     private SocketManager socketManager = null;
@@ -116,6 +113,18 @@ public abstract class Socket {
                 return true;
         }
         return false;
+    }
+
+    final void setDispather(MessageDispatcher dispatcher){
+        this.dispatcher = dispatcher;
+    }
+
+    final void setSocketManager(SocketManager socketManager){
+        this.socketManager = socketManager;
+    }
+
+    final SocketManager getSocketManager(){
+        return this.socketManager;
     }
 
     final void setCoreComponents(MessageDispatcher dispatcher, SocketManager socketMananer) {
@@ -311,14 +320,22 @@ public abstract class Socket {
     private final Map<SocketIdentifier, LinkSocket> linkSockets = new HashMap<>(); // maps peer socket identifiers to link sockets
 
     public void link(SocketIdentifier peerId){
-        linkManager.link(peerId);
+        lock.writeLock().lock();
+        try {
+            if(state.get() == SocketState.READY)
+                linkManager.link(peerId);
+            else
+                throw new IllegalStateException("Linking is only allowed when the socket is \"READY\".");
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 
     public void unlink(SocketIdentifier peerId){
         linkManager.unlink(peerId);
     }
 
-    public final LinkSocket getLinkSocket(SocketIdentifier peerId){
+    protected final LinkSocket getLinkSocket(SocketIdentifier peerId){
         lock.readLock().lock();
         try {
             return linkSockets.get(peerId);
@@ -573,6 +590,9 @@ public abstract class Socket {
                 throw new IllegalArgumentException("Socket has already been started once.");
             // performs custom initializing procedure if socket is in cooked mode
             if(cookedMode) init();
+            // if dispatcher is not set, then the socket has not yet
+            // been registered as started by the socket manager.
+            if(dispatcher == null) socketManager.startSocket(this);
             // sets state to ready
             state.set(SocketState.READY);
         }finally {
@@ -666,8 +686,9 @@ public abstract class Socket {
      * cleaning procedures when appropriate.
      */
     protected final void closeInternal() {
-        if(state.get() != SocketState.CLOSED) {
-            if (state.get() != SocketState.CLOSING) {
+        SocketState tmpState = state.get();
+        if(tmpState != SocketState.CLOSED) {
+            if (tmpState == SocketState.READY) {
                 // set state to CLOSING
                 state.set(SocketState.CLOSING);
                 // Unlinking all links is required before closing the socket.
@@ -675,11 +696,10 @@ public abstract class Socket {
                     linkSocket.unlink();
                 }
             }
-
             if (!linkManager.hasLinks()) {
-                // perform custom closing procedures if socket is in cooked mode
-                if(cookedMode) destroy();
                 state.set(SocketState.CLOSED);
+                // perform custom closing procedures if socket is in cooked mode
+                if(cookedMode && tmpState != SocketState.CREATED) destroy();
                 socketManager.closeSocket(this);
                 waitQ.wakeUp(0,0,0,PollFlags.POLLHUP | PollFlags.POLLFREE);
             }
@@ -702,6 +722,7 @@ public abstract class Socket {
                 // Notify with CHECK_IF_NONE mode, so that waiters that
                 // require waking up when there aren't any links can do so.
                 getWaitQueue().wakeUp(CHECK_IF_NONE, 0, 0, 0);
+
                 if(state.get() == SocketState.CLOSING)
                     closeInternal();
             }
@@ -859,6 +880,9 @@ public abstract class Socket {
      * linking, etc.
      */
     protected SocketMsg receiveMsg(Long timeout, boolean notifyIfNone) throws InterruptedException {
+        if(state.get() == SocketState.CREATED)
+            throw new IllegalArgumentException("Socket has not yet been started.");
+
         SocketMsg msg;
         Long deadline = Timeout.calculateEndTime(timeout);
         ParkStateSocket ps = null;
@@ -976,6 +1000,9 @@ public abstract class Socket {
      * linking, etc.
      */
     public boolean sendPayload(Payload payload, Long timeout, boolean notifyIfNone) throws InterruptedException {
+        if(state.get() == SocketState.CREATED)
+            throw new IllegalArgumentException("Socket has not yet been started.");
+
         if(payload == null)
             throw new IllegalArgumentException("Payload must not be null.");
 

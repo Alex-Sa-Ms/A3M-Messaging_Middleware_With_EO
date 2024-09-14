@@ -13,7 +13,10 @@ class SocketMananerImpl implements SocketManager{
     // ReadWriteLock to optimize retrievals but also to protect from inconsistencies.
     private final String nodeId;
     private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
+    // sockets that were created and started
     private final Map<String, Socket> sockets = new HashMap<>();
+    // sockets created but not started
+    private final Map<String, Socket> reserved = new HashMap<>();
     private final Map<Integer, SocketProducer> producers = new ConcurrentHashMap<>();
     private MessageDispatcher dispatcher;
 
@@ -37,11 +40,15 @@ class SocketMananerImpl implements SocketManager{
     }
 
     private Socket _getSocket(String tagId){
-        return sockets.get(tagId);
+        Socket socket = sockets.get(tagId);
+        if(socket == null) socket = reserved.get(tagId);
+        return socket;
     }
 
     private Socket _removeSocket(String tagId){
-        return sockets.remove(tagId);
+        Socket socket = sockets.remove(tagId);
+        if(socket == null) socket = reserved.remove(tagId);
+        return socket;
     }
 
     @Override
@@ -50,8 +57,7 @@ class SocketMananerImpl implements SocketManager{
             rwLock.readLock().lock();
             if(socketClass != null) {
                 Socket socket = _getSocket(tagId);
-                if(socket == null)
-                    return null;
+                if(socket == null) return null;
                 else if(socketClass.isInstance(socket))
                     return socketClass.cast(socket);
                 else throw new IllegalArgumentException("The provided class does not match the socket's class.");
@@ -75,7 +81,7 @@ class SocketMananerImpl implements SocketManager{
             throw new IllegalArgumentException("Socket class must not be null.");
 
         // check if a socket with the tag identifier already exists
-        Socket socket = sockets.get(tagId);
+        Socket socket = _getSocket(tagId);
         if(socket != null)
             throw new IllegalArgumentException("Tag identifier has already been used.");
 
@@ -92,9 +98,8 @@ class SocketMananerImpl implements SocketManager{
             throw new IllegalArgumentException("Provided socket class does " +
                     "not match the socket associated with the protocol identifier.");
 
-        // registers the socket and sets core components
-        sockets.put(tagId, socket);
-        socket.setCoreComponents(dispatcher, this);
+        // sets socket manager
+        socket.setSocketManager(this);
         return socketClass.cast(socket);
     }
 
@@ -102,7 +107,9 @@ class SocketMananerImpl implements SocketManager{
     public <T extends Socket> T createSocket(String tagId, int protocolId, Class<T> socketClass) {
         try{
             rwLock.writeLock().lock();
-            return _createSocket(tagId, protocolId, socketClass);
+            T socket = _createSocket(tagId, protocolId, socketClass);
+            reserved.put(tagId, socket);
+            return socket;
         }finally {
             rwLock.writeLock().unlock();
         }
@@ -113,11 +120,44 @@ class SocketMananerImpl implements SocketManager{
         return createSocket(tagId, protocolId, Socket.class);
     }
 
+    /**
+     * Starts a socket, if owned by the socket instance, by setting the
+     * message dispatcher and adding the socket to the sockets collection
+     * so that it can receieve messages.
+     * @param socket socket to be started
+     */
+    @Override
+    public void startSocket(Socket socket) {
+        if(socket != null && socket.getSocketManager() == this){
+            try {
+                rwLock.writeLock().lock();
+                socket.getLock().writeLock().lock();
+                if(socket.getState() == SocketState.CREATED) {
+                    SocketIdentifier sid = socket.getId();
+                    String tagId = sid != null ? sid.tagId() : null;
+                    Socket s = reserved.remove(tagId);
+                    if (socket == s) {
+                        sockets.put(tagId, socket);
+                        socket.setDispather(dispatcher);
+                    }
+                }
+            } catch (Exception ignored){
+            } finally {
+                socket.getLock().writeLock().unlock();
+                rwLock.writeLock().unlock();
+            }
+        }else{
+            throw new IllegalArgumentException("Socket is not owned by this socket manager.");
+        }
+    }
+
     @Override
     public <T extends Socket> T startSocket(String tagId, int protocolId, Class<T> socketClass) {
         try{
             rwLock.writeLock().lock();
             Socket socket = _createSocket(tagId, protocolId, socketClass);
+            sockets.put(tagId, socket); // adds to sockets collection so that messages can be received
+            socket.setDispather(dispatcher); // sets dispatcher so that messages can be sent
             socket.start(); // starts socket making it available for operations
             return socketClass.cast(socket);
         }finally {
@@ -155,7 +195,7 @@ class SocketMananerImpl implements SocketManager{
 
             // if socket is closed, it can be removed from the middleware
             if(s.getState() == SocketState.CLOSED)
-                sockets.remove(s.getId().tagId());
+                _removeSocket(s.getId().tagId());
         }finally {
             rwLock.writeLock().unlock();
         }

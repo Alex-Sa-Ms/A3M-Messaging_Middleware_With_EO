@@ -47,7 +47,7 @@ public class OneWayPipelineTests {
     void initPushSockets(){
         pushSockets = new PushSocket[nrPushSockets];
         for (int i = 0; i < nrPushSockets; i++)
-            pushSockets[i] = middleware.createSocket(
+            pushSockets[i] = middleware.startSocket(
                     "PushSocket" + i,
                     PushSocket.protocol.id(),
                     PushSocket.class);
@@ -56,7 +56,7 @@ public class OneWayPipelineTests {
     void initPullSockets(){
         pullSockets = new PullSocket[nrPullSockets];
         for (int i = 0; i < nrPullSockets; i++)
-            pullSockets[i] = middleware.createSocket(
+            pullSockets[i] = middleware.startSocket(
                     "PullSocket" + i,
                     PullSocket.protocol.id(),
                     PullSocket.class);
@@ -69,6 +69,7 @@ public class OneWayPipelineTests {
         middleware = entry.getValue();
         initPushSockets();
         initPullSockets();
+        System.out.println("Initiated");
     }
 
     @Test

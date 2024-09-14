@@ -33,7 +33,7 @@ class ConfigurableSocketTest {
             //sockets[i] = SimpleSocket.createSocket(sids[i]);
             //((Socket) sockets[i]).setCoreComponents(dispatcher, new SocketMananerImpl("Node" + i, dispatcher));
             sids[i] = new SocketIdentifier(nodeId, "Socket" + i);
-            sockets[i] = socketManager.createSocket("Socket" + i, ConfigurableSocket.protocol.id(), ConfigurableSocket.class);
+            sockets[i] = socketManager.startSocket("Socket" + i, ConfigurableSocket.protocol.id(), ConfigurableSocket.class);
             dispatcher.registerSocket(sockets[i]);
         }
     }
