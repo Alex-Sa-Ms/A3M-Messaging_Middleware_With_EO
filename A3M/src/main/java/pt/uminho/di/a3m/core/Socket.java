@@ -35,18 +35,15 @@ import static pt.uminho.di.a3m.core.auxiliary.ParkStateSocket.CHECK_IF_NONE;
  * messages, so, the subclass may override this method and make it throw the
  * java.lang.UnsupportedOperationException.
  */
-// TODO - make state volatile? Might be faster than having an atomic reference that is only
-//    changed when holding the write lock.
 public abstract class Socket {
     private final SocketIdentifier sid;
     private SocketManager socketManager = null;
     private MessageDispatcher dispatcher = null;
-    final AtomicReference<SocketState> state = new AtomicReference<>(SocketState.CREATED);
+    private volatile SocketState state = SocketState.CREATED;
     final boolean cookedMode;
     final ReadWriteLock lock = new ReentrantReadWriteLock();
     final WaitQueue waitQ = new WaitQueue();
     private Exception error = null;
-    private SocketState preErrorState = null;
 
     /**
      * Initialize socket.
@@ -95,7 +92,7 @@ public abstract class Socket {
 
     /** @return current socket state */
     public final SocketState getState() {
-        return state.get();
+        return state;
     }
 
     /** @return socket identifier */
@@ -140,14 +137,26 @@ public abstract class Socket {
      * must do so if required.
      */
     protected final void setError(Exception error) {
-        this.preErrorState = state.getAndSet(SocketState.ERROR);
-        this.error = error;
+        lock.writeLock().lock();
+        try {
+            if(state == SocketState.READY) {
+                this.state = SocketState.ERROR;
+                this.error = error;
+            }
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 
     protected final void resetErrorState(){
-        if(this.state.compareAndSet(SocketState.ERROR, preErrorState)){
-            this.error = null;
-            this.preErrorState = null;
+        lock.writeLock().lock();
+        try {
+            if(state == SocketState.ERROR){
+                state = SocketState.READY;
+                error = null;
+            }
+        } finally {
+            lock.writeLock().unlock();
         }
     }
 
@@ -322,7 +331,7 @@ public abstract class Socket {
     public void link(SocketIdentifier peerId){
         lock.writeLock().lock();
         try {
-            if(state.get() == SocketState.READY)
+            if(state == SocketState.READY)
                 linkManager.link(peerId);
             else
                 throw new IllegalStateException("Linking is only allowed when the socket is \"READY\".");
@@ -445,7 +454,7 @@ public abstract class Socket {
     private SocketIdentifier auxWaitForAnyLinkEstablishment(boolean notifyIfNone){
         lock.readLock().lock();
         try {
-            if(state.get() == SocketState.CLOSED || state.get() == SocketState.CLOSING)
+            if(state == SocketState.CLOSED || state == SocketState.CLOSING)
                 throw new IllegalStateException("Socket is closed.");
             if(!linkSockets.isEmpty())
                 return linkSockets.keySet().iterator().next();
@@ -586,7 +595,7 @@ public abstract class Socket {
     public final void start() {
         try {
             lock.writeLock().lock();
-            if (state.get() != SocketState.CREATED)
+            if (state != SocketState.CREATED)
                 throw new IllegalArgumentException("Socket has already been started once.");
             // performs custom initializing procedure if socket is in cooked mode
             if(cookedMode) init();
@@ -594,7 +603,7 @@ public abstract class Socket {
             // been registered as started by the socket manager.
             if(dispatcher == null) socketManager.startSocket(this);
             // sets state to ready
-            state.set(SocketState.READY);
+            state = SocketState.READY;
         }finally {
             lock.writeLock().unlock();
         }
@@ -654,7 +663,7 @@ public abstract class Socket {
     public final boolean close(Long timeout) throws InterruptedException {
         try {
             lock.writeLock().lock();
-            SocketState tmpState = state.get();
+            SocketState tmpState = state;
             if (tmpState == SocketState.CLOSED)
                 return true;
             if (tmpState != SocketState.CLOSING)
@@ -686,18 +695,18 @@ public abstract class Socket {
      * cleaning procedures when appropriate.
      */
     protected final void closeInternal() {
-        SocketState tmpState = state.get();
+        SocketState tmpState = state;
         if(tmpState != SocketState.CLOSED) {
             if (tmpState == SocketState.READY) {
                 // set state to CLOSING
-                state.set(SocketState.CLOSING);
+                state = SocketState.CLOSING;
                 // Unlinking all links is required before closing the socket.
                 for (LinkSocket linkSocket : linkSockets.values()) {
                     linkSocket.unlink();
                 }
             }
             if (!linkManager.hasLinks()) {
-                state.set(SocketState.CLOSED);
+                state = SocketState.CLOSED;
                 // perform custom closing procedures if socket is in cooked mode
                 if(cookedMode && tmpState != SocketState.CREATED) destroy();
                 socketManager.closeSocket(this);
@@ -723,7 +732,7 @@ public abstract class Socket {
                 // require waking up when there aren't any links can do so.
                 getWaitQueue().wakeUp(CHECK_IF_NONE, 0, 0, 0);
 
-                if(state.get() == SocketState.CLOSING)
+                if(state == SocketState.CLOSING)
                     closeInternal();
             }
             wakeAnyLinkWaitersIfNoLinks();
@@ -874,22 +883,22 @@ public abstract class Socket {
      *                     stop the waiting operation when there aren't any links.
      * @return null if operation timed out. Non-null value if a message was received successfully.
      * @throws InterruptedException .
+     * @throws IllegalStateException if the socket has not yet been started.
      * @throws SocketClosedException if socket is closed
      * @throws NoLinksException if the "notify if none" flag is set
      * and there aren't any links regardless of the state being established,
      * linking, etc.
      */
     protected SocketMsg receiveMsg(Long timeout, boolean notifyIfNone) throws InterruptedException {
-        if(state.get() == SocketState.CREATED)
-            throw new IllegalArgumentException("Socket has not yet been started.");
-
         SocketMsg msg;
         Long deadline = Timeout.calculateEndTime(timeout);
         ParkStateSocket ps = null;
         try {
             getLock().readLock().lock();
 
-            if(getState() == SocketState.CLOSED)
+            if(state == SocketState.CREATED)
+                throw new IllegalStateException("Socket has not yet been started.");
+            if(state == SocketState.CLOSED)
                 throw new SocketClosedException();
 
             // check if there are any links when the notifyIfNone flag is used
@@ -916,7 +925,7 @@ public abstract class Socket {
 
         try {
             while(true) {
-                if(getState() == SocketState.CLOSED)
+                if(state == SocketState.CLOSED)
                     throw new SocketClosedException();
 
                 msg = tryReceiving();
@@ -1000,18 +1009,18 @@ public abstract class Socket {
      * linking, etc.
      */
     public boolean sendPayload(Payload payload, Long timeout, boolean notifyIfNone) throws InterruptedException {
-        if(state.get() == SocketState.CREATED)
-            throw new IllegalArgumentException("Socket has not yet been started.");
-
         if(payload == null)
             throw new IllegalArgumentException("Payload must not be null.");
 
-        boolean sent = false;
+        boolean sent;
         Long deadline = Timeout.calculateEndTime(timeout);
         ParkStateSocket ps = null;
         try {
             getLock().readLock().lock();
-            if (getState() == SocketState.CLOSED)
+
+            if(state == SocketState.CREATED)
+                throw new IllegalArgumentException("Socket has not yet been started.");
+            if (state == SocketState.CLOSED)
                 throw new SocketClosedException();
 
             // check if there are any links when the notifyIfNone flag is used
@@ -1037,7 +1046,7 @@ public abstract class Socket {
 
         try {
             while (true) {
-                if(getState() == SocketState.CLOSED)
+                if(state == SocketState.CLOSED)
                     throw new SocketClosedException();
 
                 // checks if thread was interrupted
@@ -1137,7 +1146,7 @@ public abstract class Socket {
      */
     protected int getAvailableEventsMask(){
         int events = 0;
-        if(state.get() == SocketState.CLOSED)
+        if(state == SocketState.CLOSED)
             events |= PollFlags.POLLHUP;
         if(error != null)
             events |= PollFlags.POLLERR;
@@ -1160,7 +1169,7 @@ public abstract class Socket {
         try {
             if (!PollTable.pollDoesNotWait(pt)) {
                 WaitQueueEntry wait =
-                        state.get() != SocketState.CLOSED ? waitQ.initEntry() : null;
+                        state != SocketState.CLOSED ? waitQ.initEntry() : null;
                 pt.pollWait(pollThis, wait);
             }
             return getAvailableEventsMask();
