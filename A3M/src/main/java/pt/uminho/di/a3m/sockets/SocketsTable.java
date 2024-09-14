@@ -13,6 +13,10 @@ public class SocketsTable {
             List.of(PushSocket::new,
                     PullSocket::new);
 
+    public static List<SocketProducer> getDefaultProducers() {
+        return new ArrayList<>(defaultProducers);
+    }
+
     // ************ Protocol identifiers ************ //
 
     // ****** One-Way Pipeline ****** //
@@ -21,7 +25,14 @@ public class SocketsTable {
     public static final int PULL_ID = 2;
     public static final Protocol PULL_PROTOCOL = new Protocol(PULL_ID, "One-Way Pipeline Pull");
 
-    public static List<SocketProducer> getDefaultProducers() {
-        return new ArrayList<>(defaultProducers);
-    }
+    // ****** Request-Reply ****** //
+
+    public static final int REQ_ID = 3;
+    public static final Protocol REQ_PROTOCOL = new Protocol(REQ_ID, "Req-Rep Requester");
+    public static final int REP_ID = 4;
+    public static final Protocol REP_PROTOCOL = new Protocol(REP_ID, "Req-Rep Replier");
+    public static final int ROUTER_ID = 5;
+    public static final Protocol ROUTER_PROTOCOL = new Protocol(ROUTER_ID, "Req-Rep Router");
+    public static final int DEALER_ID = 6;
+    public static final Protocol DEALER_PROTOCOL = new Protocol(DEALER_ID, "Req-Rep Dealer");
 }
