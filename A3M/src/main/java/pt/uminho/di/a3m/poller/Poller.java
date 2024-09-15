@@ -154,8 +154,8 @@ public class Poller {
         // add pItem to the tail of the ready list and get the previous tail item atomically
         VListNode<PollerItem> prev = poller.readyList.getAndSetPrevAtomic(rdlink);
         // make the prev point to this item, and make this item point to the prev
-        prev.setNext(rdlink);
-        rdlink.setPrev(prev);
+        prev.setNextAtomic(rdlink);
+        rdlink.setPrevAtomic(prev);
     }
 
     private static final WaitQueueFunc waitQueueFunc = (entry, mode, flags, keyObject) -> {
@@ -278,6 +278,7 @@ public class Poller {
      * Empty list is returned if there isn't a pollable with available events.
      * @param maxEvents maximum number of events that should be returned
      * @throws InterruptedException If thread was interrupted before entering this method.
+     * @throws PollerClosedException if the poller is closed
      */
     private List<PollEvent<Object>> getReadyEvents(int maxEvents) throws InterruptedException, PollerClosedException {
         // check if thread has been interrupted before
@@ -336,6 +337,8 @@ public class Poller {
 
             endReadyEventsScan(tmpList);
 
+            if(!IListNode.isEmpty(readyList) && hasWaiters())
+                waitQ.wakeUp(0,1,0,0);
         } finally {
             lock.unlock();
         }
@@ -624,11 +627,8 @@ public class Poller {
         while(true){
             if(ready){
                 rEvents = getReadyEvents(maxEvents);
-                if(!rEvents.isEmpty()) {
-                    if(hasWaiters())
-                        waitQ.wakeUp(0,1,0,0);
+                if(!rEvents.isEmpty())
                     return rEvents;
-                }
             }
 
             if (timedOut)
@@ -693,27 +693,83 @@ public class Poller {
     }
 
     /**
-     * @param maxEvents maximum number of events that should be returned
      * @param timeout maximum time allocated to wait for events.
      *                null to wait until there are events to return.
      *                0 or negative values for non-blocking operation.
      * @return <p> > list of pairs of pollable id and mask of available events for that pollable.
      *         <p> > null if timed out
-     * @throws InterruptedException if thread was interrupted during the invocation of this method.
-     * @throws IllegalArgumentException if the maximum number of events is not a positive value.
-     * @throws PollerClosedException if poller is closed
+     * @see Poller#awaitUntil(int, Long) Base method
      */
     public List<PollEvent<Object>> await(int maxEvents, Long timeout) throws InterruptedException, PollerClosedException {
         Long endTimeout = calculateEndTime(timeout);
         return awaitUntil(maxEvents, endTimeout);
     }
 
+    /**
+     * @apiNote Assumes the operation should only return
+     * when there are events available.
+     * @see Poller#await(int, Long)
+     */
     public List<PollEvent<Object>> await(int maxEvents) throws InterruptedException, PollerClosedException {
         return await(maxEvents, null);
     }
 
+    /**
+     * @apiNote Assumes the operation should only return when there
+     * are events available and that all available events should be returned.
+     */
     public List<PollEvent<Object>> await() throws InterruptedException, PollerClosedException {
         return await(Integer.MAX_VALUE, null);
+    }
+
+    /**
+     * Performs a quick check of whether there may be available
+     * events or not on the ready list. This call is not accurate,
+     * since the ready list may be outdated. However, for cases where
+     * a proper check will follow, performing a deep check is not required.
+     * <p>For a deep check, use {@link Poller#hasEvents hasEvents()}</p>
+     * @return returns true if the ready list is not empty. false, otherwise.
+     */
+    public boolean hasEventsQuickCheck() {
+        return !IListNode.isEmpty(readyList);
+    }
+
+    /**
+     * <p>When only checking the existence of available events
+     * without disturbing the underlying order is desirable.</p>
+     * @apiNote After checking the events of a pollable P and while checking
+     * the events of other pollables, the pollable P may notify
+     * availability for events of interest. These events will not be detected.
+     * @return true if there are events. false, otherwise.
+     */
+    public boolean hasEvents(){
+        // Since the nature of this method is non-blocking,
+        // this racy call is not a problem.
+        if (!IListNode.isEmpty(readyList)) return false;
+
+        boolean hasEvents = false;
+        PollTable pt = new PollTable(0, null, null);
+        PollerItem pItem;
+        int aEvents;
+        try {
+            rlLock.readLock().lock();
+
+            VListNode<PollerItem> it = readyList.getNextAtomic();
+
+            while (!hasEvents && it != readyList) {
+                pItem = it.getObject();
+                pt.setKey(pItem.getEvents());
+                aEvents = itemPoll(pItem.getPollable(), pt);
+                if (aEvents != 0)
+                    hasEvents = true;
+                else
+                    it = it.getNextAtomic();
+            }
+        } finally {
+            rlLock.readLock().unlock();
+        }
+
+        return hasEvents;
     }
 
     /**

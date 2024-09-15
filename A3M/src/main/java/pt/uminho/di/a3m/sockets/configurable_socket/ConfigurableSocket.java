@@ -316,7 +316,7 @@ public class ConfigurableSocket extends Socket {
     private boolean isReadyToReceive() throws InterruptedException {
         // if read poller is null, then the socket cannot receive messages
         if(readPoller == null) return false;
-        return getLinkReadyToReceive() != null;
+        return readPoller.hasEventsQuickCheck();
     }
 
     /**
@@ -326,7 +326,7 @@ public class ConfigurableSocket extends Socket {
     private boolean isReadyToSend() throws InterruptedException {
         // if write poller is null, then the socket cannot send messages
         if(writePoller == null) return false;
-        return getLinkReadyToSend() != null;
+        return writePoller.hasEventsQuickCheck();
     }
 
     @Override
