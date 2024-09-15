@@ -1,12 +1,17 @@
 package pt.uminho.di.a3m.core;
 
-import com.google.protobuf.InvalidProtocolBufferException;
-import pt.uminho.di.a3m.auxiliary.Debugging;
 import pt.uminho.di.a3m.core.messaging.Msg;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 
+import java.io.IOException;
+import java.net.BindException;
+import java.net.ServerSocket;
+import java.net.SocketException;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.AbstractMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
@@ -94,6 +99,30 @@ public class SocketTestingUtilities {
 
     public static SocketManager createSocketManager(String nodeId, MessageDispatcher messageDispatcher){
         return new SocketMananerImpl(nodeId, messageDispatcher);
+    }
+
+    private static int getAvailablePort(){
+        try (ServerSocket s = new ServerSocket(0)) {
+            s.setReuseAddress(true);
+            return s.getLocalPort();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static AbstractMap.SimpleEntry<Integer, A3MMiddleware> createAndStartMiddlewareInstance(List<SocketProducer> producerList) throws SocketException, UnknownHostException {
+        for (int i = 0; i < 100; i++) {
+            try {
+                int port = getAvailablePort();
+                A3MMiddleware m = new A3MMiddleware("Node", null, port, null, producerList);
+                m.start();
+                return new AbstractMap.SimpleEntry<>(port, m);
+            } catch (BindException ignored){
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
+        throw new BindException("Could not find an available adress.");
     }
 
     public static String decodeByteArrayToString(byte[] arrMsg){

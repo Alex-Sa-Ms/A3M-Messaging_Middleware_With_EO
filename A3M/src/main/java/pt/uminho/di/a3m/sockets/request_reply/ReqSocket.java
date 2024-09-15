@@ -32,7 +32,9 @@ public class ReqSocket extends Socket {
     // write poller to keep track of which links allow a message to be sent
     private final Poller writePoller = Poller.create();
     // when a message is sent, the identifier of the socket that should return the message is set here.
-    private SocketIdentifier replier = null;
+    // TODO - change replier to atomicReference? made replier volatile since the socket
+    //  read lock cannot be used on the link watcher wake up call as it creates a deadlock.
+    private volatile SocketIdentifier replier = null;
     // reply message
     private final AtomicReference<SocketMsg> reply = new AtomicReference<>(null);
     private final AtomicBoolean replierClosed = new AtomicBoolean(false);
@@ -62,15 +64,9 @@ public class ReqSocket extends Socket {
      * Notifies POLLOUT if the events contain POLLOUT and
      * if there isn't a request waiting for a reply.
      */
-    private void checkAndNotifyPOLLOUT(int events){
-        getLock().readLock().lock();
-        try {
-            if(replier == null && (events & PollFlags.POLLOUT) != 0) {
-                getWaitQueue().fairWakeUp(0, 1, 0, PollFlags.POLLOUT);
-            }
-        } finally {
-            getLock().readLock().unlock();
-        }
+    private void checkAndNotifyPOLLOUT(int events) {
+        if (replier == null && (events & PollFlags.POLLOUT) != 0)
+            getWaitQueue().fairWakeUp(0, 1, 0, PollFlags.POLLOUT);
     }
 
     /** Wake function that notifies when an event happens to the link socket. */
@@ -143,7 +139,7 @@ public class ReqSocket extends Socket {
             } finally {
                 getLock().readLock().unlock();
             }
-            // signal all waiters waiting to receive a message,
+            // signal ALL waiters waiting to receive a message,
             // since waiting for a message should only be allowed
             // if there is a message to wait for.
             if(notify) getWaitQueue().wakeUp(0, 0, 0, PollFlags.POLLIN);
@@ -167,14 +163,15 @@ public class ReqSocket extends Socket {
      */
     @Override
     public void unlink(SocketIdentifier peerId) {
-        getLock().readLock().lock();
+        getLock().writeLock().lock();
         try {
             if(peerId != null && peerId.equals(replier))
-                throw new IllegalStateException("");
+                throw new IllegalStateException("Answer from the replier has not yet been received. " +
+                        "If unlinking is still desirable, use forceUnlink().");
+            super.unlink(peerId);
         } finally {
-            getLock().readLock().unlock();
+            getLock().writeLock().unlock();
         }
-        super.unlink(peerId);
     }
 
     /**
@@ -269,7 +266,7 @@ public class ReqSocket extends Socket {
      * @return true if a request has not been sent and there is a link available to send.
      */
     private boolean isReadyToSend() throws InterruptedException {
-        return replier == null && getLinkReadyToSend() != null;
+        return replier == null && writePoller.hasEventsQuickCheck();
     }
 
     @Override

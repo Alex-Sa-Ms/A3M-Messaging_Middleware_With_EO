@@ -961,6 +961,7 @@ public abstract class Socket {
      *                     stop the waiting operation when there aren't any links.
      * @return null if operation timed out. Non-null value if a message was received successfully.
      * @throws InterruptedException .
+     * @throws IllegalStateException if the socket has not yet been started.
      * @throws SocketClosedException if socket is closed
      * @throws NoLinksException if the "notify if none" flag is set
      * and there aren't any links regardless of the state being established,

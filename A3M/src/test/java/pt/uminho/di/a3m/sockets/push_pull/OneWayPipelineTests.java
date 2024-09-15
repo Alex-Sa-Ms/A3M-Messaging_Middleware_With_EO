@@ -1,4 +1,4 @@
-package pt.uminho.di.a3m.sockets;
+package pt.uminho.di.a3m.sockets.push_pull;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,27 +23,6 @@ public class OneWayPipelineTests {
     private int nrPullSockets = 1;
     private PullSocket[] pullSockets;
 
-    private static int getAvailablePort(){
-        try (ServerSocket s = new ServerSocket(0)) {
-            s.setReuseAddress(true);
-            return s.getLocalPort();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private static AbstractMap.SimpleEntry<Integer, A3MMiddleware> createAndStartMiddlewareInstance() throws SocketException, UnknownHostException {
-        for (int i = 0; i < 100; i++) {
-            try {
-                int port = getAvailablePort();
-                A3MMiddleware m = new A3MMiddleware("Node", null, port, null, producerList);
-                m.start();
-                return new AbstractMap.SimpleEntry<>(port, m);
-            } catch (Exception ignored) {}
-        }
-        throw new BindException("Could not find an available adress.");
-    }
-
     void initPushSockets(){
         pushSockets = new PushSocket[nrPushSockets];
         for (int i = 0; i < nrPushSockets; i++)
@@ -64,7 +43,7 @@ public class OneWayPipelineTests {
 
     @BeforeEach
     void init() throws SocketException, UnknownHostException {
-        var entry = createAndStartMiddlewareInstance();
+        var entry = SocketTestingUtilities.createAndStartMiddlewareInstance(producerList);
         port = entry.getKey();
         middleware = entry.getValue();
         initPushSockets();
