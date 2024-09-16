@@ -32,9 +32,7 @@ public class ReqSocket extends Socket {
     // write poller to keep track of which links allow a message to be sent
     private final Poller writePoller = Poller.create();
     // when a message is sent, the identifier of the socket that should return the message is set here.
-    // TODO - change replier to atomicReference? made replier volatile since the socket
-    //  read lock cannot be used on the link watcher wake up call as it creates a deadlock.
-    private volatile SocketIdentifier replier = null;
+    private final AtomicReference<SocketIdentifier> replier = new AtomicReference<>(null);
     // reply message
     private final AtomicReference<SocketMsg> reply = new AtomicReference<>(null);
     private final AtomicBoolean replierClosed = new AtomicBoolean(false);
@@ -45,9 +43,12 @@ public class ReqSocket extends Socket {
      */
     public ReqSocket(SocketIdentifier sid) {
         super(sid);
-        // set capacity to 1 and make it immutable,
-        // since only a message is expected to be received at a time
-        registerOption("capacity", new ImmutableOptionHandler<>(1));
+        // A replier limits itself to asnwer a request, therefore, imposing
+        // a limit on replier does not make sense. It will only lead to potential
+        // inefficiencies if the replier is left to way for flow control credits
+        // to return an answer.
+        registerOption("capacity", new ImmutableOptionHandler<>(Integer.MAX_VALUE / 2));
+        registerOption("batchSizePercentage", new ImmutableOptionHandler<>(0.05f));
     }
 
     @Override
@@ -65,7 +66,7 @@ public class ReqSocket extends Socket {
      * if there isn't a request waiting for a reply.
      */
     private void checkAndNotifyPOLLOUT(int events) {
-        if (replier == null && (events & PollFlags.POLLOUT) != 0)
+        if (replier.get() == null && (events & PollFlags.POLLOUT) != 0)
             getWaitQueue().fairWakeUp(0, 1, 0, PollFlags.POLLOUT);
     }
 
@@ -107,7 +108,7 @@ public class ReqSocket extends Socket {
     private void notifyIfReplierClosed(SocketIdentifier sid){
         getLock().readLock().lock();
         try {
-            if(reply.get() == null && Objects.equals(replier,sid)) {
+            if(reply.get() == null && Objects.equals(replier.get(),sid)) {
                 replierClosed.set(true);
                 getWaitQueue().wakeUp(0, 0, 0, PollFlags.POLLIN);
             }
@@ -134,7 +135,7 @@ public class ReqSocket extends Socket {
             try {
                 // if the sender of the data message corresponds to the
                 // expected replier, then set it to be received.
-                notify = Objects.equals(replier, msg.getSrcId())
+                notify = Objects.equals(replier.get(), msg.getSrcId())
                         && reply.compareAndSet(null, msg);
             } finally {
                 getLock().readLock().unlock();
@@ -165,7 +166,7 @@ public class ReqSocket extends Socket {
     public void unlink(SocketIdentifier peerId) {
         getLock().writeLock().lock();
         try {
-            if(peerId != null && peerId.equals(replier))
+            if(peerId != null && peerId.equals(replier.get()))
                 throw new IllegalStateException("Answer from the replier has not yet been received. " +
                         "If unlinking is still desirable, use forceUnlink().");
             super.unlink(peerId);
@@ -205,19 +206,19 @@ public class ReqSocket extends Socket {
         getLock().writeLock().lock();
         try {
             // checks if socket is in a waiting for reply state
-            if(replier == null)
+            if(replier.get() == null)
                 throw new IllegalStateException("To wait for a reply, a request must be sent first.");
             // if the link with the replier has been closed
             // before the reply has arrived, clean up to allow
             // another request to be sent and then throw link closed exception
             if(replierClosed.getAndSet(false)){
-                SocketIdentifier tmpReplier = replier;
-                replier = null;
+                SocketIdentifier tmpReplier = replier.get();
+                replier.set(null);
                 throw new LinkClosedException("Link with replier(" + tmpReplier + ") was closed before the message was received.");
             }
             msg = reply.getAndSet(null);
             if(msg != null)
-                replier = null;
+                replier.set(null);
         } finally {
             getLock().writeLock().unlock();
         }
@@ -238,13 +239,13 @@ public class ReqSocket extends Socket {
         try {
             boolean sent = false;
             LinkIdentifier linkId;
-            if(replier == null) {
+            if(replier.get() == null) {
                 while (!sent && (linkId = getLinkReadyToSend()) != null) {
                     LinkSocket linkSocket = getLinkSocket(linkId.destId());
                     if (linkSocket != null) {
                         try {
                             sent = linkSocket.send(payload, 0L);
-                            if (sent) replier = linkSocket.getPeerId();
+                            if (sent) replier.set(linkSocket.getPeerId());
                         } catch (LinkClosedException ignored) {}
                     }
                 }
@@ -266,7 +267,7 @@ public class ReqSocket extends Socket {
      * @return true if a request has not been sent and there is a link available to send.
      */
     private boolean isReadyToSend() throws InterruptedException {
-        return replier == null && writePoller.hasEventsQuickCheck();
+        return replier.get() == null && writePoller.hasEventsQuickCheck();
     }
 
     @Override

@@ -20,52 +20,6 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
-/* TODO - getLinkReady destroys the round robin order when used for checks
-            -> Use circular linked list (ListNode) and iterate over them
-            skipping nodes that aren't ready.
-                - Problem: without a poller, how to avoid missing an event
-                    that happens right after verifying that the link was not ready?
-            -> Possible Solution: List combined with Poller + isLinkReady() + getLinkReady()
-                1. List starts empty.
-                2. isLinkReady():
-                    1. If list has elements, iterates over them, polling events, removing
-                    elements not ready for the event of interest, and stopping after finding
-                     the first element that is ready.
-                    2. If list is empty, or has become empty, then do a non-blocking poll (requesting
-                    only 1 link) using the poller.
-                    3. If the operation timed out, return null (no link ready).
-                    4. If the operation returned an element, then add that element to the list
-                    and return true to indicate readiness.
-                3. getLinkReady() follows a similar algorithm as isLinkReady(), but
-                 also removes from the list, the element that is ready and is going to be returned.
-            -> Another solution: Just notify a waiter instead of checking if an event is ready.
-            While a context switch is involved, some time could potentially be saved by avoiding
-            pointless verifications that can be done by the waiters themselves.
- */
-
-/*
- TODO (Poller related) - think about regular wake up and fair wake up.
-    -> when does linux consider a thread wake up successful?
-        -> since the positions remain the same, if the wake up functions catch
-            wake ups until the entry is effectively removed, then and only then
-            are events truly exclusive. However, if an entry, after a successful wake up,
-            returns an unsuccessful wake up for every try, then new exclusive entries can be
-            woken up.
-        -> an epoll() instance when registered as exclusive and after reaching the position
-        of first exclusive entry prevents other exclusive waiters from being notified. The only
-         case where these other exclusive waiters are woken up is when the wake up method is called
-         with a number of exclusive wake ups different than 0.
-   -> As for the fair wake up, moving positions is probably not the best answer, since, usually, when
-   a waiter is not a poller, it deletes its entry after effectively handling the intended event.
-   R: The correct approach is to not use fair wake up, opting only for wake up, and when exclusivity is
-   actually required by a poller, then and only then, should the POLLEXCLUSIVE flag be used, otherwise, the
-   user must avoid the use of such flag, such as when using direct calls on the socket and on the poller concurrently
-   are desirable.
- */
-
-
-// TODO - can detect if the message was received when the credit is received back
-
 public class RepSocket extends Socket {
     public static final Protocol protocol = SocketsTable.REP_PROTOCOL;
     public static final Set<Protocol> compatProtocols = Set.of(SocketsTable.REQ_PROTOCOL, SocketsTable.DEALER_PROTOCOL);
@@ -98,15 +52,37 @@ public class RepSocket extends Socket {
         if(requester == null){
             if((iKey & PollFlags.POLLIN) != 0)
                 getWaitQueue().fairWakeUp(0,1,0,PollFlags.POLLIN);
-        }else {
+        }
+        /*else {
+            // If there aren't credits to send a reply to the requester,
+            // the replier needs to be woken up when a credits that allows
+            // the operation to be completed arrives. However, having a credit
+            // limitation means slowing down both the replier and the requester.
+
+
+            // TODO - possibly have the link socket have a queue with replies
+                that need to be sent, that way when credits arrive, there is no need
+                to signal a waiter, the messages that can be forwarded, are forwarded
+                by doing a non-blocking send on a loop.
+                Solution:
+                    1. Set up a decent capacity at the REQ socket for efficiency reasons,
+                        that way queuing of messages can be minimized.
+                    2. Create a link socket watched subclass to talk with REQ sockets. This
+                    class should have an attribute that is a message that needs to be dispatched.
+                    3. Make the link socket be queued with POLLIN and POLLOUT.
+                    4. When an attempt to send fails, the message is set on the link socket so that
+                    when the link watcher gets a POLLOUT notification it can check for the existence of
+                    messages to send. (proper synchronization is required so that a POLLOUT notification
+                    is not missed and thus leaving the message(s) queued)
+                    5. DEALER should have a link socket watched subclass too, however, it requires
+                    a queue instead of a single reference since many requests may have replies that
+                    cannot be send due to lack of credits.
+
             // if a flow control credit has arrived from the requester,
             // wake up a sending waiter since sending is now possible.
-            // TODO - maybe set ReqSocket's capacity higher since this can result
-            //  in repliers to be slowed down by requesters, due to needing to wait
-            //  for the flow control credits to arrive to effectively send the message.
             if(entry.getPriv() == requester && (iKey & PollFlags.POLLOUT) != 0)
                 getWaitQueue().fairWakeUp(0,1,0,PollFlags.POLLOUT);
-        }
+        } */
         return 1;
     };
 
@@ -123,7 +99,7 @@ public class RepSocket extends Socket {
     protected void customOnLinkEstablished(LinkSocket linkSocket) {
         int events = linkSocket.poll(
                 new PollTable(
-                        PollFlags.POLLIN | PollFlags.POLLOUT,
+                        PollFlags.POLLIN /* | PollFlags.POLLOUT*/, // only required if the link watcher decides to notify POLLOUT events.
                         linkSocket,
                         linkWatcherQueueFunction));
         readPoller.add(linkSocket, PollFlags.POLLIN);
