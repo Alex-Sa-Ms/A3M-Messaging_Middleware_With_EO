@@ -43,12 +43,6 @@ public class ReqSocket extends Socket {
      */
     public ReqSocket(SocketIdentifier sid) {
         super(sid);
-        // A replier limits itself to asnwer a request, therefore, imposing
-        // a limit on replier does not make sense. It will only lead to potential
-        // inefficiencies if the replier is left to way for flow control credits
-        // to return an answer.
-        registerOption("capacity", new ImmutableOptionHandler<>(Integer.MAX_VALUE / 2));
-        registerOption("batchSizePercentage", new ImmutableOptionHandler<>(0.05f));
     }
 
     @Override
@@ -287,5 +281,9 @@ public class ReqSocket extends Socket {
             // ignored, because this operation is non-blocking
         }
         return events;
+    }
+
+    LinkSocket linkSocket(SocketIdentifier sid){
+        return getLinkSocket(sid);
     }
 }

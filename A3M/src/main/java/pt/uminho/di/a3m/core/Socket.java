@@ -26,6 +26,19 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static pt.uminho.di.a3m.core.auxiliary.ParkStateSocket.CHECK_IF_NONE;
 
+// TODO 1 - create tryOperation() methods where operation(..., 0L) is possible.
+//          - make it not throw interrupted exception
+//          - make it not notify waiters
+//          - apply them where operation(..., 0L) is used.
+// TODO 2 - blocking operations with timeout/deadline that are actually
+//   non-blocking since the timeout is 0L or the deadline has been reached,
+//   should not queue themselves in wait queues and should not notify waiters.
+//   This is because, notifying waiters in non-blocking operations is pointless
+//   as a waiter must have already been notified if a notification was justified.
+// TODO 3 - Add overloaded versions that do not allow passing nodeId and tagId instead
+//  of a socket identifier
+// TODO 4 - Overloaded versions that allows strings instead of byte arrays.
+
 /**
  * Abstract socket class that defines the basic behavior of a socket.
  * A subclass must implement all the abstract methods obedying the instructions
@@ -171,9 +184,9 @@ public abstract class Socket {
      */
     private static Map<String, OptionHandler<?>> defaultSocketOptions() {
         Map<String, OptionHandler<?>> options = new HashMap<>();
-        // Sets default batch size percentage to 5%.
+        // Sets default batch size percentage to 25%.
         // Defines the percentage to be used by new links.
-        options.put("batchSizePercentage", new GenericOptionHandler<>(0.05f, Float.class){
+        options.put("batchSizePercentage", new GenericOptionHandler<>(0.25f, Float.class){
             @Override
             public void set(Object value) {
                 if(!(value instanceof Float) || (float) value <= 0f || (float) value > 1f)
@@ -340,8 +353,16 @@ public abstract class Socket {
         }
     }
 
+    public void link(String nodeId, String tagId){
+        link(new SocketIdentifier(nodeId, tagId));
+    }
+
     public void unlink(SocketIdentifier peerId){
         linkManager.unlink(peerId);
+    }
+
+    public void unlink(String nodeId, String tagId){
+        unlink(new SocketIdentifier(nodeId, tagId));
     }
 
     protected final LinkSocket getLinkSocket(SocketIdentifier peerId){
@@ -1009,7 +1030,7 @@ public abstract class Socket {
      * and there aren't any links regardless of the state being established,
      * linking, etc.
      */
-    public boolean sendPayload(Payload payload, Long timeout, boolean notifyIfNone) throws InterruptedException {
+    protected boolean sendPayload(Payload payload, Long timeout, boolean notifyIfNone) throws InterruptedException {
         if(payload == null)
             throw new IllegalArgumentException("Payload must not be null.");
 
@@ -1102,7 +1123,7 @@ public abstract class Socket {
      * @see Socket#send(byte[], Long, boolean)
      */
     public boolean send(byte[] payload, Long timeout) throws InterruptedException {
-        return sendPayload(new BytePayload(MsgType.DATA, payload),timeout, false);
+        return send(payload,timeout,false);
     }
 
     /**
@@ -1111,8 +1132,8 @@ public abstract class Socket {
      * notifying when there aren't any links is not desirable.
      * @see Socket#send(byte[], Long, boolean)
      */
-    public boolean send(byte[] payload) throws InterruptedException {
-        return sendPayload(new BytePayload(MsgType.DATA, payload), null, false);
+    public void send(byte[] payload) throws InterruptedException {
+        send(payload,null,false);
     }
 
     // ******** Polling ********* //

@@ -10,12 +10,14 @@ import pt.uminho.di.a3m.sockets.push_pull.PushSocket;
 
 import java.net.SocketException;
 import java.net.UnknownHostException;
+import java.util.Arrays;
 import java.util.List;
 
 public class RequestReplyTests {
     A3MMiddleware middleware;
     int port;
-    private final static List<SocketProducer> producerList = List.of(ReqSocket::new, RepSocket::new);
+    private final static List<SocketProducer> producerList =
+            List.of(ReqSocket::new, RepSocket::new, DealerSocket::new, RouterSocket::new);
 
 
     @BeforeEach
@@ -225,5 +227,82 @@ public class RequestReplyTests {
         replier.join();
         for (int i = 0; i < 2; i++)
             requesters[i].join();
+    }
+
+    @Test
+    void replierQueuingReply() throws InterruptedException {
+        ReqSocket reqSocket = middleware.startSocket("req", ReqSocket.protocol.id(), ReqSocket.class);
+        // make request socket have a capacity of 0, so that the replier
+        // cannot send the reply.
+        reqSocket.setOption("capacity",0);
+        RepSocket repSocket = middleware.startSocket("rep", RepSocket.protocol.id(), RepSocket.class);
+        reqSocket.link(repSocket.getId());
+        while (!repSocket.isLinked(reqSocket.getId()))
+            Thread.onSpinWait();
+        // send request
+        reqSocket.send("Hello".getBytes());
+        // receive the request
+        byte[] msg = repSocket.receive();
+        assert msg != null;
+        // send a reply
+        repSocket.send(msg);
+        // check that receiving is not possible
+        msg = reqSocket.receive(25L); // timeout to wait a bit and check that the message effectively does not arrive
+        assert msg == null;
+        // make request socket change the capacity so that the replier
+        // receives a credit to send the reply
+        reqSocket.linkSocket(repSocket.getId()).setCapacity(1);
+        // check that the message is finally received
+        msg = reqSocket.receive();
+        assert msg != null;
+    }
+
+    @Test
+    void multiHopTest() throws InterruptedException {
+        DealerSocket client = middleware.startSocket("client",DealerSocket.protocol.id(),DealerSocket.class);
+        RouterSocket routerA = middleware.startSocket("routerA",RouterSocket.protocol.id(),RouterSocket.class);
+        DealerSocket toRouterB = middleware.startSocket("toRouterB",DealerSocket.protocol.id(),DealerSocket.class);
+        RouterSocket routerB = middleware.startSocket("routerB",RouterSocket.protocol.id(),RouterSocket.class);
+        DealerSocket toService = middleware.startSocket("toService",DealerSocket.protocol.id(),DealerSocket.class);
+        DealerSocket service = middleware.startSocket("service",DealerSocket.protocol.id(),DealerSocket.class);
+
+        client.link(routerA.getId());
+        toRouterB.link(routerB.getId());
+        toService.link(service.getId());
+
+        byte[] request = "Hello".getBytes();
+        byte[] msg;
+
+        // client sends message
+        client.send(request);
+
+        // router A receives and forwards request to router B
+        msg = routerA.receive();
+        toRouterB.send(msg);
+
+        // router B receives and forwards request to service
+        msg = routerB.receive();
+        toService.send(msg);
+
+        // service receives the request, sets a new payload and sends the reply back
+        byte[] reply = "Hi".getBytes();
+        msg = service.receive();
+        RRMsg rrMsg = RRMsg.parseFrom(msg);
+        assert Arrays.equals(request, rrMsg.getPayload());
+        rrMsg.setPayload(reply);
+        service.send(rrMsg.toByteArray());
+
+        // router B receives reply and sends it to router A
+        msg = toService.receive();
+        routerB.send(msg);
+
+        // router A receives reply and sends it to client
+        msg = toRouterB.receive();
+        routerA.send(msg);
+
+        // client receives message
+        msg = client.receive();
+        // assert the reply is correct
+        assert Arrays.equals(reply, msg);
     }
 }

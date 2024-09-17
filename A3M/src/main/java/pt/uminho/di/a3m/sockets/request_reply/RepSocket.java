@@ -10,7 +10,6 @@ import pt.uminho.di.a3m.poller.PollQueueingFunc;
 import pt.uminho.di.a3m.poller.PollTable;
 import pt.uminho.di.a3m.poller.Poller;
 import pt.uminho.di.a3m.sockets.SocketsTable;
-import pt.uminho.di.a3m.sockets.auxiliary.LinkSocketWatched;
 import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;
 import pt.uminho.di.a3m.waitqueue.WaitQueueFunc;
 
@@ -45,53 +44,28 @@ public class RepSocket extends Socket {
         readPoller.close();
     }
 
-    /** Wake function that notifies when reading is possible. */
+    /**
+     * Wake function that notifies when reading is possible and
+     * that sends buffered messages.
+     */
     private final WaitQueueFunc linkWatcherWakeFunction = (entry, mode, flags, key) -> {
         int iKey = (int) key;
-        LinkSocket requester = this.requester.get();
-        if(requester == null){
-            if((iKey & PollFlags.POLLIN) != 0)
-                getWaitQueue().fairWakeUp(0,1,0,PollFlags.POLLIN);
+        if((iKey & PollFlags.POLLIN) != 0 && isReadyToReceive()) {
+            getWaitQueue().fairWakeUp(0, 1, 0, PollFlags.POLLIN);
         }
-        /*else {
-            // If there aren't credits to send a reply to the requester,
-            // the replier needs to be woken up when a credits that allows
-            // the operation to be completed arrives. However, having a credit
-            // limitation means slowing down both the replier and the requester.
-
-
-            // TODO - possibly have the link socket have a queue with replies
-                that need to be sent, that way when credits arrive, there is no need
-                to signal a waiter, the messages that can be forwarded, are forwarded
-                by doing a non-blocking send on a loop.
-                Solution:
-                    1. Set up a decent capacity at the REQ socket for efficiency reasons,
-                        that way queuing of messages can be minimized.
-                    2. Create a link socket watched subclass to talk with REQ sockets. This
-                    class should have an attribute that is a message that needs to be dispatched.
-                    3. Make the link socket be queued with POLLIN and POLLOUT.
-                    4. When an attempt to send fails, the message is set on the link socket so that
-                    when the link watcher gets a POLLOUT notification it can check for the existence of
-                    messages to send. (proper synchronization is required so that a POLLOUT notification
-                    is not missed and thus leaving the message(s) queued)
-                    5. DEALER should have a link socket watched subclass too, however, it requires
-                    a queue instead of a single reference since many requests may have replies that
-                    cannot be send due to lack of credits.
-
-            // if a flow control credit has arrived from the requester,
-            // wake up a sending waiter since sending is now possible.
-            if(entry.getPriv() == requester && (iKey & PollFlags.POLLOUT) != 0)
-                getWaitQueue().fairWakeUp(0,1,0,PollFlags.POLLOUT);
-        } */
+        if((iKey & PollFlags.POLLOUT) != 0){
+            BufferedLinkSocket bls = (BufferedLinkSocket) entry.getPriv();
+            bls.trySendBufferedPayloads();
+        }
         return 1;
     };
 
     /** Function that queues a link event watcher. */
     private final PollQueueingFunc linkWatcherQueueFunction = (p, wait, pt) -> {
         if(wait != null){
-            LinkSocketWatched rls = (LinkSocketWatched) pt.getPriv();
-            rls.setWatcherWaitEntry(wait);
-            wait.add(linkWatcherWakeFunction, rls);
+            BufferedLinkSocket bls = (BufferedLinkSocket) pt.getPriv();
+            bls.setWatcherWaitEntry(wait);
+            wait.add(linkWatcherWakeFunction, bls);
         }
     };
 
@@ -99,7 +73,7 @@ public class RepSocket extends Socket {
     protected void customOnLinkEstablished(LinkSocket linkSocket) {
         int events = linkSocket.poll(
                 new PollTable(
-                        PollFlags.POLLIN /* | PollFlags.POLLOUT*/, // only required if the link watcher decides to notify POLLOUT events.
+                        PollFlags.POLLIN | PollFlags.POLLOUT,
                         linkSocket,
                         linkWatcherQueueFunction));
         readPoller.add(linkSocket, PollFlags.POLLIN);
@@ -109,26 +83,19 @@ public class RepSocket extends Socket {
 
     @Override
     protected void customOnLinkClosed(LinkSocket linkSocket) {
-        LinkSocketWatched rls = (LinkSocketWatched) linkSocket;
-        WaitQueueEntry wait = rls.getWatcherWaitEntry();
+        BufferedLinkSocket bls = (BufferedLinkSocket) linkSocket;
+        WaitQueueEntry wait = bls.getWatcherWaitEntry();
         if(wait != null) wait.delete();
-        rls.setWatcherWaitEntry(null);
+        bls.setWatcherWaitEntry(null);
         readPoller.delete(linkSocket);
     }
 
     @Override
     protected SocketMsg customOnIncomingMessage(SocketMsg msg) {
-        if(msg != null && msg.getType() == MsgType.DATA){
-            getLock().readLock().lock();
-            try {
-                if(isReadyToReceive())
-                    getWaitQueue().fairWakeUp(0, 1, 0, PollFlags.POLLIN);
-                return msg;
-            } finally {
-                getLock().readLock().unlock();
-            }
-        }
-        return null;
+        if(msg != null && msg.getType() == MsgType.DATA)
+            return msg;
+        else
+            return null;
     }
 
     @Override
@@ -185,8 +152,8 @@ public class RepSocket extends Socket {
     }
 
     @Override
-    protected LinkSocketWatched createLinkSocketInstance(int peerProtocolId) {
-        return new LinkSocketWatched();
+    protected BufferedLinkSocket createLinkSocketInstance(int peerProtocolId) {
+        return new BufferedLinkSocket();
     }
 
     @Override
@@ -237,10 +204,10 @@ public class RepSocket extends Socket {
         getLock().writeLock().lock();
         try {
             boolean sent = true;
-            LinkSocket req = requester.get();
+            BufferedLinkSocket req = (BufferedLinkSocket) requester.get();
             if(req != null) {
                 try{
-                    sent = req.send(payload, 0L);
+                    sent = req.trySend(payload);
                 }catch (LinkClosedException ignored){
                     // requester reference will be removed below enabling
                     // other requests to be handled

@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package pt.uminho.di.a3m.sockets.request_reply;
+
+//message RRMsg{
+//  repeated int32 routingIds = 1;
+//  bytes payload = 2;
+//}
+
+message RRMsg{
+  repeated RoutingId routingIds = 1;
+  bytes payload = 2;
+}
+
+message RoutingId{
+  oneof routingId {
+    int32 intIdentifier = 1; // clock identifier (integer)
+    SocketIdentifier socketIdentifier = 2; // socket identifier
+  }
+}
+
+message SocketIdentifier{
+  string nodeId = 1;
+  string tagId = 2;
+}

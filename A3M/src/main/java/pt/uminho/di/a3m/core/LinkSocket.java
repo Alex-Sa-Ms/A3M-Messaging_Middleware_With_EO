@@ -34,6 +34,7 @@ public class LinkSocket implements Pollable {
     public final LinkIdentifier getId() {
         return link.getId();
     }
+    public final Integer getClockId(){ return link.getClockId(); }
 
     public final SocketIdentifier getOwnerId() {
         return link.getOwnerId();
