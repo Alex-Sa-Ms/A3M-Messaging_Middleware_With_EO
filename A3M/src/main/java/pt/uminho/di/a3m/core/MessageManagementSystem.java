@@ -103,8 +103,9 @@ public class MessageManagementSystem implements MessageDispatcher{
         if(msg == null) return;
         CoreMessages.Message.Builder builder =
                 CoreMessages.Message.newBuilder()
-                                    .setType(toByteString(msg.getType()))
-                                    .setPayload(toByteString(msg.getPayload()));
+                                    .setType(toByteString(msg.getType()));
+        if(msg.getPayload() != null)
+            builder.setPayload(toByteString(msg.getPayload()));
         if(msg instanceof SocketMsg sMsg){
             builder.setClockId(sMsg.getClockId())
                    .setSrcTagId(sMsg.getSrcTagId())
@@ -225,6 +226,7 @@ public class MessageManagementSystem implements MessageDispatcher{
                                     Socket socket = sm.getSocket(msg.getDestTagId());
                                     // if socket does not exist, then send error "socket not found"
                                     if (socket == null) {
+                                        // TODO - maybe only send socket not found for link messages?
                                         dispatch(createSocketNotFoundMsg(
                                                 new SocketIdentifier(eom.getIdentifier(), msg.getDestTagId()),
                                                 new SocketIdentifier(cMsg.nodeId, msg.getSrcTagId())));

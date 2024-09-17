@@ -5,7 +5,6 @@ import pt.uminho.di.a3m.core.exceptions.LinkClosedException;
 import pt.uminho.di.a3m.core.messaging.MsgType;
 import pt.uminho.di.a3m.core.messaging.Payload;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
-import pt.uminho.di.a3m.core.options.ImmutableOptionHandler;
 import pt.uminho.di.a3m.poller.*;
 import pt.uminho.di.a3m.sockets.SocketsTable;
 import pt.uminho.di.a3m.sockets.auxiliary.LinkSocketWatched;
@@ -99,7 +98,7 @@ public class ReqSocket extends Socket {
      * if the socket identifier provided as parameter matches.
      * @param sid socket identifier
      */
-    private void notifyIfReplierClosed(SocketIdentifier sid){
+    private void handleClosedReplier(SocketIdentifier sid){
         getLock().readLock().lock();
         try {
             if(reply.get() == null && Objects.equals(replier.get(),sid)) {
@@ -118,7 +117,7 @@ public class ReqSocket extends Socket {
         if(wait != null) wait.delete();
         rls.setWatcherWaitEntry(null);
         writePoller.delete(rls.getId());
-        notifyIfReplierClosed(linkSocket.getPeerId());
+        handleClosedReplier(linkSocket.getPeerId());
     }
 
     @Override
@@ -153,8 +152,23 @@ public class ReqSocket extends Socket {
     }
 
     /**
+     * Closes link with peer and removes link socket from write poller
+     * to ensure messages are not sent when the link is unlinking.
+     * @param peerId peer identifier
+     */
+    private void _unlink(SocketIdentifier peerId){
+        LinkSocket linkSocket = getLinkSocket(peerId);
+        if(linkSocket != null){
+            writePoller.delete(linkSocket);
+            super.unlink(peerId);
+        }
+    }
+
+    /**
      * Closes link with peer if a message is not expected from it.
      * @param peerId peer's socket identifier
+     * @throws IllegalStateException if trying to unlink when a reply has not
+     * yet been received from the socket in question.
      */
     @Override
     public void unlink(SocketIdentifier peerId) {
@@ -163,7 +177,7 @@ public class ReqSocket extends Socket {
             if(peerId != null && peerId.equals(replier.get()))
                 throw new IllegalStateException("Answer from the replier has not yet been received. " +
                         "If unlinking is still desirable, use forceUnlink().");
-            super.unlink(peerId);
+            _unlink(peerId);
         } finally {
             getLock().writeLock().unlock();
         }
@@ -175,7 +189,14 @@ public class ReqSocket extends Socket {
      * @param peerId peer's socket identifier
      */
     public void forceUnlink(SocketIdentifier peerId) {
-        super.unlink(peerId);
+        getLock().writeLock().lock();
+        try {
+            if(peerId != null && peerId.equals(replier.get()))
+                replier.set(null);
+            _unlink(peerId);
+        } finally {
+            getLock().writeLock().unlock();
+        }
     }
 
     @Override

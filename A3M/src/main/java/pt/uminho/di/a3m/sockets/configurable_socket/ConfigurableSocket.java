@@ -172,6 +172,16 @@ public class ConfigurableSocket extends Socket {
         if(writePoller != null) writePoller.delete(lsw.getId());
     }
 
+    @Override
+    public void unlink(SocketIdentifier peerId) {
+        LinkSocket linkSocket = getLinkSocket(peerId);
+        if(linkSocket != null){
+            if(writePoller != null) writePoller.delete(linkSocket);
+            if(readPoller != null) readPoller.delete(linkSocket);
+            super.unlink(peerId);
+        }
+    }
+
     /**
      * If a subclass decides to override this method,
      * its implementation must call this method for the

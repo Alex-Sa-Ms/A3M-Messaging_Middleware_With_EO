@@ -1,6 +1,5 @@
 package pt.uminho.di.a3m.sockets.request_reply;
 
-import com.google.protobuf.ByteString;
 import pt.uminho.di.a3m.auxiliary.Timeout;
 import pt.uminho.di.a3m.core.LinkSocket;
 import pt.uminho.di.a3m.core.Protocol;
@@ -17,9 +16,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-// TODO - backtrace can be a mixture of integers and socket identifiers.
-//     This allows for more customized pathing but also for efficiency when such
-//     customization is not required.
 public class RouterSocket extends ConfigurableSocket {
     public static final Protocol protocol = SocketsTable.ROUTER_PROTOCOL;
     public static final Set<Protocol> compatProtocols = Set.of(SocketsTable.REQ_PROTOCOL, SocketsTable.DEALER_PROTOCOL, SocketsTable.ROUTER_PROTOCOL);
@@ -48,8 +44,17 @@ public class RouterSocket extends ConfigurableSocket {
 
     @Override
     protected void customOnLinkClosed(LinkSocket linkSocket) {
-        super.customOnLinkClosed(linkSocket);
         linkSockets.remove(linkSocket.getClockId());
+        super.customOnLinkClosed(linkSocket);
+    }
+
+    @Override
+    public void unlink(SocketIdentifier peerId) {
+        LinkSocket linkSocket = getLinkSocket(peerId);
+        if(linkSocket != null){
+            linkSockets.remove(linkSocket.getClockId());
+            super.unlink(peerId);
+        }
     }
 
     /**
@@ -187,67 +192,4 @@ public class RouterSocket extends ConfigurableSocket {
     protected boolean trySending(Payload payload) {
         throw new UnsupportedOperationException();
     }
-
-/*
-    public static class Client{
-        public static void main(String[] args) {
-            DealerSocket clientSocket = new DealerSocket(new SocketIdentifier("Client", "Requester"));
-            clientSocket.link("Broker", "Router");
-            clientSocket.send("Request".getBytes());
-        }
-    }
-
-    public static class Broker{
-        public static void main(String[] args) {
-            RouterSocket routerSocket = new RouterSocket(new SocketIdentifier("Broker","Router"));
-            byte[] msg = routerSocket.receive();
-            DealerSocket dealerSocket = new DealerSocket(new SocketIdentifier("Broker","Dispatcher"));
-            dealerSocket.send(msg);
-            msg = dealerSocket.receive();
-            routerSocket.send(msg);
-        }
-    }
-
-    public static class Service{
-        public static void main(String[] args) {
-            RouterSocket routerSocket = new RouterSocket(new SocketIdentifier("Broker","Router"));
-            //byte[] msg = routerSocket.receive();
-            //RRMsg rrMsg = new RRMsg(msg);
-            //handlePayload(rrMsg.getPayload());
-
-            // OR
-
-            RRMsg rrMsg = RRMsg.receive(routerSocket);
-            byte[] reply = handlePayload(rrMsg.getPayload());
-            rrMsg.setPayload(reply);
-            rrMsg.send(routerSocket);
-        }
-    }
-
-
-
-    public static class Dealer{
-        public static void main(String[] args) {
-            DealerSocket dealerSocket = new DealerSocket(new SocketIdentifier("Dealer",""));
-
-            for (SocketIdentifier w : workers)
-                dealerSocket.link(w);
-
-            dealerSocket.send("Request".getBytes());
-            byte[] reply = dealerSocket.receive();
-
-            System.out.println(StandardCharsets.UTF_8.decode(ByteBuffer.wrap(reply)));
-        }
-    }
-
-    public static class Worker{
-        public static void main(String[] args) {
-            DealerSocket dealerSocket = new DealerSocket(new SocketIdentifier("WorkerX",""));
-            byte[] msg = dealerSocket.receive();
-            msg = handleRequest(msg);
-            dealerSocket.send(msg);
-        }
-    }
-
-     */
 }

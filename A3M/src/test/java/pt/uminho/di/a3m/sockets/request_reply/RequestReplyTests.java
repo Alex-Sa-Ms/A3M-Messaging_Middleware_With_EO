@@ -5,6 +5,9 @@ import org.junit.jupiter.api.Test;
 import pt.uminho.di.a3m.core.A3MMiddleware;
 import pt.uminho.di.a3m.core.SocketProducer;
 import pt.uminho.di.a3m.core.SocketTestingUtilities;
+import pt.uminho.di.a3m.core.exceptions.LinkClosedException;
+import pt.uminho.di.a3m.poller.PollFlags;
+import pt.uminho.di.a3m.poller.Poller;
 import pt.uminho.di.a3m.sockets.push_pull.PullSocket;
 import pt.uminho.di.a3m.sockets.push_pull.PushSocket;
 
@@ -12,6 +15,8 @@ import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class RequestReplyTests {
     A3MMiddleware middleware;
@@ -178,6 +183,132 @@ public class RequestReplyTests {
         requester.join();
     }
 
+    /** Requester closes before the request is accepted. */
+    @Test
+    void requesterClosesBeforeReceivingReply1() throws InterruptedException {
+        ReqSocket reqSocket = middleware.startSocket("req",ReqSocket.protocol.id(),ReqSocket.class);
+        RepSocket repSocket = middleware.startSocket("rep",RepSocket.protocol.id(),RepSocket.class);
+        reqSocket.link(repSocket.getId());
+        reqSocket.send("Request".getBytes());
+        // check that "normal" unlinking is not
+        // allowed before a reply is received
+        try{
+            reqSocket.unlink(repSocket.getId());
+            assert false;
+        }catch (IllegalStateException ignored){}
+        // force unlink
+        reqSocket.forceUnlink(repSocket.getId());
+        // check that sending a new request is allowed
+        assert !reqSocket.send("Request2".getBytes(),0L);
+        // check that receiving is not allowed
+        try{
+            reqSocket.receive();
+            assert false;
+        }catch (IllegalStateException ignored){}
+    }
+
+    /** Requester closes after the request is accepted. */
+    @Test
+    void requesterClosesBeforeReceivingReply2() throws InterruptedException {
+        ReqSocket reqSocket = middleware.startSocket("req",ReqSocket.protocol.id(),ReqSocket.class);
+        RepSocket repSocket = middleware.startSocket("rep",RepSocket.protocol.id(),RepSocket.class);
+        reqSocket.link(repSocket.getId());
+        reqSocket.send("Request".getBytes());
+        repSocket.receive(); // wait for request
+        // force unlink
+        reqSocket.forceUnlink(repSocket.getId());
+        // wait unlink
+        while (reqSocket.isLinked(repSocket.getId()))
+            Thread.onSpinWait();
+        assert !repSocket.isLinked(reqSocket.getId());
+        // check that the reply is silently discarded
+        try {
+            repSocket.send("Reply".getBytes());
+        } catch (IllegalStateException ignored) {
+            // exception should not be thrown
+            assert false;
+        }
+        // check that receiving does not throw exception
+        assert repSocket.receive(0L) == null;
+    }
+
+    /**
+     * Replier closes link before accepting a request.
+     */
+    @Test
+    void replierClosesLinkBeforeReplying1() throws InterruptedException {
+        ReqSocket reqSocket = middleware.startSocket("req",ReqSocket.protocol.id(),ReqSocket.class);
+        RepSocket repSocket = middleware.startSocket("rep",RepSocket.protocol.id(),RepSocket.class);
+        reqSocket.link(repSocket.getId());
+        reqSocket.send("Request".getBytes());
+
+        Thread t = new Thread(() -> {
+            try {
+                // wait for rep socket to be able to read
+                int events = repSocket.poll(PollFlags.POLLIN, null);
+                assert (events & PollFlags.POLLIN) != 0;
+                repSocket.unlink(reqSocket.getId());
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        });
+        t.start();
+
+        try {
+            reqSocket.receive();
+            // should not get here, since a link closed exception should be thrown.
+            assert false;
+        } catch (LinkClosedException ignored) {}
+
+        t.join();
+    }
+
+    /**
+     * Replier forces closure of link after accepting request.
+     */
+    @Test
+    void replierClosesLinkBeforeReplying2() throws InterruptedException {
+        ReqSocket reqSocket = middleware.startSocket("req",ReqSocket.protocol.id(),ReqSocket.class);
+        RepSocket repSocket = middleware.startSocket("rep",RepSocket.protocol.id(),RepSocket.class);
+        reqSocket.link(repSocket.getId());
+        reqSocket.send("Request".getBytes());
+
+        Thread t = new Thread(() -> {
+            try {
+                // accept request
+                byte[] msg = repSocket.receive();
+                assert msg != null;
+                // since a request has been accepted, check that
+                // the "normal" unlink() throws illegal state exception
+                // to inform that unlinking is being invoked before replying
+                // to the accepted request.
+                try {
+                    repSocket.unlink(reqSocket.getId());
+                    assert false; // should not get here due to the exception
+                } catch (IllegalStateException ignored) {}
+                // forces unlink
+                repSocket.forceUnlink(reqSocket.getId());
+                // check that sending throws exception after the unlinking operation
+                try {
+                    repSocket.send("Reply".getBytes());
+                    assert false; // should not get here due to the exception
+                } catch (IllegalStateException ignored) {}
+                // check that receiving does not throw exception
+                assert repSocket.receive(0L) == null;
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }); t.start();
+
+        try {
+            reqSocket.receive();
+            // should not get here, since a link closed exception should be thrown.
+            assert false;
+        } catch (LinkClosedException ignored) {}
+
+        t.join();
+    }
+
     @Test
     void isReplySentToLastRequester() throws InterruptedException {
         ReqSocket[] reqSockets = new ReqSocket[2];
@@ -255,6 +386,69 @@ public class RequestReplyTests {
         // check that the message is finally received
         msg = reqSocket.receive();
         assert msg != null;
+    }
+
+    @Test
+    void handlingRoutingIdentifiers() throws InterruptedException {
+        DealerSocket dealer = middleware.startSocket("dealer",DealerSocket.protocol.id(),DealerSocket.class);
+        RouterSocket router = middleware.startSocket("router",RouterSocket.protocol.id(),RouterSocket.class);
+        dealer.link(router.getId());
+
+        byte[] initialMsg = "Request".getBytes();
+        dealer.send(initialMsg);
+        RRMsg rrMsg = router.recv();
+
+        // poll routing identifier and check that the conversion
+        // of integer identifier for an adjacent socket is correct
+        Object routingId = rrMsg.pollRoutingIdentifier();
+        assert routingId instanceof Integer intId &&
+                Objects.equals(router.getSocketIdentifier(intId), dealer.getId());
+
+        // add the dealer's routing identifier back to the message
+        // but now using a socket identifier instead of an integer
+        rrMsg.addRoutingIdentifier(dealer.getId());
+
+        // send the message back
+        router.send(rrMsg);
+        byte[] msg = dealer.receive();
+        // assert the message receive matches the message sent initially
+        assert Arrays.equals(initialMsg, msg);
+    }
+
+    @Test
+    void destinationUnlinksBeforeReplyIsSent() throws InterruptedException {
+        DealerSocket dealer = middleware.startSocket("dealer",DealerSocket.protocol.id(),DealerSocket.class);
+        RouterSocket router = middleware.startSocket("router",RouterSocket.protocol.id(),RouterSocket.class);
+        dealer.link(router.getId());
+        // send message to router
+        byte[] initialMsg = "Request".getBytes();
+        dealer.send(initialMsg);
+        // receive message from dealer
+        RRMsg rrMsg = router.recv();
+        // destination closes the link
+        dealer.unlink(router.getId());
+        while (dealer.isLinked(router.getId()))
+            Thread.onSpinWait();
+        // check that the message is silently discarded
+        router.send(rrMsg);
+        assert dealer.receive(20L) == null;
+    }
+
+    @Test
+    void closeLinkWithDestinationBeforeReplyIsSent() throws InterruptedException {
+        DealerSocket dealer = middleware.startSocket("dealer",DealerSocket.protocol.id(),DealerSocket.class);
+        RouterSocket router = middleware.startSocket("router",RouterSocket.protocol.id(),RouterSocket.class);
+        dealer.link(router.getId());
+        // send message to router
+        byte[] initialMsg = "Request".getBytes();
+        dealer.send(initialMsg);
+        // receive message from dealer
+        RRMsg rrMsg = router.recv();
+        // close link with destination (dealer)
+        router.unlink(dealer.getId());
+        // check that the message is silently discarded
+        router.send(rrMsg);
+        assert dealer.receive(20L) == null;
     }
 
     @Test

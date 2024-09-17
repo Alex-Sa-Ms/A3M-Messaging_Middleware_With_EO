@@ -111,6 +111,9 @@ public class RepSocket extends Socket {
     /**
      * Closes link with peer if a message is not expected to be sent to it.
      * @param peerId peer's socket identifier
+     * @throws IllegalStateException if attempting to unlink when a request
+     * has been accepted for the socket in question and a reply has not yet
+     * been sent.
      */
     @Override
     public void unlink(SocketIdentifier peerId) {
@@ -209,7 +212,8 @@ public class RepSocket extends Socket {
                 try{
                     sent = req.trySend(payload);
                 }catch (LinkClosedException ignored){
-                    // requester reference will be removed below enabling
+                    // requester reference will be removed below,
+                    // since "sent == true", enabling
                     // other requests to be handled
                 }
 
@@ -224,6 +228,15 @@ public class RepSocket extends Socket {
         } finally {
             getLock().writeLock().unlock();
         }
+    }
+
+    /**
+     * @throws IllegalStateException if trying to send a reply before accepting a request.
+     * @see Socket#send(byte[], Long, boolean)
+     */
+    @Override
+    public boolean send(byte[] payload, Long timeout, boolean notifyIfNone) throws InterruptedException {
+        return super.send(payload, timeout, notifyIfNone);
     }
 
     /**
