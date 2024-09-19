@@ -640,7 +640,7 @@ public abstract class Socket {
         }
         // If socket is in COOKED mode, then pass the message to be processed by the custom socket.
         if(cookedMode){
-            SocketMsg rMsg = customOnIncomingMessage(msg);
+            SocketMsg rMsg = customOnIncomingMessage(linkSocket, msg);
             if(msg.getType() == MsgType.DATA){
                if(rMsg != null && rMsg.getType() == MsgType.DATA)
                    linkSocket.getLink().queueIncomingMessage(rMsg);
@@ -860,12 +860,13 @@ public abstract class Socket {
      * When the message passed as parameter is of data type, if a socket message is to
      * be returned, it must have its type as data as well. Only data messages are queued
      * in the appropriate link's queue. Custom control messages returned are discarded.
+     * @param linkSocket link socket associated with the message
      * @param msg data or control message to be handled
      * @return null if message does not require further handling, or a socket message
      * to be queued in the appropriate link's queue. The data message can be returned as received,
      * if it should be queued as it was received.
      */
-    protected abstract SocketMsg customOnIncomingMessage(SocketMsg msg);
+    protected abstract SocketMsg customOnIncomingMessage(LinkSocket linkSocket, SocketMsg msg);
 
     /**
      * Creates an incoming queue. Custom sockets may override this method to

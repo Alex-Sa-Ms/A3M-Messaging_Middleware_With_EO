@@ -48,17 +48,10 @@ public class SubSocket extends ConfigurableSocket {
         catch (InterruptedException | LinkClosedException ignored) {}
     }
 
-    // TODO - Send unsubscribe messages before unlinking? How to prevent unlinking before
-    //  all topics are unsubscribed? Request Acknowledgment message? Or use receipts for this?
-    //@Override
-    //public void unlink(SocketIdentifier peerId) {
-    //    super.unlink(peerId);
-    //}
-
     /**
      * Receives publish-subscribe message in byte array format. Can be parsed using {@link PSMsg#parseFrom(byte[])}.
      * @see ConfigurableSocket#send(byte[], Long, boolean) ConfigurableSocket#send(byte[], Long, boolean) for
-     * all information regarding the semantics of the receive() method.
+     * all information regarding the semantics of the 'receive()' method.
      */
     @Override
     public byte[] receive(Long timeout, boolean notifyIfNone) throws InterruptedException {

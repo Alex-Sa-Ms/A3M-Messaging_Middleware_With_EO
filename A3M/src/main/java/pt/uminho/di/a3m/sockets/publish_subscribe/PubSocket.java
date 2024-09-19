@@ -83,7 +83,7 @@ public class PubSocket extends ConfigurableSocket {
     }
 
     @Override
-    protected SocketMsg customOnIncomingMessage(SocketMsg msg) {
+    protected SocketMsg customOnIncomingMessage(LinkSocket linkSocket, SocketMsg msg) {
         if(msg == null) return null;
         SubscriptionsPayload subPayload =
                 SubscriptionsPayload.parseFrom(
@@ -92,18 +92,16 @@ public class PubSocket extends ConfigurableSocket {
         // if message is a valid subscription message
         if(subPayload != null){
             if(subPayload.getType() == SubscriptionsPayload.SUBSCRIBE)
-                handleSubscribeMsg(msg.getSrcId(), subPayload);
+                handleSubscribeMsg(linkSocket, subPayload);
             else
-                handleUnsubscribeMsg(msg.getSrcId(), subPayload);
+                handleUnsubscribeMsg(linkSocket, subPayload);
         }
         return null;
     }
 
-    private void handleSubscribeMsg(SocketIdentifier peerId, SubscriptionsPayload subPayload) {
+    private void handleSubscribeMsg(LinkSocket linkSocket, SubscriptionsPayload subPayload) {
         getLock().writeLock().lock();
         try {
-            LinkSocket linkSocket = getLinkSocket(peerId);
-
             Map.Entry<String, Subscription> entry;
             Subscription subscription;
             for (String topic : subPayload.getTopics()){
@@ -123,10 +121,10 @@ public class PubSocket extends ConfigurableSocket {
         }
     }
 
-    private void handleUnsubscribeMsg(SocketIdentifier peerId, SubscriptionsPayload subPayload) {
+    // TODO - remove subscription if the last subscriber was removed
+    private void handleUnsubscribeMsg(LinkSocket linkSocket, SubscriptionsPayload subPayload) {
         getLock().writeLock().lock();
         try {
-            LinkSocket linkSocket = getLinkSocket(peerId);
             Map.Entry<String, Subscription> entry;
             for (String topic : subPayload.getTopics()){
                 // if a subscription exists for the topic, then

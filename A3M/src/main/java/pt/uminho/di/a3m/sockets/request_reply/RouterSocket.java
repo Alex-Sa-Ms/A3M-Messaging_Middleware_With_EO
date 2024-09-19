@@ -66,7 +66,7 @@ public class RouterSocket extends ConfigurableSocket {
      * message is null or if the message is not of type DATA.
      */
     @Override
-    protected SocketMsg customOnIncomingMessage(SocketMsg msg) {
+    protected SocketMsg customOnIncomingMessage(LinkSocket linkSocket, SocketMsg msg) {
         if(msg != null && msg.getType() == MsgType.DATA){
             RRMsg rrMsg;
             try {
@@ -77,9 +77,7 @@ public class RouterSocket extends ConfigurableSocket {
                 // must be created.
                 rrMsg = new RRMsg(msg.getPayload());
             }
-            // get clock identifier associated with link established
-            // with the peer or discard message if the link has been closed
-            LinkSocket linkSocket = getLinkSocket(msg.getSrcId());
+            // get clock identifier associated with link
             if (linkSocket == null) return null;
             int clockId = linkSocket.getClockId();
             // add the routing identifier to the message

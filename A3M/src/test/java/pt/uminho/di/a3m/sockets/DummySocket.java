@@ -97,7 +97,7 @@ public class DummySocket extends Socket {
     }
 
     @Override
-    protected SocketMsg customOnIncomingMessage(SocketMsg msg) {
+    protected SocketMsg customOnIncomingMessage(LinkSocket linkSocket, SocketMsg msg) {
         return msg;
     }
 

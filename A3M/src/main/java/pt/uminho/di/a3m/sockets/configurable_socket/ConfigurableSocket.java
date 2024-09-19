@@ -186,10 +186,11 @@ public class ConfigurableSocket extends Socket {
      * If a subclass decides to override this method,
      * its implementation must call this method for the
      * data messages with order to be parsed.
+     * @param linkSocket link socket associated with the message
      * @param msg incoming message to be handled
      */
     @Override
-    protected SocketMsg customOnIncomingMessage(SocketMsg msg) {
+    protected SocketMsg customOnIncomingMessage(LinkSocket linkSocket, SocketMsg msg) {
         // Custom control messages are ignored
         if(msg == null || msg.getType() != MsgType.DATA) return null;
         // All data messages should be queued in the appropriate link's queue.

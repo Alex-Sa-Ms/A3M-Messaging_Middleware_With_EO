@@ -121,7 +121,7 @@ public class ReqSocket extends Socket {
     }
 
     @Override
-    protected SocketMsg customOnIncomingMessage(SocketMsg msg) {
+    protected SocketMsg customOnIncomingMessage(LinkSocket linkSocket, SocketMsg msg) {
         if(msg != null && msg.getType() == MsgType.DATA){
             getLock().readLock().lock();
             boolean notify;
