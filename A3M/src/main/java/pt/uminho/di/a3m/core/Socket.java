@@ -2,7 +2,6 @@ package pt.uminho.di.a3m.core;
 
 import pt.uminho.di.a3m.auxiliary.Timeout;
 import pt.uminho.di.a3m.core.auxiliary.ParkStateSocket;
-import pt.uminho.di.a3m.core.exceptions.LinkClosedException;
 import pt.uminho.di.a3m.core.exceptions.NoLinksException;
 import pt.uminho.di.a3m.core.exceptions.SocketClosedException;
 import pt.uminho.di.a3m.core.messaging.Msg;
@@ -13,7 +12,6 @@ import pt.uminho.di.a3m.core.messaging.payloads.BytePayload;
 import pt.uminho.di.a3m.core.options.GenericOptionHandler;
 import pt.uminho.di.a3m.core.options.OptionHandler;
 import pt.uminho.di.a3m.poller.*;
-import pt.uminho.di.a3m.sockets.auxiliary.LinkSocketWatched;
 import pt.uminho.di.a3m.waitqueue.ParkState;
 import pt.uminho.di.a3m.waitqueue.WaitQueue;
 import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;
@@ -374,6 +372,15 @@ public abstract class Socket {
         }
     }
 
+    protected final List<LinkSocket> getLinkSockets(){
+        lock.readLock().lock();
+        try {
+            return new ArrayList<>(linkSockets.values());
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
     public final boolean isLinked(SocketIdentifier peerId){
         lock.readLock().lock();
         try {
@@ -402,18 +409,54 @@ public abstract class Socket {
      * @param peerId peer's socket identifier
      * @param timeout amount of time willing to be waited for the establishment.
      *                A null value means waiting forever.
-     * @return events mask. If 0 is returned, then waiting operation expired.
+     * @return Event mask. If 0 is returned, then waiting operation expired.
      * If POLLHUP is received, the link either does not exist or was closed.
+     * If POLLIN and POLLOUT are received, then the link is established. Althought,
+     * POLLIN and POLLOUT are received, that only means the link was established. It
+     * must not be considered as an accurate polling of the sending/receiving capacity.
      * @throws InterruptedException if an interrupt signal was detected while waiting.
      */
     public final int waitForLinkEstablishment(SocketIdentifier peerId, Long timeout) throws InterruptedException {
+        Long deadline = Timeout.calculateEndTime(timeout);
         // if link socket exists, then the link is already registered.
         if(isLinked(peerId)) return 0;
         else {
             Link link = linkManager.getLink(peerId);
             if(link != null) {
-                // subscribe to all events and wait
-                return Poller.poll(link,PollFlags.POLLINOUT_BITS,timeout);
+                // do non-blocking verification if the time has expired
+                boolean timedOut = Timeout.hasTimedOut(deadline);
+                if (timedOut) {
+                    return switch (link.getState()) {
+                        case ESTABLISHED -> PollFlags.POLLINOUT_BITS;
+                        case CLOSED -> PollFlags.POLLHUP;
+                        default -> 0;
+                    };
+                }
+                // add the thread as a waiter of the link
+                ParkState ps = new ParkState(true);
+                AtomicReference<WaitQueueEntry> wait = new AtomicReference<>(null);
+                link.poll(new PollTable(0, null, (p, waitEntry, pt) -> {
+                    if (waitEntry != null) {
+                        wait.set(waitEntry);
+                        waitEntry.add(WaitQueueEntry::defaultWakeFunction, ps);
+                    }
+                }));
+                // if adding thread as waiter was not possible,
+                // then the link must have been closed, so return POLLHUP
+                if (wait.get() == null)
+                    return PollFlags.POLLHUP;
+                // Wait for wake-up call, for the deadline to be reached or
+                // the thread to be interrupted.
+                try {
+                    WaitQueueEntry.parkStateWaitUntilFunction(deadline, ps, true);
+                    int events = 0;
+                    if (link.getState() == LinkState.ESTABLISHED)
+                        events |= PollFlags.POLLINOUT_BITS;
+                    return events;
+                } finally {
+                    // ensure the wait queue entry is deleted
+                    wait.get().delete();
+                }
             }else {
                 // if link does not exist, return POLLHUP immediately
                 return PollFlags.POLLHUP;

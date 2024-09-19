@@ -41,7 +41,6 @@ import java.util.concurrent.atomic.AtomicReference;
  *  <p>Wait queue lock is the lock used to ensure consistency when queuing and waking up waiters.</p>
  */
 public class Link implements Pollable {
-
     private final LinkIdentifier id;
     private LinkState state = LinkState.LINKING;
     private Integer peerProtocolId = null;
@@ -684,7 +683,7 @@ public class Link implements Pollable {
                 // do non-fair wake up, to wake up exclusive threads
                 // and let the exclusive waiter that won't be able to
                 // send a message remain in its position.
-                waitQ.wakeUp(0, 1, 0, PollFlags.POLLOUT);
+                waitQ.wakeUp(0, 1, 0, 0);
         }
     }
 
