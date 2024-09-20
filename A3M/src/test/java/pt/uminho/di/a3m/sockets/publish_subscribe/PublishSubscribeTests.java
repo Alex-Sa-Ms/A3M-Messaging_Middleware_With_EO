@@ -1,6 +1,5 @@
 package pt.uminho.di.a3m.sockets.publish_subscribe;
 
-import org.apache.commons.collections4.trie.PatriciaTrie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import pt.uminho.di.a3m.core.A3MMiddleware;
