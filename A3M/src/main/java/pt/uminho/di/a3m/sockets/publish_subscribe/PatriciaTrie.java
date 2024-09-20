@@ -1,6 +1,7 @@
 package pt.uminho.di.a3m.sockets.publish_subscribe;
 
 import java.util.*;
+import java.util.function.Function;
 
 /**
  * This is a simplification of the patricia trie use in <b>nanomsg</b> (<a href="https://250bpm.com/blog:19/index.html">ref</a>).
@@ -209,12 +210,62 @@ public class PatriciaTrie<V> {
      * @param key key of the node to be searched
      * @return value associated with the given key (which may be null).
      * Or null, if there isn't a node associated with the key.
+     * @throws IllegalArgumentException if the key is null
      */
     public V get(String key){
+        if(key == null)
+            throw new IllegalArgumentException("Key is null");
         Map.Entry<String,Node<V>> entry = selectEntry(key);
         V value = null;
         if(entry.getKey().equals(key))
             value = entry.getValue().getValue();
+        return value;
+    }
+
+    private Map.Entry<String,Node<V>> getEntry(String key){
+        Map.Entry<String,Node<V>> selectEntry = selectEntry(key);
+        if(key.equals(selectEntry.getKey()))
+            return selectEntry;
+        return null;
+    }
+
+    /**
+     * If the given key is not already associated with a value (or is mapped to null),
+     * attempts to compute its value using the given mapping function and enters it
+     * into this patricia trie unless the computed value is null.
+     * @param key key with which the specified value is to be associated mappingFunction
+     * @param mappingFunction the mapping function to compute a value
+     * @return the current (existing or computed) value associated with the specified key,
+     * or null if the computed value is null
+     * @throws IllegalArgumentException if the key is null
+     */
+    public V computeIfAbsent(String key, Function<String, V> mappingFunction){
+        if(key == null)
+            throw new IllegalArgumentException("Key is null");
+
+        V value = null;
+
+        Map.Entry<String,Node<V>> selectEntry = selectEntry(key);
+        String selectKey = selectEntry.getKey();
+        Node<V> selectNode = selectEntry.getValue();
+        // if node associated with the given key exists,
+        // then check if a value should be computed
+        if(key.equals(selectKey)) {
+            value = selectNode.getValue();
+            if(value == null) {
+                value = mappingFunction.apply(key);
+                selectNode.setValue(value);
+            }
+        }
+        // Else, the returned node is a parent node,
+        // so, a node must be created if the computed
+        // value is not null.
+        else {
+            value = mappingFunction.apply(key);
+            if(value != null)
+                _put(key, value, selectKey, selectNode);
+        }
+
         return value;
     }
 
@@ -227,6 +278,7 @@ public class PatriciaTrie<V> {
      * @return if a node associated with the key was already present,
      * then returns the value previously associated with the key (which may be null).
      * Or null, if a node was created.
+     * @throws IllegalArgumentException if the key is null
      */
     public V put(String key, V value){
         if(key == null)
@@ -245,58 +297,60 @@ public class PatriciaTrie<V> {
         }
         // Else, the returned node is a parent node,
         // so, a node must be created.
-        else{
-            // get key's suffix (i.e. additional part in comparison with the parent node)
-            String suffix = key.substring(selectKey.length());
-            // check if the parent node already has a child associated with
-            // the suffix's first character
-            Node<V> next = selectNode.getChild(suffix.charAt(0));
-            Node<V> node;
-            // if a child does not exist, then simply create
-            // one having the suffix as key
-            if(next == null) {
-                node = new Node<>(suffix, value);
-                selectNode.putChild(suffix.charAt(0), node);
-            }
-            // else, if a child does exist, then an
-            // intermediate node needs to be created.
-            else{
-                // get the longest common prefix between
-                // the child node and the suffix.
-                String commonPrefix = getLongestCommonPrefix(suffix, next.getKey());
-                // If suffix equals the common prefix, then the suffix
-                // is used to create an intermediate node which will be
-                // the new parent of the "next" node
-                if(commonPrefix.equals(suffix)) {
-                    // Create intermediate node and set it as a child
-                    // of the select node (parent node)
-                    node = new Node<>(suffix, value);
-                    selectNode.putChild(suffix.charAt(0), node);
-                    // remove the common prefix from the "next" node's
-                    // as it will be a child of a node holding such prefix
-                    next.setKey(next.getKey().substring(suffix.length()));
-                    // set "next" as the child of the new node
-                    node.putChild(next.key.charAt(0), next);
-                }
-                // If the common prefix does not equal to the suffix,
-                // then an intermediate node needs to be created to
-                // serve as parent of both nodes
-                else{
-                    // create new parent node
-                    node = new Node<>(commonPrefix, null);
-                    selectNode.putChild(node.getChar(), node);
-                    // remove the common prefix from the "next" node's
-                    // key and the suffix, as they will be children
-                    // of a node having the common prefix as key
-                    next.setKey(next.getKey().substring(commonPrefix.length()));
-                    node.putChild(next.getKey().charAt(0), next);
-                    suffix = suffix.substring(commonPrefix.length());
-                    node.putChild(suffix.charAt(0), new Node<>(suffix, value));
-                }
-            }
-        }
+        else _put(key, value, selectKey, selectNode);
 
         return prevValue;
+    }
+
+    private static <V> void _put(String key, V value, String selectKey, Node<V> selectNode) {
+        // get key's suffix (i.e. additional part in comparison with the parent node)
+        String suffix = key.substring(selectKey.length());
+        // check if the parent node already has a child associated with
+        // the suffix's first character
+        Node<V> next = selectNode.getChild(suffix.charAt(0));
+        Node<V> node;
+        // if a child does not exist, then simply create
+        // one having the suffix as key
+        if(next == null) {
+            node = new Node<>(suffix, value);
+            selectNode.putChild(suffix.charAt(0), node);
+        }
+        // else, if a child does exist, then an
+        // intermediate node needs to be created.
+        else{
+            // get the longest common prefix between
+            // the child node and the suffix.
+            String commonPrefix = getLongestCommonPrefix(suffix, next.getKey());
+            // If suffix equals the common prefix, then the suffix
+            // is used to create an intermediate node which will be
+            // the new parent of the "next" node
+            if(commonPrefix.equals(suffix)) {
+                // Create intermediate node and set it as a child
+                // of the select node (parent node)
+                node = new Node<>(suffix, value);
+                selectNode.putChild(suffix.charAt(0), node);
+                // remove the common prefix from the "next" node's
+                // as it will be a child of a node holding such prefix
+                next.setKey(next.getKey().substring(suffix.length()));
+                // set "next" as the child of the new node
+                node.putChild(next.key.charAt(0), next);
+            }
+            // If the common prefix does not equal to the suffix,
+            // then an intermediate node needs to be created to
+            // serve as parent of both nodes
+            else{
+                // create new parent node
+                node = new Node<>(commonPrefix, null);
+                selectNode.putChild(node.getChar(), node);
+                // remove the common prefix from the "next" node's
+                // key and the suffix, as they will be children
+                // of a node having the common prefix as key
+                next.setKey(next.getKey().substring(commonPrefix.length()));
+                node.putChild(next.getKey().charAt(0), next);
+                suffix = suffix.substring(commonPrefix.length());
+                node.putChild(suffix.charAt(0), new Node<>(suffix, value));
+            }
+        }
     }
 
     /**
@@ -305,8 +359,12 @@ public class PatriciaTrie<V> {
      * @param key key of the node to be removed (if possible)
      * @return value previously associated with the key (which may be null). Or,
      * null if a node was not found to be associated with the key.
+     * @throws IllegalArgumentException if the key is null
      */
     public V remove(String key){
+        if(key == null)
+            throw new IllegalArgumentException("Key is null.");
+
         V prevValue = null;
         Map.Entry<String,Node<V>> parentEntry = selectParentEntry(key);
         if(parentEntry == null) {
@@ -344,10 +402,15 @@ public class PatriciaTrie<V> {
      * @param key key for which prefixes should be searched.
      * @return list of all keys (and their respective values) that
      * are prefixes of the key passed as argument.
+     * @throws IllegalArgumentException if the key is null
      */
     public List<Map.Entry<String,V>> prefixesList(String key){
+        if(key == null)
+            throw new IllegalArgumentException("Key is null.");
+
         SelectIterator sIt = new SelectIterator(key);
         List<Map.Entry<String,V>> entryList = new ArrayList<>();
+
         // add root entry if the value is not null
         if(root.getValue() != null)
             entryList.add(new AbstractMap.SimpleEntry<>("",root.getValue()));
@@ -382,6 +445,8 @@ public class PatriciaTrie<V> {
         trie.put("Foto","Foto");
         trie.put("Fotografia","Fotografia");
         trie.put("FotoA","FotoA");
+        trie.computeIfAbsent("FotoB", s -> "FotoB");
+        trie.computeIfAbsent("FotoC", s -> null);
         trie.put("Foo","Foo");
         System.out.println(trie);
         System.out.println(trie.prefixesList("Fot"));
