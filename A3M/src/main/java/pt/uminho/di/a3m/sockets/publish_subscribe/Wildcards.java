@@ -1,6 +1,5 @@
 package pt.uminho.di.a3m.sockets.publish_subscribe;
 
-import org.apache.commons.collections4.trie.PatriciaTrie;
 
 import java.util.Arrays;
 import java.util.regex.Pattern;
@@ -107,11 +106,6 @@ public class Wildcards {
         trie.put("Europe/+/news", "Europe/+/news");
 
         String topic = "Europe/Germany/news";
-
-        // find matches (only required if the wildcard was supported on send)
-        // but it doesn't make sense to do
-        Pattern pattern = Pattern.compile("Europe/[^/]+/news$");
-        System.out.println("matched topics: " + trie.subMap("Europe/","Europe/z").keySet().stream().filter(e -> pattern.matcher(e).find()).toList());
 
         String[] wildcardTopics = getWildcardTopics(topic, true, true);
 

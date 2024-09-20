@@ -13,6 +13,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+// TODO - unsubscribe() is not instantaneous, so, should
+//  filtering be done at subscriber side too?
+
 public class SubSocket extends ConfigurableSocket {
     public static final Protocol protocol = SocketsTable.SUB_PROTOCOL;
     public static final Set<Protocol> compatProtocols = Set.of(SocketsTable.PUB_PROTOCOL);

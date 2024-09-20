@@ -1,7 +1,5 @@
 package pt.uminho.di.a3m.sockets.publish_subscribe;
 
-import org.apache.commons.collections4.trie.AbstractPatriciaTrie;
-import org.apache.commons.collections4.trie.PatriciaTrie;
 import pt.uminho.di.a3m.auxiliary.Timeout;
 import pt.uminho.di.a3m.core.*;
 import pt.uminho.di.a3m.core.exceptions.LinkClosedException;
@@ -13,6 +11,7 @@ import pt.uminho.di.a3m.sockets.publish_subscribe.messaging.PSMsg;
 import pt.uminho.di.a3m.sockets.publish_subscribe.messaging.SubscriptionsPayload;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * <ul>
@@ -37,7 +36,7 @@ import java.util.*;
 public class PubSocket extends ConfigurableSocket {
     public static final Protocol protocol = SocketsTable.PUB_PROTOCOL;
     public static final Set<Protocol> compatProtocols = Set.of(SocketsTable.SUB_PROTOCOL);
-    private final AbstractPatriciaTrie<String, Subscription> subscriptions = new PatriciaTrie<>();
+    private final PatriciaTrie<Subscription> subscriptions = new PatriciaTrie<>();
 
     private static class Subscription {
         private final Set<LinkSocket> subscribers = new HashSet<>();
@@ -56,6 +55,10 @@ public class PubSocket extends ConfigurableSocket {
          */
         void removeSubscriber(LinkSocket subscriber){
             subscribers.remove(subscriber);
+        }
+
+        boolean hasSubscribers(){
+            return !subscribers.isEmpty();
         }
 
         /**
@@ -115,12 +118,7 @@ public class PubSocket extends ConfigurableSocket {
             for (String topic : subPayload.getTopics()){
                 // create subscription for the topic
                 // if one is not found
-                entry = subscriptions.select(topic);
-                if(entry == null || !Objects.equals(topic, entry.getKey())){
-                    subscription = new Subscription();
-                    subscriptions.put(topic, subscription);
-                }
-                else subscription = entry.getValue();
+                subscription = subscriptions.computeIfAbsent(topic, t -> new Subscription());
                 // adds link socket to the topic's collection of subscribers
                 subscription.addSubscriber(linkSocket);
             }
@@ -129,17 +127,34 @@ public class PubSocket extends ConfigurableSocket {
         }
     }
 
-    // TODO - remove subscription if the last subscriber was removed
+    /* TODO - need to find a way to not use write lock when handling these messages
+        since the middleware thread must not be blocked waiting for a write lock.
+        .
+        Solution: Maybe follow a similar approach to the poller.
+            1. Use VListNode.
+            2. Add subscribers to tail atomically.
+                2.1. Create VListNode for subscriber.
+                2.2. Set the subscription's head node as the next of the node.
+                2.3. Set the next attribute of the head's current previous node
+                to point to the new node.
+                2.4. Update the node's prev and the head's prev accordingly.
+                 (Doesn't work...)
+    */
+
+
     private void handleUnsubscribeMsg(LinkSocket linkSocket, SubscriptionsPayload subPayload) {
         getLock().writeLock().lock();
         try {
-            Map.Entry<String, Subscription> entry;
+            Subscription subscription;
             for (String topic : subPayload.getTopics()){
                 // if a subscription exists for the topic, then
                 // removes the link socket from its collection of subscribers
-                entry = subscriptions.select(topic);
-                if(entry != null && Objects.equals(topic, entry.getKey()))
-                    entry.getValue().removeSubscriber(linkSocket);
+                subscription = subscriptions.get(topic);
+                if(subscription != null) {
+                    subscription.removeSubscriber(linkSocket);
+                    if(!subscription.hasSubscribers())
+                        subscriptions.remove(topic);
+                }
             }
         } finally {
             getLock().writeLock().unlock();
@@ -160,6 +175,26 @@ public class PubSocket extends ConfigurableSocket {
     protected SocketMsg tryReceiving() {
         throw new UnsupportedOperationException();
     }
+
+    // TODO - some operations could be registered, in a data structure
+    //  which enables low contention on queuing/dequeuing, as events
+    //  that need to happen (maybe ConcurrentLinkedQueue).
+    //  That way, when a user thread acquires the write lock,
+    //  it can perform all of those operations before effectively doing the
+    //  job it wanted to do. By doing this, slowing down the middleware thread
+    //  is avoided. Correctness is still achieved since the queued operations
+    //  are performed before a message is published.
+    //  Before queuing the operation, doing a writeLock.tryLock() is desirable
+    //  as to verify if the operation can be performed instantaneously. However,
+    //  the operation cannot be performed if there are already tasks queued
+    //  since it can disrupt the order of processing. Maybe set a limit of tasks
+    //  that the middleware thread can handle, or just decide that if there are
+    //  tasks queued, then just queue the task and return.
+    //  Having worker(s) doing these tasks could be a solution to avoid
+    //  making user threads have too much work to do before publishing a message.
+    //  These workers would essentially, perform the work while user threads are
+    //  not using the socket. (Maybe a pool of workers, that increments or decreases
+    //  with the amount of publisher sockets that need to have the subscriptions managed).
 
     /**
      * Performs a synchronized send of a message. The synchronization
@@ -189,19 +224,11 @@ public class PubSocket extends ConfigurableSocket {
         List<LinkSocket> subscribers = new ArrayList<>();
         getLock().readLock().lock();
         try {
-            // gets the most similar subscription, which may or may not
-            // have any matching prefix.
-            Map.Entry<String,Subscription> entry = subscriptions.select(msg.getTopic());
-            if(entry != null && msg.getTopic().startsWith(entry.getKey())) {
-                entry.getValue().getSubscribers(subscribers);
-                SortedMap<String,Subscription> headMap = subscriptions.headMap(entry.getKey());
-                for (Map.Entry<String, Subscription> e : headMap.entrySet()){
-                    if(!haveCommonPrefix(msg.getTopic(), e.getKey()))
-                        break;
-                    if(msg.getTopic().startsWith(entry.getKey()))
-                        entry.getValue().getSubscribers(subscribers);
-                }
-            }
+            // gets all subscriptions which are prefixes of the topic
+            List<Map.Entry<String,Subscription>> prefixesList =
+                    subscriptions.prefixesList(msg.getTopic());
+            // gather all subscribers from the subscriptions
+            prefixesList.forEach(e -> e.getValue().getSubscribers(subscribers));
         } finally {
             getLock().readLock().unlock();
         }
@@ -254,14 +281,6 @@ public class PubSocket extends ConfigurableSocket {
         }
 
         return sent;
-    }
-
-    private static boolean haveCommonPrefix(String str1, String str2) {
-        int minLength = Math.min(str1.length(), str2.length());
-        for (int i = 0; i < minLength; i++)
-            if (str1.charAt(i) == str2.charAt(i))
-                return true;
-        return false;
     }
 
     public boolean send(PSMsg msg) throws InterruptedException {
