@@ -66,27 +66,24 @@ public class RouterSocket extends ConfigurableSocket {
      * message is null or if the message is not of type DATA.
      */
     @Override
-    protected SocketMsg customOnIncomingMessage(LinkSocket linkSocket, SocketMsg msg) {
-        if(msg != null && msg.getType() == MsgType.DATA){
-            RRMsg rrMsg;
-            try {
-                rrMsg = RRMsg.parseFrom(msg.getPayload());
-            } catch (IllegalArgumentException iae) {
-                // message is a regular payload, i.e., does not follow
-                // the request-reply format. So, a request-reply message
-                // must be created.
-                rrMsg = new RRMsg(msg.getPayload());
-            }
-            // get clock identifier associated with link
-            if (linkSocket == null) return null;
-            int clockId = linkSocket.getClockId();
-            // add the routing identifier to the message
-            rrMsg.addRoutingIdentifier(clockId);
-            msg = new SocketMsg(msg.getSrcId(), msg.getDestId(), MsgType.DATA,
-                    msg.getClockId(), rrMsg.toByteArray());
-            return msg;
+    protected SocketMsg handleIncomingDataMessage(LinkSocket linkSocket, SocketMsg msg) {
+        RRMsg rrMsg;
+        try {
+            rrMsg = RRMsg.parseFrom(msg.getPayload());
+        } catch (IllegalArgumentException iae) {
+            // message is a regular payload, i.e., does not follow
+            // the request-reply format. So, a request-reply message
+            // must be created.
+            rrMsg = new RRMsg(msg.getPayload());
         }
-        return null;
+        // get clock identifier associated with link
+        if (linkSocket == null) return null;
+        int clockId = linkSocket.getClockId();
+        // add the routing identifier to the message
+        rrMsg.addRoutingIdentifier(clockId);
+        msg = new SocketMsg(msg.getSrcId(), msg.getDestId(), MsgType.DATA,
+                msg.getClockId(), rrMsg.toByteArray());
+        return msg;
     }
 
     /**

@@ -3,36 +3,45 @@ package pt.uminho.di.a3m.sockets.auxiliary;
 import pt.uminho.di.a3m.auxiliary.Timeout;
 import pt.uminho.di.a3m.core.messaging.MsgType;
 import pt.uminho.di.a3m.core.messaging.Payload;
+import pt.uminho.di.a3m.core.messaging.SocketMsg;
 import pt.uminho.di.a3m.core.messaging.payloads.BytePayload;
 
-import java.nio.ByteBuffer;
+import java.util.Objects;
+import java.util.Queue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
+//  If FIFO order is required involving both data and control messages,
+//  the data messages would need another order value used only
+//  between data messages so that it would not disturb the order
+//  of the incoming queue which assumes control messages to not be present
+//  when the socket is in cooked mode.
+
 /**
  * Link socket with watcher and with send methods that add
- * an order attribute to data payloads.
+ * an order attribute to payloads. An order counter is
+ * used for data messages and another for control messages, so
+ * that control messages are not delayed by flow control.
  */
 public class LinkSocketWatchedWithOrder extends LinkSocketWatched {
-    int next = 0;
-    Lock orderLock = new ReentrantLock();
+    private final AtomicInteger controlNext = new AtomicInteger(0);
+    private final Queue<SocketMsgWithOrder> controlQueue = new OrderedQueue<>(SocketMsgWithOrder::getOrder);
+    private int dataNext = 0;
+    private final Lock orderLock = new ReentrantLock();
 
-    protected BytePayload createDataPayloadWithOrder(byte[] payload) {
-        byte[] payloadWithOrder =
-                ByteBuffer.allocate(payload.length + 4) // allocate space for payload plus order number
-                        .putInt(next) // put order number
-                        .put(payload) // put payload
-                        .array(); // convert to byte array
-        return new BytePayload(MsgType.DATA, payloadWithOrder);
+    protected BytePayload createPayloadWithOrder(int order, byte type, byte[] payload) {
+        byte[] payloadWithOrder = SocketMsgWithOrder.createPayloadWithOrder(order, payload);
+        return new BytePayload(type, payloadWithOrder);
     }
 
     public boolean trySendDataWithOrder(byte[] payload) throws InterruptedException {
         boolean locked = orderLock.tryLock();
         if (locked) {
             try {
-                boolean sent = super.send(createDataPayloadWithOrder(payload), 0L);
-                if (sent) next++;
+                boolean sent = super.send(createPayloadWithOrder(dataNext, MsgType.DATA, payload), 0L);
+                if (sent) dataNext++;
                 return sent;
             } finally {
                 orderLock.unlock();
@@ -47,7 +56,7 @@ public class LinkSocketWatchedWithOrder extends LinkSocketWatched {
         if (payload.getType() == MsgType.DATA)
             return trySendDataWithOrder(payload.getPayload());
         else
-            return super.trySend(payload);
+            return sendControlWithOrder(payload, 0L);
     }
 
     /**
@@ -79,13 +88,22 @@ public class LinkSocketWatchedWithOrder extends LinkSocketWatched {
                 locked = orderLock.tryLock(Timeout.calculateTimeout(deadline), TimeUnit.MILLISECONDS);
 
             if (locked) {
-                boolean sent = super.send(createDataPayloadWithOrder(payload), deadline);
-                if (sent) next++;
+                boolean sent = super.send(createPayloadWithOrder(dataNext, MsgType.DATA, payload), deadline);
+                if (sent) dataNext++;
                 return sent;
             } else return false;
         } finally {
             if (locked) orderLock.unlock();
         }
+    }
+
+    public boolean sendControlWithOrder(Payload payload, Long deadline) throws InterruptedException {
+        assert payload != null;
+        payload = createPayloadWithOrder(
+                controlNext.getAndIncrement(),
+                payload.getType(),
+                payload.getPayload());
+        return super.send(payload, deadline);
     }
 
     @Override
@@ -95,6 +113,47 @@ public class LinkSocketWatchedWithOrder extends LinkSocketWatched {
         if (payload.getType() == MsgType.DATA)
             return sendDataWithOrder(payload.getPayload(), deadline);
         else
-            return super.send(payload, deadline);
+            return sendControlWithOrder(payload, deadline);
+    }
+
+    /**
+     * Parses a socket message into a socket message with order, queues
+     * it in a control messages queue, and then returns whether a control
+     * message queue can be handled or not.
+     * @param msg control message to be queued
+     * @return true if a control message can be polled for processing.
+     */
+    public synchronized boolean queueControlMessage(SocketMsg msg){
+        assert msg != null && Objects.equals(msg.getSrcId(),getPeerId());
+        // parse message and queue it
+        SocketMsgWithOrder msgWithOrder = SocketMsgWithOrder.parseFrom(msg);
+        controlQueue.add(msgWithOrder);
+        // return whether a control message can be handled or not
+        return controlQueue.peek() != null;
+    }
+
+    /** @return true if the control queue has messages, the true value does not
+     * mean the messages can be polled. False, if the control queue is empty. */
+    public synchronized boolean hasControlMessages(){
+        return !controlQueue.isEmpty();
+    }
+
+    /** @return number of control messages in the queue. This value does not correspond
+     * to the number of messages that can be polled. */
+    public synchronized int countControlMessages(){
+        return controlQueue.size();
+    }
+
+    /** @return true if a control message can be polled. */
+    public synchronized boolean canPollControlMessage(){
+        return controlQueue.peek() != null;
+    }
+
+    /** @return a socket message if the message at the head of the control messages
+     * queue is the next message that should be handled. null, if the order number
+     * of the message at the head does not correspond to the order number of the
+     * message that should be handled. */
+    public synchronized SocketMsg pollControlMessage(){
+        return controlQueue.poll();
     }
 }

@@ -34,7 +34,7 @@ public class ConfigurableSocket extends Socket {
     final static public Set<Protocol> compatProtocols = Collections.singleton(protocol);
     private Poller readPoller = null;
     private Poller writePoller = null;
-    private final boolean orderData;
+    private final boolean order;
 
     /**
      * Creates a socket with a combination of the following capabilities:
@@ -47,11 +47,12 @@ public class ConfigurableSocket extends Socket {
      * @param sid identifier of the socket
      * @param reads if socket should be able to read
      * @param writes if socket should be able to write
-     * @param orderData if socket should ensure FIFO order of data messages.
+     * @param order if socket should ensure FIFO order among data messages
+     *              and, separately, FIFO order among custom control messages.
      * @throws IllegalArgumentException The socket must have at least the read or write capability,
      * therefore, this exception is thrown if both "reads" and "writes" parameters are false.
      */
-    public ConfigurableSocket(SocketIdentifier sid, boolean reads, boolean writes, boolean orderData) {
+    public ConfigurableSocket(SocketIdentifier sid, boolean reads, boolean writes, boolean order) {
         super(sid);
         if(!(reads || writes))
             throw new IllegalArgumentException("Socket must at least be able to read or write.");
@@ -64,7 +65,7 @@ public class ConfigurableSocket extends Socket {
 
         if(writes) writePoller = Poller.create();
 
-        this.orderData = orderData;
+        this.order = order;
     }
 
     /**
@@ -191,19 +192,91 @@ public class ConfigurableSocket extends Socket {
      */
     @Override
     protected SocketMsg customOnIncomingMessage(LinkSocket linkSocket, SocketMsg msg) {
-        // Custom control messages are ignored
-        if(msg == null || msg.getType() != MsgType.DATA) return null;
-        // All data messages should be queued in the appropriate link's queue.
+        assert msg != null;
+        if(msg.getType() == MsgType.DATA)
+            return processIncomingDataMessage(linkSocket, msg);
+        else
+            return processIncomingControlMessage(linkSocket, msg);
+    }
+
+    /**
+     * Basic handling of incoming data messages. If the socket
+     * was set to not have data reading capabilities then incoming
+     * data messages are discarded. Else, sends the message to be handled.
+     * If the socket has ordering capabilities, before sending the message
+     * to be handled by {@link ConfigurableSocket#handleIncomingDataMessage(LinkSocket, SocketMsg)},
+     * transforms it into a socket message with order.
+     * @param linkSocket link socket
+     * @param msg data message to be processed
+     * @return null if data messages were handled, or a socket message if
+     * the message should be queued.
+     */
+    private SocketMsg processIncomingDataMessage(LinkSocket linkSocket, SocketMsg msg) {
+        if(readPoller == null)
+            return null;
         else {
-            if(readPoller == null)
-                return null;
-            else {
-                if (orderData)
-                    return SocketMsgWithOrder.parseFrom(msg);
-                else
-                    return msg;
-            }
+            if (order)
+                return SocketMsgWithOrder.parseFrom(msg);
+            else
+                return handleIncomingDataMessage(linkSocket, msg);
         }
+    }
+
+    /**
+     * To handle incoming data messages when order is not required.
+     * Currently, the handling corresponds to returning the message
+     * as is, so that it is queued in the link's queue.
+     * @param linkSocket link socket associated with the message
+     * @param msg data message to be handled
+     * @return msg to be queued in the link's incoming queue or null if the message
+     * was handled.
+     * @implNote Cannot be used to handle (immediately) messages with order
+     * since the order present in the received message is essential for
+     * the correct polling behavior of incoming data messages from a link.
+     * @implSpec If the message should be discarded or is handled by this method,
+     * then the return value should be 'null'. If the message should be
+     * queued, then this method may return the message as is or modify it,
+     * and then return the modified version to be queued in the link's
+     * incoming queue.
+     */
+    protected SocketMsg handleIncomingDataMessage(LinkSocket linkSocket, SocketMsg msg){
+        return msg;
+    }
+
+    /**
+     * Processes incoming control messages. If order is required, then
+     * messages are passed to the link socket so that they can be queued.
+     * After queuing, pass all control messages that are allowed to be polled
+     * to {@link ConfigurableSocket#handleIncomingControlMessage(SocketMsg)}.
+     * If order is not required, the message is simply passed to
+     * {@link ConfigurableSocket#handleIncomingControlMessage(SocketMsg)}.
+     * @param linkSocket link socket associated with the message
+     * @param msg custom control message to be handled
+     * @return null. If order is required, messages are queued until all
+     * previously required control messages arrive and are handled. If order
+     * is not required, return null, so that control messages are simply discarded.
+     * For custom handling, {@link ConfigurableSocket#handleIncomingControlMessage(SocketMsg)}
+     * is overridable.
+     */
+    private SocketMsg processIncomingControlMessage(LinkSocket linkSocket, SocketMsg msg) {
+        if(order){
+            LinkSocketWatchedWithOrder lsWithOrder = (LinkSocketWatchedWithOrder) linkSocket;
+            if(lsWithOrder.queueControlMessage(msg))
+                while ((msg = lsWithOrder.pollControlMessage()) != null)
+                    handleIncomingControlMessage(msg);
+            return null;
+        }
+        else return handleIncomingControlMessage(msg);
+    }
+
+    /**
+     * Currently, this method returns null as to mark it as handled and discard the message.
+     * @param msg custom control message to be handled
+     * @return null.
+     */
+    protected SocketMsg handleIncomingControlMessage(SocketMsg msg){
+        //Custom control messages are ignored
+        return null;
     }
 
     @Override
@@ -221,15 +294,20 @@ public class ConfigurableSocket extends Socket {
 
     @Override
     protected Queue<SocketMsg> createIncomingQueue(int peerProtocolId) {
-        if(orderData)
+        if(order)
             return new OrderedQueue<>(orderExtractor);
         else
             return new LinkedList<>();
     }
 
+    /**
+     * @implSpec When order capabilities are not required, the instance created
+     * must be a subclass of {@link LinkSocketWatched}. If order is required,
+     * then the instance created must be a subclass of {@link LinkSocketWatchedWithOrder}.
+     */
     @Override
     protected LinkSocketWatched createLinkSocketInstance(int peerProtocolId) {
-        if(orderData)
+        if(order)
             return new LinkSocketWatchedWithOrder();
         else
             return new LinkSocketWatched();

@@ -83,8 +83,16 @@ public class PubSocket extends ConfigurableSocket {
     }
 
     @Override
-    protected SocketMsg customOnIncomingMessage(LinkSocket linkSocket, SocketMsg msg) {
+    protected SocketMsg handleIncomingDataMessage(LinkSocket linkSocket, SocketMsg msg) {
+        // ignore data messages, since a publisher cannot receive data messages.
+        return null;
+    }
+
+    @Override
+    protected SocketMsg handleIncomingControlMessage(SocketMsg msg) {
         if(msg == null) return null;
+        LinkSocket linkSocket = getLinkSocket(msg.getSrcId());
+        if(linkSocket == null) return null;
         SubscriptionsPayload subPayload =
                 SubscriptionsPayload.parseFrom(
                         msg.getType(),

@@ -2,7 +2,6 @@ package pt.uminho.di.a3m.sockets.publish_subscribe;
 
 import pt.uminho.di.a3m.core.LinkSocket;
 import pt.uminho.di.a3m.core.Protocol;
-import pt.uminho.di.a3m.core.Socket;
 import pt.uminho.di.a3m.core.SocketIdentifier;
 import pt.uminho.di.a3m.core.exceptions.LinkClosedException;
 import pt.uminho.di.a3m.sockets.SocketsTable;
@@ -106,10 +105,6 @@ public class SubSocket extends ConfigurableSocket {
     public void subscribe(String topic){
         subscribe(List.of(topic));
     }
-
-    // TODO - must ensure order across subscribe and unsubscribe messages too,
-    //  since an UNSUBSCRIBE message may arrive before the SUBSCRIBE message
-    //  and consequently have no effect.
 
     public void unsubscribe(List<String> topics){
         if(topics == null)

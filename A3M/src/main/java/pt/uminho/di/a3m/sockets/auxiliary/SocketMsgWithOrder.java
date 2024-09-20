@@ -29,15 +29,41 @@ public class SocketMsgWithOrder extends SocketMsg {
         this.order = order;
     }
 
+    /**
+     * Adds order number to a payload, so that it can then be parsed
+     * into a SocketMsgWithOrder.
+     * @param order order number
+     * @param payload payload that should be complemented with an order number
+     * @return payload with an order number embedded
+     */
+    public static byte[] createPayloadWithOrder(int order, byte[] payload) {
+        return ByteBuffer.allocate(payload.length + 4) // allocate space for payload plus order number
+                        .putInt(order) // put order number
+                        .put(payload) // put payload
+                        .array(); // convert to byte array
+    }
+
+    /**
+     * Converts a socket message into a socket message with order.
+     * The order number is extracted from the message payload
+     * and then the payload is truncated as to not include the
+     * extracted order number.
+     * @param msg message to have the order number extracted
+     * @return socket message with order, or null, if the message
+     * could not be parsed.
+     */
     public static SocketMsgWithOrder parseFrom(SocketMsg msg){
-        if(msg == null || msg.getPayload() == null)
-            return null;
-        // gets order value and truncates payload to not contain the order
-        ByteBuffer buffer = ByteBuffer.wrap(msg.getPayload());
-        int order = buffer.getInt();
-        byte[] truncPayload = new byte[buffer.remaining()];
-        buffer.get(truncPayload);
-        return new SocketMsgWithOrder(msg.getSrcId(), msg.getDestId(), msg.getType(), msg.getClockId(), truncPayload, order);
+        try {
+            if(msg != null && msg.getPayload() != null) {
+                // gets order value and truncates payload to not contain the order
+                ByteBuffer buffer = ByteBuffer.wrap(msg.getPayload());
+                int order = buffer.getInt();
+                byte[] truncPayload = new byte[buffer.remaining()];
+                buffer.get(truncPayload);
+                return new SocketMsgWithOrder(msg.getSrcId(), msg.getDestId(), msg.getType(), msg.getClockId(), truncPayload, order);
+            }
+        } catch (Exception ignored) {}
+        return null;
     }
 
     public Integer getOrder() {
