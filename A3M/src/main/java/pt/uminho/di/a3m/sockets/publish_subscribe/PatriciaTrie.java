@@ -106,19 +106,26 @@ public class PatriciaTrie<V> {
         return entry;
     }
 
+    /**
+     * Finds entry associated with the given key, or if entry node
+     * does not exist, returns the parent entry.
+     * @param key key to be used for the search
+     * @return entry containing a key and its associated value (which might be null).
+     */
     public Map.Entry<String, V> select(String key){
         Map.Entry<String, Node<V>> entry = selectEntry(key);
         return new AbstractMap.SimpleEntry<>(entry.getKey(), entry.getValue().getValue());
     }
 
+    /**
+     * Retrieves key if it is present or the key of its parent.
+     * @param key key to be used for the search
+     * @return the key if a node associated with it exists or the
+     * key of the parent node.
+     */
     public String selectKey(String key){
         Map.Entry<String, Node<V>> entry = selectEntry(key);
         return entry.getKey();
-    }
-
-    public V selectValue(String key){
-        Map.Entry<String, Node<V>> entry = selectEntry(key);
-        return entry.getValue().getValue();
     }
 
     private Map.Entry<String,Node<V>> selectParentEntry(String key){
@@ -139,32 +146,6 @@ public class PatriciaTrie<V> {
             parentEntry = entry;
         return parentEntry;
     }
-
-    //private Map.Entry<String,Node<V>> select(String key){
-    //    int i = 0; // index of the key's character being analyzed
-    //    char c;
-    //    String selectKey = "";
-    //    StringBuilder tmpKey = new StringBuilder();
-    //    Node<V> selectNode = root, tmpNode;
-    //    while (!selectKey.equals(key)){
-    //        c = key.charAt(i);
-    //        tmpNode = selectNode.children.get(c);
-    //        // return parent of the key,
-    //        // if a deeper node could not be found
-    //        if(tmpNode == null) break;
-    //        // check if the node found is still corresponds
-    //        // to a prefix of the key
-    //        if(key.startsWith(tmpKey.append(tmpNode.key).toString())){
-    //            selectNode = tmpNode;
-    //            selectKey = tmpKey.toString();
-    //            i += tmpNode.getKey().length();
-    //        }
-    //        // if the node found is not a prefix, break
-    //        // so that the parent can be returned
-    //        else break;
-    //    }
-    //    return new AbstractMap.SimpleEntry<>(selectKey,selectNode);
-    //}
 
     private SelectIterator selectIterator(String key){
         return new SelectIterator(key);
@@ -223,6 +204,30 @@ public class PatriciaTrie<V> {
         }
     }
 
+    /**
+     * Searches node with given key and retrieves its value.
+     * @param key key of the node to be searched
+     * @return value associated with the given key (which may be null).
+     * Or null, if there isn't a node associated with the key.
+     */
+    public V get(String key){
+        Map.Entry<String,Node<V>> entry = selectEntry(key);
+        V value = null;
+        if(entry.getKey().equals(key))
+            value = entry.getValue().getValue();
+        return value;
+    }
+
+    /**
+     * Associates a value with a key, creating a node for the key
+     * if one does not exist. If a node already exists, its associated
+     * value is swapped by the value given as an argument.
+     * @param key key to be searched
+     * @param value value to associated with the key
+     * @return if a node associated with the key was already present,
+     * then returns the value previously associated with the key (which may be null).
+     * Or null, if a node was created.
+     */
     public V put(String key, V value){
         if(key == null)
             throw new IllegalArgumentException("Key is null.");
@@ -294,6 +299,13 @@ public class PatriciaTrie<V> {
         return prevValue;
     }
 
+    /**
+     * Removes and retrieves the value associated with a key.
+     * The node associated with the key is only removed if it does not have children.
+     * @param key key of the node to be removed (if possible)
+     * @return value previously associated with the key (which may be null). Or,
+     * null if a node was not found to be associated with the key.
+     */
     public V remove(String key){
         V prevValue = null;
         Map.Entry<String,Node<V>> parentEntry = selectParentEntry(key);
@@ -316,21 +328,35 @@ public class PatriciaTrie<V> {
                     parent.removeChild(suffix.charAt(0));
                 prevValue = node.getValue();
                 node.setValue(null); // remove the value
+                // if parent becomes empty and does not have a value,
+                // then remove the parent too
+                if(parent.getValue() == null && !parent.hasChildren())
+                    remove(parentEntry.getKey());
             }
         }
         return prevValue;
     }
 
-    public List<Map.Entry<String,V>> prefixesMap(String key){
+    /**
+     * Retrieves a list of all keys (and their respective values) that
+     * are prefixes of the key passed as argument and that do not have
+     * a null value associated.
+     * @param key key for which prefixes should be searched.
+     * @return list of all keys (and their respective values) that
+     * are prefixes of the key passed as argument.
+     */
+    public List<Map.Entry<String,V>> prefixesList(String key){
         SelectIterator sIt = new SelectIterator(key);
         List<Map.Entry<String,V>> entryList = new ArrayList<>();
-        // add root entry
-        entryList.add(new AbstractMap.SimpleEntry<>("",root.getValue()));
+        // add root entry if the value is not null
+        if(root.getValue() != null)
+            entryList.add(new AbstractMap.SimpleEntry<>("",root.getValue()));
         while (sIt.hasNext()){
             Map.Entry<String,Node<V>> nodeEntry = sIt.next();
-            entryList.add(new AbstractMap.SimpleEntry<>(
-                    nodeEntry.getKey(),
-                    nodeEntry.getValue().getValue()));
+            if(nodeEntry.getValue() != null)
+                entryList.add(new AbstractMap.SimpleEntry<>(
+                        nodeEntry.getKey(),
+                        nodeEntry.getValue().getValue()));
         }
         return entryList;
     }
@@ -349,4 +375,5 @@ public class PatriciaTrie<V> {
                  root.toStringWithChildren(0) +
                 "\n}";
     }
+
 }
