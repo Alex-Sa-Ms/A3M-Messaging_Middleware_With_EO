@@ -353,10 +353,11 @@ public class PatriciaTrie<V> {
             entryList.add(new AbstractMap.SimpleEntry<>("",root.getValue()));
         while (sIt.hasNext()){
             Map.Entry<String,Node<V>> nodeEntry = sIt.next();
-            if(nodeEntry.getValue() != null)
+            V value = nodeEntry.getValue().getValue();
+            if(value != null)
                 entryList.add(new AbstractMap.SimpleEntry<>(
                         nodeEntry.getKey(),
-                        nodeEntry.getValue().getValue()));
+                        value));
         }
         return entryList;
     }
@@ -376,4 +377,13 @@ public class PatriciaTrie<V> {
                 "\n}";
     }
 
+    public static void main(String[] args) {
+        PatriciaTrie<String> trie = new PatriciaTrie<String>();
+        trie.put("Foto","Foto");
+        trie.put("Fotografia","Fotografia");
+        trie.put("FotoA","FotoA");
+        trie.put("Foo","Foo");
+        System.out.println(trie);
+        System.out.println(trie.prefixesList("Fot"));
+    }
 }
