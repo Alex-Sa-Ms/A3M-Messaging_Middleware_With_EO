@@ -13,6 +13,9 @@ import pt.uminho.di.a3m.sockets.publish_subscribe.messaging.SubscriptionsPayload
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
+import static pt.uminho.di.a3m.sockets.publish_subscribe.messaging.SubscriptionsPayload.SUBSCRIBE;
+import static pt.uminho.di.a3m.sockets.publish_subscribe.messaging.SubscriptionsPayload.UNSUBSCRIBE;
+
 /**
  * <ul>
  *     <li>Publishing mode uses topics.</li>
@@ -36,7 +39,24 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 public class PubSocket extends ConfigurableSocket {
     public static final Protocol protocol = SocketsTable.PUB_PROTOCOL;
     public static final Set<Protocol> compatProtocols = Set.of(SocketsTable.SUB_PROTOCOL);
+    // for fast retrieval of subscribers that have subscribed a topic that is a prefix
+    // of the topic of the message being published
     private final PatriciaTrie<Subscription> subscriptions = new PatriciaTrie<>();
+    // maps subscribers to their subscribed topics
+    private final Map<SocketIdentifier,Set<String>> subscribers = new HashMap<>();
+    // Queue of subscribe/unsubscribe tasks that could not be
+    // executed immediately by the middleware thread
+    private final ConcurrentLinkedQueue<SubscriptionTask> tasks = new ConcurrentLinkedQueue<>();
+
+    public PubSocket(SocketIdentifier sid) {
+        super(sid, false, true, true);
+    }
+
+    private record SubscriptionTask(
+        LinkSocket linkSocket,
+        byte type, // SUBSCRIBE or UNSUBSCRIBE
+        List<String> topics // can only be null for an unsubscribe task and it simbolizes removing all subscriptions.
+    ) {}
 
     private static class Subscription {
         private final Set<LinkSocket> subscribers = new HashSet<>();
@@ -81,8 +101,35 @@ public class PubSocket extends ConfigurableSocket {
         }
     }
 
-    public PubSocket(SocketIdentifier sid) {
-        super(sid, false, true, true);
+    @Override
+    protected void customOnLinkClosed(LinkSocket linkSocket) {
+        super.customOnLinkClosed(linkSocket);
+        boolean locked = getLock().writeLock().tryLock();
+        try {
+            // execute or "schedule" the unsubscription of all topics
+            if (locked && tasks.isEmpty())
+                handleUnsubscribeTask(linkSocket, null);
+            else
+                tasks.add(new SubscriptionTask(linkSocket, UNSUBSCRIBE, null));
+        }finally {
+            if(locked)
+                getLock().writeLock().unlock();
+        }
+    }
+
+    @Override
+    public void unlink(SocketIdentifier peerId) {
+        getLock().writeLock().lock();
+        try {
+            LinkSocket linkSocket = getLinkSocket(peerId);
+            // unsubscribe all topics
+            if(linkSocket != null)
+                handleUnsubscribeTask(linkSocket, null);
+            // then, unlink
+            super.unlink(peerId);
+        } finally {
+            getLock().writeLock().unlock();
+        }
     }
 
     @Override
@@ -101,64 +148,109 @@ public class PubSocket extends ConfigurableSocket {
                         msg.getType(),
                         msg.getPayload());
         // if message is a valid subscription message
-        if(subPayload != null){
-            if(subPayload.getType() == SubscriptionsPayload.SUBSCRIBE)
-                handleSubscribeMsg(linkSocket, subPayload);
-            else
-                handleUnsubscribeMsg(linkSocket, subPayload);
+        if(subPayload != null) {
+            boolean locked = getLock().writeLock().tryLock();
+            try {
+                // if write lock was acquired and there aren't any subscription
+                // tasks that need to be handled first, then let the middleware
+                // thread handle the task
+                if (locked && tasks.isEmpty())
+                    handleSubscriptionTask(linkSocket, subPayload.getType(), subPayload.getTopics());
+                // else, queue a subscription task to be handled by a user thread
+                // before a publishing a message
+                else
+                    tasks.add(new SubscriptionTask(linkSocket, subPayload.getType(), subPayload.getTopics()));
+            } finally {
+                if (locked) getLock().writeLock().unlock();
+            }
         }
         return null;
     }
 
-    private void handleSubscribeMsg(LinkSocket linkSocket, SubscriptionsPayload subPayload) {
-        getLock().writeLock().lock();
-        try {
-            Map.Entry<String, Subscription> entry;
-            Subscription subscription;
-            for (String topic : subPayload.getTopics()){
-                // create subscription for the topic
-                // if one is not found
-                subscription = subscriptions.computeIfAbsent(topic, t -> new Subscription());
-                // adds link socket to the topic's collection of subscribers
-                subscription.addSubscriber(linkSocket);
-            }
-        } finally {
-            getLock().writeLock().unlock();
+    /**
+     * Handles a subscription (subscribe/unsubscribe) task.
+     * @param linkSocket link socket associated with the peer that wants
+     *                   to subscribe/unsubscribe to topics.
+     * @param type type of subscription
+     */
+    private void handleSubscriptionTask(LinkSocket linkSocket, byte type, Collection<String> topics){
+        if (type == SUBSCRIBE)
+            handleSubscribeTask(linkSocket, topics);
+        else {
+            handleUnsubscribeTask(linkSocket, topics);
         }
     }
 
-    /* TODO - need to find a way to not use write lock when handling these messages
-        since the middleware thread must not be blocked waiting for a write lock.
-        .
-        Solution: Maybe follow a similar approach to the poller.
-            1. Use VListNode.
-            2. Add subscribers to tail atomically.
-                2.1. Create VListNode for subscriber.
-                2.2. Set the subscription's head node as the next of the node.
-                2.3. Set the next attribute of the head's current previous node
-                to point to the new node.
-                2.4. Update the node's prev and the head's prev accordingly.
-                 (Doesn't work...)
-    */
 
-
-    private void handleUnsubscribeMsg(LinkSocket linkSocket, SubscriptionsPayload subPayload) {
+    /**
+     * Handles a subscribe task. Registers the peer associated with the link
+     * socket as interested in the given topics.
+     * @param linkSocket link socket
+     * @param topics topics to be subscribed.
+     */
+    private void handleSubscribeTask(LinkSocket linkSocket, Collection<String> topics) {
         getLock().writeLock().lock();
         try {
+            Set<String> subscriberTopics =
+                    subscribers.computeIfAbsent(
+                            linkSocket.getPeerId(),
+                            peerId -> new HashSet<>());
+
             Subscription subscription;
-            for (String topic : subPayload.getTopics()){
-                // if a subscription exists for the topic, then
-                // removes the link socket from its collection of subscribers
-                subscription = subscriptions.get(topic);
-                if(subscription != null) {
-                    subscription.removeSubscriber(linkSocket);
-                    if(!subscription.hasSubscribers())
-                        subscriptions.remove(topic);
+            for (String topic : topics){
+                // register subscriber if it is not subscribed yet
+                // create subscription for the topic if one is not found
+                if(subscriberTopics.add(topic)) {
+                    subscription = subscriptions.computeIfAbsent(topic, t -> new Subscription());
+                    // adds link socket to the topic's collection of subscribers
+                    subscription.addSubscriber(linkSocket);
                 }
             }
         } finally {
             getLock().writeLock().unlock();
         }
+    }
+
+    /**
+     * Handles an unsubscribe task. Removes the peer's interest in the given topics.
+     * @param linkSocket link socket
+     * @param topics topics to be unsubscribed, or null if all topics should be unsubscribed.
+     */
+    private void handleUnsubscribeTask(LinkSocket linkSocket, Collection<String> topics) {
+        getLock().writeLock().lock();
+        try {
+            Subscription subscription;
+            Set<String> subscriberTopics = subscribers.get(linkSocket.getPeerId());
+
+            // if topics is null, then all the topics
+            // of the subscriber must be removed.
+            if(topics == null) topics = subscriberTopics;
+
+            if(subscriberTopics != null) {
+                for (String topic : topics) {
+                    // if a subscription exists for the topic, then
+                    // removes the link socket from its collection of subscribers
+                    if(subscriberTopics.remove(topic)) {
+                        subscription = subscriptions.get(topic);
+                        subscription.removeSubscriber(linkSocket);
+                        if (!subscription.hasSubscribers())
+                            subscriptions.remove(topic);
+                    }
+                }
+            }
+        } finally {
+            getLock().writeLock().unlock();
+        }
+    }
+
+    /**
+     * Handles subscription tasks.
+     * @implNote Assumes write lock to be owned by the caller.
+     */
+    private void handleSubscriptionTasks(int nrTasks){
+        SubscriptionTask task;
+        for (int i = 0; i < nrTasks && (task = tasks.poll()) != null; i++)
+            handleSubscriptionTask(task.linkSocket(), task.type(), task.topics());
     }
 
     @Override
@@ -175,26 +267,6 @@ public class PubSocket extends ConfigurableSocket {
     protected SocketMsg tryReceiving() {
         throw new UnsupportedOperationException();
     }
-
-    // TODO - some operations could be registered, in a data structure
-    //  which enables low contention on queuing/dequeuing, as events
-    //  that need to happen (maybe ConcurrentLinkedQueue).
-    //  That way, when a user thread acquires the write lock,
-    //  it can perform all of those operations before effectively doing the
-    //  job it wanted to do. By doing this, slowing down the middleware thread
-    //  is avoided. Correctness is still achieved since the queued operations
-    //  are performed before a message is published.
-    //  Before queuing the operation, doing a writeLock.tryLock() is desirable
-    //  as to verify if the operation can be performed instantaneously. However,
-    //  the operation cannot be performed if there are already tasks queued
-    //  since it can disrupt the order of processing. Maybe set a limit of tasks
-    //  that the middleware thread can handle, or just decide that if there are
-    //  tasks queued, then just queue the task and return.
-    //  Having worker(s) doing these tasks could be a solution to avoid
-    //  making user threads have too much work to do before publishing a message.
-    //  These workers would essentially, perform the work while user threads are
-    //  not using the socket. (Maybe a pool of workers, that increments or decreases
-    //  with the amount of publisher sockets that need to have the subscriptions managed).
 
     /**
      * Performs a synchronized send of a message. The synchronization
@@ -218,11 +290,32 @@ public class PubSocket extends ConfigurableSocket {
 
         Long deadline = Timeout.calculateEndTime(timeout);
 
+        // execute all pending subscription tasks
+        int nrTasks;
+        boolean readLocked = false;
+        if(!tasks.isEmpty()){
+            getLock().writeLock().lock();
+            try {
+                // Only handle subscription tasks that were present
+                // at the moment of this verification.
+                // Any tasks added after it are to be handled in a
+                // following send invocation.
+                nrTasks = tasks.size();
+                handleSubscriptionTasks(nrTasks);
+                // Acquire read lock before releasing the write lock
+                // to enable other threads to send messages concurrently
+                getLock().readLock().lock();
+                readLocked = true;
+            } finally {
+                getLock().writeLock().unlock();
+            }
+        }
+
         // find all subscribers interested in the message,
         // i.e. all subscribers interested in a topic (or topics)
         // which has the message's topic as prefix
         List<LinkSocket> subscribers = new ArrayList<>();
-        getLock().readLock().lock();
+        if(!readLocked) getLock().readLock().lock();
         try {
             // gets all subscriptions which are prefixes of the topic
             List<Map.Entry<String,Subscription>> prefixesList =
@@ -252,7 +345,10 @@ public class PubSocket extends ConfigurableSocket {
                  the exception.
         * */
 
+        // TODO - No order inside topic is provided
+
         // if sent to any subscriber, then commit to send to all subscribers
+        // by setting the deadline to "null"
         boolean sent = false;
         ListIterator<LinkSocket> it = subscribers.listIterator();
         LinkSocket subscriber;
@@ -260,23 +356,12 @@ public class PubSocket extends ConfigurableSocket {
             subscriber = it.next();
             try{
                 sent = subscriber.send(msg, deadline);
-                System.out.println("Sent: " + sent);
                 if(sent) {
                     it.remove();
                     deadline = null;
                 }
             }catch (LinkClosedException lce){
                 it.remove();
-            }
-        }
-
-        // if the message was sent to any subscriber,
-        // commit to making all subscribers receive the message
-        if(sent) {
-            while (it.hasPrevious()) {
-                subscriber = it.previous();
-                try { subscriber.send(msg, null); }
-                catch (LinkClosedException ignored) {}
             }
         }
 
