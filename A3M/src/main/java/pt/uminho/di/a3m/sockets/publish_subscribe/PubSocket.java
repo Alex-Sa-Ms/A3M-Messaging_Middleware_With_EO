@@ -8,7 +8,7 @@ import pt.uminho.di.a3m.core.messaging.SocketMsg;
 import pt.uminho.di.a3m.sockets.SocketsTable;
 import pt.uminho.di.a3m.sockets.auxiliary.LinkSocketWatched;
 import pt.uminho.di.a3m.sockets.configurable_socket.ConfigurableSocket;
-import pt.uminho.di.a3m.sockets.publish_subscribe.messaging.PSMsg;
+import pt.uminho.di.a3m.sockets.publish_subscribe.messaging.PSPayload;
 import pt.uminho.di.a3m.sockets.publish_subscribe.messaging.SubscriptionsPayload;
 
 import java.util.*;
@@ -288,65 +288,7 @@ public class PubSocket extends ConfigurableSocket {
         throw new UnsupportedOperationException();
     }
 
-    /**
-     * Performs a synchronized send of a message. The synchronization
-     * means that once the message is sent to a subscriber, the message
-     * must also be sent to all the other subscribers that were subscribed
-     * to the message's topic at the moment of invocation of this method.
-     * Therefore, the operation can only time out when there are subscribers
-     * interested in the message but which the sending of the message could
-     * not be completed to a single subscriber within the given timeout.
-     * @param msg publish-subscribe message to be sent
-     * @param timeout maximum amount of time to wait for the synchronized sending
-     *                operation to be initiated.
-     * @return true if message was sent (to all subscribers of the moment
-     * for the given topic). false, otherwise.
-     * @apiNote If there aren't any subscribers, the method returns "true" immediately.
-     * @throws IllegalArgumentException if the payload is not a publish-subscribe payload.
-     */
-    public boolean send(PSMsg msg, Long timeout) throws InterruptedException {
-        if(msg == null)
-            throw new IllegalArgumentException("Message is null.");
-
-        Long deadline = Timeout.calculateEndTime(timeout);
-
-        // execute all pending subscription tasks
-        int nrTasks;
-        boolean readLocked = false;
-        if(!tasks.isEmpty()){
-            getLock().writeLock().lock();
-            try {
-                // Only handle subscription tasks that were present
-                // at the moment of this verification.
-                // Any tasks added after it are to be handled in a
-                // following send invocation.
-                nrTasks = tasks.size();
-                handleSubscriptionTasks(nrTasks);
-                // Acquire read lock before releasing the write lock
-                // to enable other threads to send messages concurrently
-                getLock().readLock().lock();
-                readLocked = true;
-            } finally {
-                getLock().writeLock().unlock();
-            }
-        }
-
-        // find all subscribers interested in the message,
-        // i.e. all subscribers interested in a topic (or topics)
-        // which has the message's topic as prefix
-        List<PubLinkSocket> subscribers = new ArrayList<>();
-        if(!readLocked) getLock().readLock().lock();
-        try {
-            // gets all subscriptions which are prefixes of the topic
-            List<Map.Entry<String,Subscription>> prefixesList =
-                    subscriptions.prefixesList(msg.getTopic());
-            // gather all subscribers from the subscriptions
-            prefixesList.forEach(e -> e.getValue().getSubscribers(subscribers));
-        } finally {
-            getLock().readLock().unlock();
-        }
-
-        /* TODO - Order per topic is not provided, not globally nor locally.
+    /* TODO - Order per topic is not provided, not globally nor locally.
             Locally, the order would have to be dictated by the write lock as
             to not allow sending of messages simultaneously. However, that would
             mean threads would be competing for the write lock to know which
@@ -376,59 +318,130 @@ public class PubSocket extends ConfigurableSocket {
                 so that order can be maintained (locally) across topics.
          */
 
-        // if reservating a credit for all subscribers fails,
-        // then do not send to any subscriber
-        InterruptedException interruptException = null;
-        boolean reserved = false;
-        ListIterator<PubLinkSocket> it = subscribers.listIterator();
-        PubLinkSocket subscriber;
-        while (it.hasNext()){
+    /**
+     * Performs a synchronized send of a message. The synchronization
+     * means that once the message is sent to a subscriber, the message
+     * must also be sent to all the other subscribers that were subscribed
+     * to the message's topic at the moment of invocation of this method.
+     * Therefore, the operation can only time out when there are subscribers
+     * interested in the message but which the sending of the message could
+     * not be completed to a single subscriber within the given timeout.
+     * @param payload publish-subscribe payload to be sent
+     * @param timeout maximum amount of time to wait for the synchronized sending
+     *                operation to be initiated.
+     * @return true if message was sent (to all subscribers of the moment
+     * for the given topic). false, otherwise.
+     * @apiNote If there aren't any subscribers, the method returns "true" immediately.
+     * @throws IllegalArgumentException if the payload is not a publish-subscribe payload.
+     */
+    public boolean send(PSPayload payload, Long timeout) throws InterruptedException {
+        if(payload == null)
+            throw new IllegalArgumentException("Message is null.");
+
+        Long deadline = Timeout.calculateEndTime(timeout);
+
+        // execute all pending subscription tasks
+        int nrTasks;
+        boolean readLocked = false;
+        if(!tasks.isEmpty()){
+            getLock().writeLock().lock();
             try {
-                subscriber = it.next();
-                reserved = subscriber.tryReserveUntil(deadline);
-            } catch (InterruptedException ie) {
-                // catch the interrupt exception,
-                // and throw it only after
-                // cancelling all reservations.
-                interruptException = ie;
-                reserved = false;
-            }
-
-            // if the credit reservation failed
-            // (timed out or the thread was interrupted),
-            // then cancel all reservations
-            if(!reserved) {
-                // first previous() returns the same element, so
-                // we don't want to cancel a reservation that could not be made.
-                it.previous();
-                while (it.hasPrevious()){
-                    subscriber = it.previous();
-                    subscriber.cancelReservation();
-                }
-                if(interruptException != null)
-                    throw interruptException;
-                break;
+                // Only handle subscription tasks that were present
+                // at the moment of this verification.
+                // Any tasks added after it are to be handled in a
+                // following send invocation.
+                nrTasks = tasks.size();
+                handleSubscriptionTasks(nrTasks);
+                // Acquire read lock before releasing the write lock
+                // to enable other threads to send messages concurrently
+                getLock().readLock().lock();
+                readLocked = true;
+            } finally {
+                getLock().writeLock().unlock();
             }
         }
 
-        if(reserved) {
-            boolean sent;
-            while (it.hasPrevious()) {
-                subscriber = it.previous();
-                try {
-                    sent = subscriber.trySend(msg);
-                    assert sent;
-                } catch (LinkClosedException lce) {
-                    it.remove();
-                }
-            }
+        // find all subscribers interested in the message,
+        // i.e. all subscribers interested in a topic (or topics)
+        // which has the message's topic as prefix
+        if(!readLocked) getLock().readLock().lock();
+        try {
+            // gets all subscriptions which are prefixes of the topic
+            List<Map.Entry<String, Subscription>> prefixesList =
+                    subscriptions.prefixesList(payload.getTopic());
+            // Attempt to reserve a credit for all subscribers.
+            // If it fails, then do not send to any subscriber.
+            boolean reserved = makeReservations(prefixesList, deadline);
+
+            // After reserving credits for all subscribers,
+            // consume the reservations and send the message
+            // to all of them
+            if(reserved) consumeReservationAndSendMessage(prefixesList, payload);
+        } finally {
+            getLock().readLock().unlock();
         }
 
-        return reserved;
+        return true;
     }
 
-    public boolean send(PSMsg msg) throws InterruptedException {
-        return send(msg, null);
+    private boolean makeReservations(List<Map.Entry<String, Subscription>> prefixesList, Long deadline) throws InterruptedException {
+        InterruptedException interruptException = null;
+        boolean reserved = false;
+        int reservations = 0; // number of reservations made
+
+        for (Map.Entry<String, Subscription> entry : prefixesList) {
+            for (PubLinkSocket subscriber : entry.getValue().subscribers) {
+                try {
+                    reserved = subscriber.tryReserveUntil(deadline);
+                    reservations++;
+                } catch (InterruptedException ie) {
+                    // catch the interrupt exception,
+                    // and throw it only after
+                    // cancelling all reservations.
+                    interruptException = ie;
+                    reserved = false;
+                }
+                // if a credit was reserved for the subscriber, then
+                // jump to the next subscriber
+                if (reserved) continue;
+                // Else, if the operation timed out or the thread was
+                // interrupted, then cancel all reservations made
+                cancelReservations(prefixesList, reservations);
+                // throw the interrupted exception after cancelling
+                // all reservations
+                if (interruptException != null)
+                    throw interruptException;
+                // Or, just return false, to indicate that the operation timed out
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void cancelReservations(List<Map.Entry<String, Subscription>> prefixesList, int reservations) {
+        for (Map.Entry<String,Subscription> entry : prefixesList) {
+            for (PubLinkSocket subscriber : entry.getValue().subscribers) {
+                subscriber.cancelReservation();
+                reservations--;
+                if(reservations == 0) return;
+            }
+        }
+    }
+
+    private void consumeReservationAndSendMessage(List<Map.Entry<String, Subscription>> prefixesList, PSPayload payload){
+        for (Map.Entry<String, Subscription> entry : prefixesList) {
+            for (PubLinkSocket subscriber : entry.getValue().subscribers) {
+                boolean sent;
+                try {
+                    sent = subscriber.trySend(payload);
+                    assert sent;
+                } catch (LinkClosedException | InterruptedException ignored) {}
+            }
+        }
+    }
+
+    public boolean send(PSPayload payload) throws InterruptedException {
+        return send(payload, null);
     }
 
     @Override
@@ -449,9 +462,9 @@ public class PubSocket extends ConfigurableSocket {
      */
     @Override
     public boolean send(byte[] payload, Long timeout, boolean notifyIfNone) throws InterruptedException {
-        PSMsg msg = PSMsg.parseFrom(payload);
-        if(PSMsg.parseFrom(payload) == null)
+        PSPayload psPayload = PSPayload.parseFrom(payload);
+        if(PSPayload.parseFrom(payload) == null)
             throw new IllegalArgumentException("Not a valid publish-subscribe message.");
-        return send(msg, timeout);
+        return send(psPayload, timeout);
     }
 }

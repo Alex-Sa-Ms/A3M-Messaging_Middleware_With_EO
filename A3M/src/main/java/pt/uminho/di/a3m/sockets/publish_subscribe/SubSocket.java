@@ -6,7 +6,7 @@ import pt.uminho.di.a3m.core.SocketIdentifier;
 import pt.uminho.di.a3m.core.exceptions.LinkClosedException;
 import pt.uminho.di.a3m.sockets.SocketsTable;
 import pt.uminho.di.a3m.sockets.configurable_socket.ConfigurableSocket;
-import pt.uminho.di.a3m.sockets.publish_subscribe.messaging.PSMsg;
+import pt.uminho.di.a3m.sockets.publish_subscribe.messaging.PSPayload;
 import pt.uminho.di.a3m.sockets.publish_subscribe.messaging.SubscriptionsPayload;
 
 import java.util.HashSet;
@@ -51,7 +51,7 @@ public class SubSocket extends ConfigurableSocket {
     }
 
     /**
-     * Receives publish-subscribe message in byte array format. Can be parsed using {@link PSMsg#parseFrom(byte[])}.
+     * Receives publish-subscribe payload in byte array format. Can be parsed using {@link PSPayload#parseFrom(byte[])}.
      * @see ConfigurableSocket#send(byte[], Long, boolean) ConfigurableSocket#send(byte[], Long, boolean) for
      * all information regarding the semantics of the 'receive()' method.
      */
@@ -61,25 +61,25 @@ public class SubSocket extends ConfigurableSocket {
     }
 
     /**
-     * Receives publish-subscribe message.
+     * Receives publish-subscribe payload.
      * @see ConfigurableSocket#send(byte[], Long, boolean) ConfigurableSocket#send(byte[], Long, boolean) for
      * all information regarding the semantics of the 'receive()' method.
      */
-    public PSMsg recv(Long timeout, boolean notifyIfNone) throws InterruptedException {
+    public PSPayload recv(Long timeout, boolean notifyIfNone) throws InterruptedException {
         byte[] payload = super.receive(timeout, notifyIfNone);
-        return PSMsg.parseFrom(payload);
+        return PSPayload.parseFrom(payload);
     }
 
     /** @see SubSocket#recv(Long, boolean) */
-    public PSMsg recv(Long timeout) throws InterruptedException {
+    public PSPayload recv(Long timeout) throws InterruptedException {
         byte[] payload = super.receive(timeout, false);
-        return PSMsg.parseFrom(payload);
+        return PSPayload.parseFrom(payload);
     }
 
     /** @see SubSocket#recv(Long, boolean) */
-    public PSMsg recv() throws InterruptedException {
+    public PSPayload recv() throws InterruptedException {
         byte[] payload = super.receive(null, false);
-        return PSMsg.parseFrom(payload);
+        return PSPayload.parseFrom(payload);
     }
 
     public void subscribe(List<String> topics){
