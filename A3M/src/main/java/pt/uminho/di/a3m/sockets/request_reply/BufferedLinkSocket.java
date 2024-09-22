@@ -7,7 +7,7 @@ import pt.uminho.di.a3m.sockets.auxiliary.LinkSocketWatched;
 import java.util.LinkedList;
 import java.util.Queue;
 
-public class BufferedLinkSocket extends LinkSocketWatched {
+class BufferedLinkSocket extends LinkSocketWatched {
     private final Queue<Payload> outQ = new LinkedList<>();
 
     @Override

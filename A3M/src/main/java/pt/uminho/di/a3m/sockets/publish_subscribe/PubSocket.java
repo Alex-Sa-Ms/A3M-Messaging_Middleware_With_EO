@@ -6,6 +6,7 @@ import pt.uminho.di.a3m.core.exceptions.LinkClosedException;
 import pt.uminho.di.a3m.core.messaging.Payload;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 import pt.uminho.di.a3m.sockets.SocketsTable;
+import pt.uminho.di.a3m.sockets.auxiliary.LinkSocketWatched;
 import pt.uminho.di.a3m.sockets.configurable_socket.ConfigurableSocket;
 import pt.uminho.di.a3m.sockets.publish_subscribe.messaging.PSMsg;
 import pt.uminho.di.a3m.sockets.publish_subscribe.messaging.SubscriptionsPayload;
@@ -53,19 +54,19 @@ public class PubSocket extends ConfigurableSocket {
     }
 
     private record SubscriptionTask(
-        LinkSocket linkSocket,
+        PubLinkSocket linkSocket,
         byte type, // SUBSCRIBE or UNSUBSCRIBE
         List<String> topics // can only be null for an unsubscribe task and it simbolizes removing all subscriptions.
     ) {}
 
     private static class Subscription {
-        private final Set<LinkSocket> subscribers = new HashSet<>();
+        private final Set<PubLinkSocket> subscribers = new HashSet<>();
 
         /**
          * Adds a new subscriber
          * @apiNote assumes the socket's lock to be held
          */
-        void addSubscriber(LinkSocket subscriber){
+        void addSubscriber(PubLinkSocket subscriber){
             subscribers.add(subscriber);
         }
 
@@ -73,7 +74,7 @@ public class PubSocket extends ConfigurableSocket {
          * Removes a subscriber
          * @apiNote assumes the socket's lock to be held
          */
-        void removeSubscriber(LinkSocket subscriber){
+        void removeSubscriber(PubLinkSocket subscriber){
             subscribers.remove(subscriber);
         }
 
@@ -86,10 +87,10 @@ public class PubSocket extends ConfigurableSocket {
          * removing any subscribers with which a link is no longer established.
          * @param dest collection where the subscribers should be added to
          */
-        synchronized void getSubscribers(Collection<LinkSocket> dest){
+        synchronized void getSubscribers(Collection<PubLinkSocket> dest){
             if(dest != null) {
-                Iterator<LinkSocket> it = subscribers.iterator();
-                LinkSocket s;
+                Iterator<PubLinkSocket> it = subscribers.iterator();
+                PubLinkSocket s;
                 while (it.hasNext()) {
                     s = it.next();
                     if (s.getState() == LinkState.ESTABLISHED)
@@ -102,15 +103,28 @@ public class PubSocket extends ConfigurableSocket {
     }
 
     @Override
+    protected LinkSocketWatched createLinkSocketInstance(int peerProtocolId) {
+        return new PubLinkSocket();
+    }
+
+    @Override
+    protected void customOnLinkEstablished(LinkSocket linkSocket) {
+        ((PubLinkSocket) linkSocket).setCreditsWatcher();
+        super.customOnLinkEstablished(linkSocket);
+    }
+
+    @Override
     protected void customOnLinkClosed(LinkSocket linkSocket) {
         super.customOnLinkClosed(linkSocket);
+        PubLinkSocket pubLinkSocket = (PubLinkSocket) linkSocket;
+        pubLinkSocket.removeCreditsWatcher();
         boolean locked = getLock().writeLock().tryLock();
         try {
             // execute or "schedule" the unsubscription of all topics
             if (locked && tasks.isEmpty())
-                handleUnsubscribeTask(linkSocket, null);
+                handleUnsubscribeTask(pubLinkSocket, null);
             else
-                tasks.add(new SubscriptionTask(linkSocket, UNSUBSCRIBE, null));
+                tasks.add(new SubscriptionTask(pubLinkSocket, UNSUBSCRIBE, null));
         }finally {
             if(locked)
                 getLock().writeLock().unlock();
@@ -124,7 +138,7 @@ public class PubSocket extends ConfigurableSocket {
             LinkSocket linkSocket = getLinkSocket(peerId);
             // unsubscribe all topics
             if(linkSocket != null)
-                handleUnsubscribeTask(linkSocket, null);
+                handleUnsubscribeTask((PubLinkSocket) linkSocket, null);
             // then, unlink
             super.unlink(peerId);
         } finally {
@@ -155,11 +169,17 @@ public class PubSocket extends ConfigurableSocket {
                 // tasks that need to be handled first, then let the middleware
                 // thread handle the task
                 if (locked && tasks.isEmpty())
-                    handleSubscriptionTask(linkSocket, subPayload.getType(), subPayload.getTopics());
+                    handleSubscriptionTask(
+                            (PubLinkSocket) linkSocket,
+                            subPayload.getType(),
+                            subPayload.getTopics());
                 // else, queue a subscription task to be handled by a user thread
                 // before a publishing a message
                 else
-                    tasks.add(new SubscriptionTask(linkSocket, subPayload.getType(), subPayload.getTopics()));
+                    tasks.add(new SubscriptionTask(
+                                    (PubLinkSocket) linkSocket,
+                                    subPayload.getType(),
+                                    subPayload.getTopics()));
             } finally {
                 if (locked) getLock().writeLock().unlock();
             }
@@ -173,7 +193,7 @@ public class PubSocket extends ConfigurableSocket {
      *                   to subscribe/unsubscribe to topics.
      * @param type type of subscription
      */
-    private void handleSubscriptionTask(LinkSocket linkSocket, byte type, Collection<String> topics){
+    private void handleSubscriptionTask(PubLinkSocket linkSocket, byte type, Collection<String> topics){
         if (type == SUBSCRIBE)
             handleSubscribeTask(linkSocket, topics);
         else {
@@ -188,7 +208,7 @@ public class PubSocket extends ConfigurableSocket {
      * @param linkSocket link socket
      * @param topics topics to be subscribed.
      */
-    private void handleSubscribeTask(LinkSocket linkSocket, Collection<String> topics) {
+    private void handleSubscribeTask(PubLinkSocket linkSocket, Collection<String> topics) {
         getLock().writeLock().lock();
         try {
             Set<String> subscriberTopics =
@@ -216,7 +236,7 @@ public class PubSocket extends ConfigurableSocket {
      * @param linkSocket link socket
      * @param topics topics to be unsubscribed, or null if all topics should be unsubscribed.
      */
-    private void handleUnsubscribeTask(LinkSocket linkSocket, Collection<String> topics) {
+    private void handleUnsubscribeTask(PubLinkSocket linkSocket, Collection<String> topics) {
         getLock().writeLock().lock();
         try {
             Subscription subscription;
@@ -314,7 +334,7 @@ public class PubSocket extends ConfigurableSocket {
         // find all subscribers interested in the message,
         // i.e. all subscribers interested in a topic (or topics)
         // which has the message's topic as prefix
-        List<LinkSocket> subscribers = new ArrayList<>();
+        List<PubLinkSocket> subscribers = new ArrayList<>();
         if(!readLocked) getLock().readLock().lock();
         try {
             // gets all subscriptions which are prefixes of the topic
@@ -326,46 +346,85 @@ public class PubSocket extends ConfigurableSocket {
             getLock().readLock().unlock();
         }
 
-        /* TODO - to ensure the message is sent when interrupted, make link sockets
-                have a reservation counter and an outgoing queue. The reservation counter must match the amount of credits.
-                The reservation counter, as the name suggests, is used to make reservations.
-                Before sending a message, a reservation must be made for every subscriber.
-                If credits are reduced to a number inferior to the reservation counter, then, when
-                linkSocket.send() with a data message is invoked, messages are sent until the credits
-                reach 0 and then the excess is queued on the outgoing queue until credits arrive that
-                enable the messages to be sent. Reservations are obviously not allowed while the counter
-                is above or equal to the credit count.
-                If a subscriber does not allow a reservation at the moment, then the thread must wait until
-                 the reservation is allowed or the deadline is reached.
-                 If the deadline is reached before getting a reservation, then all reservations are undone,
-                 and the thread may return with false to indicate the operation timed out. If all reservations
-                 are made in a non-blocking way or before the deadline, then sending is now possible to all
-                 subscribers.
-                 If the thread is interrupted while waiting, all reservations should be canceled before throwing
-                 the exception.
-        * */
+        /* TODO - Order per topic is not provided, not globally nor locally.
+            Locally, the order would have to be dictated by the write lock as
+            to not allow sending of messages simultaneously. However, that would
+            mean threads would be competing for the write lock to know which
+            thread could send the message to the topic first. Regarding the global
+            scale, while holding the write lock allows the order of the messages
+            of the same topic to be delivered in the same order, the competition
+            among threads publishing to the same topic would still exist. This leads
+            me to believe that while the publisher socket can be used by multiple threads,
+            each thread should publish not publish to the same topics if order consistency
+            is required. Or, the user may opt to implement its own ordering of messages
+            over the middleware.
+            Another point is that if there are multiple publishers publishing to the same topic,
+            then order must be determined in another way, over the middleware. This is one more
+            reason to why relying in a single thread publisher per topic is ideal if ordering is
+            relevant.
+            .
+            Nevertheless, if such local order is still desirable, then:
+            Option 1:
+                - Opt for the reservation model;
+                - Hold write lock while searching for subscribers of interest and
+                effectively queuing the message to be sent. May lead to "stalling"
+                of the threads using the publisher socket since simply adding messages
+                each link's outgoing queue can lead to memory exhaustion.
+                -> (Doesn't seem to be a good solution)
+            Option 2:
+                - Have a map that maps topics to outgoing queues,
+                so that order can be maintained (locally) across topics.
+         */
 
-        // TODO - No order inside topic is provided
-
-        // if sent to any subscriber, then commit to send to all subscribers
-        // by setting the deadline to "null"
-        boolean sent = false;
-        ListIterator<LinkSocket> it = subscribers.listIterator();
-        LinkSocket subscriber;
+        // if reservating a credit for all subscribers fails,
+        // then do not send to any subscriber
+        InterruptedException interruptException = null;
+        boolean reserved = false;
+        ListIterator<PubLinkSocket> it = subscribers.listIterator();
+        PubLinkSocket subscriber;
         while (it.hasNext()){
-            subscriber = it.next();
-            try{
-                sent = subscriber.send(msg, deadline);
-                if(sent) {
-                    it.remove();
-                    deadline = null;
+            try {
+                subscriber = it.next();
+                reserved = subscriber.tryReserveUntil(deadline);
+            } catch (InterruptedException ie) {
+                // catch the interrupt exception,
+                // and throw it only after
+                // cancelling all reservations.
+                interruptException = ie;
+                reserved = false;
+            }
+
+            // if the credit reservation failed
+            // (timed out or the thread was interrupted),
+            // then cancel all reservations
+            if(!reserved) {
+                // first previous() returns the same element, so
+                // we don't want to cancel a reservation that could not be made.
+                it.previous();
+                while (it.hasPrevious()){
+                    subscriber = it.previous();
+                    subscriber.cancelReservation();
                 }
-            }catch (LinkClosedException lce){
-                it.remove();
+                if(interruptException != null)
+                    throw interruptException;
+                break;
             }
         }
 
-        return sent;
+        if(reserved) {
+            boolean sent;
+            while (it.hasPrevious()) {
+                subscriber = it.previous();
+                try {
+                    sent = subscriber.trySend(msg);
+                    assert sent;
+                } catch (LinkClosedException lce) {
+                    it.remove();
+                }
+            }
+        }
+
+        return reserved;
     }
 
     public boolean send(PSMsg msg) throws InterruptedException {
