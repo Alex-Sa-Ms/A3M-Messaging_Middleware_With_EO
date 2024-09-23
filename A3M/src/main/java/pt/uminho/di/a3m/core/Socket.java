@@ -21,6 +21,7 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Consumer;
 
 import static pt.uminho.di.a3m.core.auxiliary.ParkStateSocket.CHECK_IF_NONE;
 
@@ -372,10 +373,28 @@ public abstract class Socket {
         }
     }
 
+    /**
+     * @return list containing all link sockets
+     * @implNote Holds the socket's read lock.
+     */
     protected final List<LinkSocket> getLinkSockets(){
         lock.readLock().lock();
         try {
             return new ArrayList<>(linkSockets.values());
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Executes an action for all link sockets.
+     * @implNote Holds the socket's read lock.
+     */
+    protected final void forEachLinkSocket(Consumer<LinkSocket> action){
+        lock.readLock().lock();
+        try {
+            for (LinkSocket linkSocket : linkSockets.values())
+                action.accept(linkSocket);
         } finally {
             lock.readLock().unlock();
         }
@@ -419,19 +438,13 @@ public abstract class Socket {
     public final int waitForLinkEstablishment(SocketIdentifier peerId, Long timeout) throws InterruptedException {
         Long deadline = Timeout.calculateEndTime(timeout);
         // if link socket exists, then the link is already registered.
-        if(isLinked(peerId)) return 0;
+        if(isLinked(peerId)) return PollFlags.POLLINOUT_BITS;
         else {
             Link link = linkManager.getLink(peerId);
             if(link != null) {
                 // do non-blocking verification if the time has expired
                 boolean timedOut = Timeout.hasTimedOut(deadline);
-                if (timedOut) {
-                    return switch (link.getState()) {
-                        case ESTABLISHED -> PollFlags.POLLINOUT_BITS;
-                        case CLOSED -> PollFlags.POLLHUP;
-                        default -> 0;
-                    };
-                }
+                if (timedOut) return checkLinkEstablishment(link);
                 // add the thread as a waiter of the link
                 ParkState ps = new ParkState(true);
                 AtomicReference<WaitQueueEntry> wait = new AtomicReference<>(null);
@@ -443,25 +456,34 @@ public abstract class Socket {
                 }));
                 // if adding thread as waiter was not possible,
                 // then the link must have been closed, so return POLLHUP
-                if (wait.get() == null)
-                    return PollFlags.POLLHUP;
-                // Wait for wake-up call, for the deadline to be reached or
+                if (wait.get() == null) return PollFlags.POLLHUP;
+                // If no events were returned by the poll,
+                // wait for wake-up call, for the deadline to be reached or
                 // the thread to be interrupted.
+                int ret = checkLinkEstablishment(link);
                 try {
-                    WaitQueueEntry.parkStateWaitUntilFunction(deadline, ps, true);
-                    int events = 0;
-                    if (link.getState() == LinkState.ESTABLISHED)
-                        events |= PollFlags.POLLINOUT_BITS;
-                    return events;
+                    if(ret == 0) {
+                        WaitQueueEntry.parkStateWaitUntilFunction(deadline, ps, true);
+                        ret = checkLinkEstablishment(link);
+                    }
                 } finally {
                     // ensure the wait queue entry is deleted
                     wait.get().delete();
                 }
+                return ret;
             }else {
                 // if link does not exist, return POLLHUP immediately
                 return PollFlags.POLLHUP;
             }
         }
+    }
+
+    private int checkLinkEstablishment(Link link){
+        return switch (link.getState()) {
+            case ESTABLISHED -> PollFlags.POLLINOUT_BITS;
+            case CLOSED -> PollFlags.POLLHUP;
+            default -> 0;
+        };
     }
 
     /**
