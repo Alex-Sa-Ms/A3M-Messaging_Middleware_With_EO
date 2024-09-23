@@ -402,7 +402,7 @@ public class ConfigurableSocket extends Socket {
      * Non-blocking check of available link to receive.
      * @return true if there is a link available for receive.
      */
-    private boolean isReadyToReceive() throws InterruptedException {
+    protected boolean isReadyToReceive() throws InterruptedException {
         // if read poller is null, then the socket cannot receive messages
         if(readPoller == null) return false;
         return readPoller.hasEventsQuickCheck();
@@ -412,7 +412,7 @@ public class ConfigurableSocket extends Socket {
      * Non-blocking check of available link to send.
      * @return true if there is a link available to send.
      */
-    private boolean isReadyToSend() throws InterruptedException {
+    protected boolean isReadyToSend() throws InterruptedException {
         // if write poller is null, then the socket cannot send messages
         if(writePoller == null) return false;
         return writePoller.hasEventsQuickCheck();

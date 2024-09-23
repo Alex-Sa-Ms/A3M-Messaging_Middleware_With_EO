@@ -179,11 +179,6 @@ public class RouterSocket extends ConfigurableSocket {
     }
 
     @Override
-    protected boolean sendPayload(Payload payload, Long timeout, boolean notifyIfNone) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     protected boolean trySending(Payload payload) {
         throw new UnsupportedOperationException();
     }

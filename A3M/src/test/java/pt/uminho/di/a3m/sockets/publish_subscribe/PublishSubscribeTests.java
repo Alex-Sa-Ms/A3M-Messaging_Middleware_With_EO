@@ -6,6 +6,7 @@ import pt.uminho.di.a3m.core.*;
 import pt.uminho.di.a3m.poller.PollFlags;
 import pt.uminho.di.a3m.sockets.SocketsTable;
 import pt.uminho.di.a3m.sockets.publish_subscribe.messaging.PSPayload;
+import pt.uminho.di.a3m.sockets.publish_subscribe.messaging.SubscriptionsPayload;
 
 import java.net.SocketException;
 import java.net.UnknownHostException;
@@ -17,7 +18,7 @@ public class PublishSubscribeTests {
     A3MMiddleware middleware;
     int port;
     private final static List<SocketProducer> producerList =
-            List.of(SubSocket::new, PubSocket::new);
+            List.of(SubSocket::new, PubSocket::new, XPubSocket::new, XSubSocket::new);
 
 
     @BeforeEach
@@ -46,13 +47,13 @@ public class PublishSubscribeTests {
         Thread.sleep(20L);
         // send the same message and assert that it does arrive at the subscriber now
         assert publisher.send(newsMsg,0L);
-        PSPayload payload = subscriber.recv(20L);
+        PSPayload payload = subscriber.recv();
         assert newsMsg.equals(payload);
         // unsubscribe from "News"
         subscriber.unsubscribe(newsTopic);
         // wait a bit for the unsubscribe message to arrive
         Thread.sleep(20L);
-        // send the message again and assert that it does arrive at the subscriber again
+        // send the message again and assert that it does not arrive at the subscriber
         assert publisher.send(newsMsg,0L);
         assert subscriber.recv(20L) == null;
     }
@@ -116,7 +117,6 @@ public class PublishSubscribeTests {
         assert !sent;
     }
 
-    // TODO - stalling in this test
     @Test
     void publishTimeoutAndCancelReservationsTest() throws InterruptedException {
         PubSocket publisher = middleware.startSocket("Publisher", SocketsTable.PUB_PROTOCOL_ID, PubSocket.class);
@@ -321,9 +321,6 @@ public class PublishSubscribeTests {
         }
     }
 
-    // TODO 4 - make tasks be created (onIncomingSubscriptionMessage() & onLinkClosed())
-    //  and handled on send()
-
     /**
      * Make subscription tasks be scheduled.
      */
@@ -437,4 +434,104 @@ public class PublishSubscribeTests {
             assert false; // illegal state exception should be thrown
         } catch (IllegalStateException ignored) {}
     }
+
+    @Test
+    void XPubSocketReceivingSubscribeAndUnsubscribeMessagesTest() throws InterruptedException {
+        XPubSocket xpublisher = middleware.startSocket("XPublisher", SocketsTable.XPUB_PROTOCOL_ID, XPubSocket.class);
+        SubSocket subscriber = middleware.startSocket("Subscriber", SocketsTable.SUB_PROTOCOL_ID, SubSocket.class);
+        // link and wait for the link to be established
+        subscriber.link(xpublisher.getId());
+        assert (subscriber.waitForLinkEstablishment(xpublisher.getId(), null) & PollFlags.POLLINOUT_BITS) != 0;
+        // subscribe to "News"
+        subscriber.subscribe("News");
+        assert xpublisher.receive() != null;
+        // unsubscribe to "News"
+        subscriber.unsubscribe("News");
+        assert xpublisher.receive() != null;
+    }
+
+    @Test
+    void XSubSocketSubscribingAndUnsubscribingUsingMessages() throws InterruptedException {
+        XSubSocket xSubscriber = middleware.startSocket("XSubscriber", SocketsTable.XSUB_PROTOCOL_ID, XSubSocket.class);
+        PubSocket publisher = middleware.startSocket("Publisher", SocketsTable.PUB_PROTOCOL_ID, PubSocket.class);
+        // link and wait for the link to be established
+        xSubscriber.link(publisher.getId());
+        assert (xSubscriber.waitForLinkEstablishment(publisher.getId(), null) & PollFlags.POLLINOUT_BITS) != 0;
+        // create subscribe message for the "News" topic
+        final String newsTopic = "News";
+        SubscriptionsPayload subPayload = new SubscriptionsPayload(
+                SubscriptionsPayload.SUBSCRIBE,
+                List.of(newsTopic));
+        xSubscriber.send(subPayload);
+        // wait a bit for the subscription to arrive
+        Thread.sleep(20L);
+        // send the same message and assert that it arrives at the xsubscriber
+        final PSPayload newsMsg = new PSPayload(newsTopic,"Breaking News!");
+        assert publisher.send(newsMsg,0L);
+        PSPayload payload = xSubscriber.recv();
+        assert newsMsg.equals(payload);
+        // unsubscribe from "News"
+        subPayload = new SubscriptionsPayload(
+                SubscriptionsPayload.UNSUBSCRIBE,
+                List.of(newsTopic));
+        xSubscriber.send(subPayload);
+        // wait a bit for the unsubscribe message to arrive
+        Thread.sleep(20L);
+        // send the message again and assert that it does not arrive at the subscriber
+        assert publisher.send(newsMsg,0L);
+        assert xSubscriber.recv(20L) == null;
+    }
+
+    @Test
+    void multiHopTest() throws InterruptedException {
+        SubSocket subscriber = middleware.startSocket("Subscriber", SocketsTable.SUB_PROTOCOL_ID, SubSocket.class);
+        XPubSocket xPublisher = middleware.startSocket("XPublisher", SocketsTable.XPUB_PROTOCOL_ID, XPubSocket.class);
+        XSubSocket xSubscriber = middleware.startSocket("XSubscriber", SocketsTable.XSUB_PROTOCOL_ID, XSubSocket.class);
+        PubSocket publisher = middleware.startSocket("Publisher", SocketsTable.PUB_PROTOCOL_ID, PubSocket.class);
+        // link subscriber to xPublisher
+        subscriber.link(xPublisher.getId());
+        // link xSubscriber to publisher
+        xSubscriber.link(publisher.getId());
+        // wait for the links to be established
+        assert (subscriber.waitForLinkEstablishment(xPublisher.getId(), null) & PollFlags.POLLINOUT_BITS) != 0;
+        assert (xSubscriber.waitForLinkEstablishment(publisher.getId(), null) & PollFlags.POLLINOUT_BITS) != 0;
+
+        // make subscriber subscribe to "News"
+        subscriber.subscribe("News");
+        // check that the subscribe message can be received
+        // by xPublisher
+        byte[] subMsg = xPublisher.receive();
+        assert subMsg != null;
+        // forward the subscribe message to publisher using
+        // the xSubscriber socket
+        xSubscriber.send(subMsg);
+        // wait a bit for the subscribe message to be received by the publisher
+        Thread.sleep(20L);
+        // make publisher publish a message to the "News" topic
+        PSPayload psPayload = new PSPayload("News", "A message...");
+        publisher.send(psPayload);
+        // assert the published message reaches the xSubscriber
+        byte[] msg = xSubscriber.receive();
+        assert msg != null;
+        // forward the message to the subscriber using xPublisher
+        xPublisher.send(msg);
+        // assert the message reaches the subscriber
+        assert psPayload.equals(subscriber.recv());
+
+        // make subscriber unsubscribe from "News"
+        subscriber.unsubscribe("News");
+        subMsg = xPublisher.receive();
+        assert subMsg != null;
+        xSubscriber.send(subMsg);
+        // wait a bit for the subscribe message to be received by the publisher
+        Thread.sleep(20L);
+        // make publisher publish again a message to the "News" topic
+        publisher.send(psPayload);
+        // assert the published message does not reach xSubscriber now
+        msg = xSubscriber.receive(20L);
+        assert msg == null;
+    }
+
+    // TODO - test multiple threads publishing to multiple topics concurrently
+
 }

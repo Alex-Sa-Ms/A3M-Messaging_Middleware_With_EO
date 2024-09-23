@@ -87,18 +87,20 @@ public class PSPayload implements Payload {
      * is not a publish-subscribe message.
      */
     public static PSPayload parseFrom(byte[] rawPayload){
-        try {
-            ByteBuffer buffer = ByteBuffer.wrap(rawPayload);
-            // get topic
-            int length = buffer.getInt();
-            byte[] topic = new byte[length];
-            buffer.get(topic, 0, length);
-            // get payload
-            length = buffer.getInt();
-            byte[] payload = new byte[length];
-            buffer.get(payload, 0, length);
-            return new PSPayload(topic, payload);
-        } catch (Exception ignored) {}
+        if(rawPayload != null) {
+            try {
+                ByteBuffer buffer = ByteBuffer.wrap(rawPayload);
+                // get topic
+                int length = buffer.getInt();
+                byte[] topic = new byte[length];
+                buffer.get(topic, 0, length);
+                // get payload
+                length = buffer.getInt();
+                byte[] payload = new byte[length];
+                buffer.get(payload, 0, length);
+                return new PSPayload(topic, payload);
+            } catch (Exception ignored) {}
+        }
         return null;
     }
 

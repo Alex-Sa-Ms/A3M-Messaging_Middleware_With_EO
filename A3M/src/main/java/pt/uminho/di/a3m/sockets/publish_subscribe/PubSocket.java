@@ -230,7 +230,11 @@ public class PubSocket extends ConfigurableSocket {
                 // register subscriber if it is not subscribed yet
                 // create subscription for the topic if one is not found
                 if(subscriberTopics.add(topic)) {
-                    subscription = subscriptions.computeIfAbsent(topic, t -> new Subscription());
+                    subscription = subscriptions.computeIfAbsent(topic,
+                            t -> {
+                        onTopicCreation(topic);
+                        return new Subscription();
+                    });
                     // adds link socket to the topic's collection of subscribers
                     subscription.addSubscriber(linkSocket);
                 }
@@ -265,8 +269,10 @@ public class PubSocket extends ConfigurableSocket {
                     if(subscriberTopics.remove(topic)) {
                         subscription = subscriptions.get(topic);
                         subscription.removeSubscriber(linkSocket);
-                        if (!subscription.hasSubscribers())
+                        if (!subscription.hasSubscribers()) {
                             subscriptions.remove(topic);
+                            onTopicDeletion(topic);
+                        }
                     }
                 }
             }
@@ -294,6 +300,10 @@ public class PubSocket extends ConfigurableSocket {
     public Set<Protocol> getCompatibleProtocols() {
         return compatProtocols;
     }
+
+    protected void onTopicCreation(String topic){}
+
+    protected void onTopicDeletion(String topic){}
 
     @Override
     protected SocketMsg tryReceiving() {

@@ -976,7 +976,7 @@ public abstract class Socket {
      * and there aren't any links regardless of the state being established,
      * linking, etc.
      */
-    protected SocketMsg receiveMsg(Long timeout, boolean notifyIfNone) throws InterruptedException {
+    protected final SocketMsg receiveMsg(Long timeout, boolean notifyIfNone) throws InterruptedException {
         SocketMsg msg;
         Long deadline = Timeout.calculateEndTime(timeout);
         ParkStateSocket ps = null;
@@ -1096,7 +1096,7 @@ public abstract class Socket {
      * and there aren't any links regardless of the state being established,
      * linking, etc.
      */
-    protected boolean sendPayload(Payload payload, Long timeout, boolean notifyIfNone) throws InterruptedException {
+    protected final boolean sendPayload(Payload payload, Long timeout, boolean notifyIfNone) throws InterruptedException {
         if(payload == null)
             throw new IllegalArgumentException("Payload must not be null.");
 
