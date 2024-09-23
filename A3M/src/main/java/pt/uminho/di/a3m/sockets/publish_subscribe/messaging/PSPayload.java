@@ -9,11 +9,11 @@ import java.util.Arrays;
 /**
  * Publish-Subscribe Message
  */
-public class PSMsg implements Payload {
+public class PSPayload implements Payload {
     private final String topic;
     private final byte[] content;
 
-    public PSMsg(byte[] topic, byte[] content) {
+    public PSPayload(byte[] topic, byte[] content) {
         if(topic == null)
             throw new IllegalArgumentException("Topic is null");
         if(content == null)
@@ -22,7 +22,7 @@ public class PSMsg implements Payload {
         this.content = content;
     }
 
-    public PSMsg(String topic, byte[] content) {
+    public PSPayload(String topic, byte[] content) {
         if(topic == null)
             throw new IllegalArgumentException("Topic is null");
         if(content == null)
@@ -31,7 +31,7 @@ public class PSMsg implements Payload {
         this.content = content;
     }
 
-    public PSMsg(String topic, String content) {
+    public PSPayload(String topic, String content) {
         if(topic == null)
             throw new IllegalArgumentException("Topic is null");
         if(content == null)
@@ -86,7 +86,7 @@ public class PSMsg implements Payload {
      * @return publish-subscribe message, or null if the raw payload
      * is not a publish-subscribe message.
      */
-    public static PSMsg parseFrom(byte[] rawPayload){
+    public static PSPayload parseFrom(byte[] rawPayload){
         try {
             ByteBuffer buffer = ByteBuffer.wrap(rawPayload);
             // get topic
@@ -97,7 +97,7 @@ public class PSMsg implements Payload {
             length = buffer.getInt();
             byte[] payload = new byte[length];
             buffer.get(payload, 0, length);
-            return new PSMsg(topic, payload);
+            return new PSPayload(topic, payload);
         } catch (Exception ignored) {}
         return null;
     }
@@ -107,12 +107,10 @@ public class PSMsg implements Payload {
         if (this == object) return true;
         if (object == null || getClass() != object.getClass()) return false;
 
-        PSMsg psMsg = (PSMsg) object;
+        PSPayload psMsg = (PSPayload) object;
 
         if (!topic.equals(psMsg.topic)) return false;
-        if (!Arrays.equals(content, psMsg.content)) return false;
-
-        return true;
+        return Arrays.equals(content, psMsg.content);
     }
 
     @Override

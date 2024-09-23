@@ -3,6 +3,7 @@ package pt.uminho.di.a3m.sockets.publish_subscribe;
 import pt.uminho.di.a3m.core.LinkSocket;
 import pt.uminho.di.a3m.core.Protocol;
 import pt.uminho.di.a3m.core.SocketIdentifier;
+import pt.uminho.di.a3m.core.SocketState;
 import pt.uminho.di.a3m.core.exceptions.LinkClosedException;
 import pt.uminho.di.a3m.sockets.SocketsTable;
 import pt.uminho.di.a3m.sockets.configurable_socket.ConfigurableSocket;
@@ -18,7 +19,7 @@ import java.util.Set;
 
 public class SubSocket extends ConfigurableSocket {
     public static final Protocol protocol = SocketsTable.SUB_PROTOCOL;
-    public static final Set<Protocol> compatProtocols = Set.of(SocketsTable.PUB_PROTOCOL);
+    public static final Set<Protocol> compatProtocols = Set.of(SocketsTable.PUB_PROTOCOL, SocketsTable.XPUB_PROTOCOL);
     // set of subscribed topics
     private final Set<String> subscriptions = new HashSet<>();
 
@@ -66,22 +67,26 @@ public class SubSocket extends ConfigurableSocket {
      * all information regarding the semantics of the 'receive()' method.
      */
     public PSPayload recv(Long timeout, boolean notifyIfNone) throws InterruptedException {
-        byte[] payload = super.receive(timeout, notifyIfNone);
+        byte[] payload = receive(timeout, notifyIfNone);
         return PSPayload.parseFrom(payload);
     }
 
     /** @see SubSocket#recv(Long, boolean) */
     public PSPayload recv(Long timeout) throws InterruptedException {
-        byte[] payload = super.receive(timeout, false);
-        return PSPayload.parseFrom(payload);
+        return recv(timeout, false);
     }
 
     /** @see SubSocket#recv(Long, boolean) */
     public PSPayload recv() throws InterruptedException {
-        byte[] payload = super.receive(null, false);
-        return PSPayload.parseFrom(payload);
+        return recv(null, false);
     }
 
+    /**
+     * To subscribe a list of topics.
+     * @param topics list of topics that should be subscribed.
+     * @throws IllegalStateException if the state is not in a ready state,
+     * which is the only state that allows topics to be subscribed/unsubscribed.
+     */
     public void subscribe(List<String> topics){
         if(topics == null)
             throw new IllegalArgumentException("Topics is null.");
@@ -89,26 +94,46 @@ public class SubSocket extends ConfigurableSocket {
         SubscriptionsPayload subscribe;
         getLock().writeLock().lock();
         try {
+            // check if socket is in a ready state
+            if(getState() != SocketState.READY)
+                throw new IllegalStateException("Socket's state does not allow subscribing.");
             subscribe = new SubscriptionsPayload(SubscriptionsPayload.SUBSCRIBE);
             for (String topic : topics)
                 if (subscriptions.add(topic))
                     subscribe.addTopic(topic);
+            getLock().readLock().lock();
         } finally {
             getLock().writeLock().unlock();
         }
 
-        if(subscribe.hasTopics()) {
-            for (LinkSocket ls : getLinkSockets()) {
-                try { ls.send(subscribe, 0L); }
-                catch (InterruptedException | LinkClosedException ignored) {}
+        try {
+            if (subscribe.hasTopics()) {
+                forEachLinkSocket(linkSocket -> {
+                    try { linkSocket.send(subscribe, 0L); }
+                    catch (InterruptedException | LinkClosedException ignored) {}
+                });
             }
+        }finally {
+            getLock().readLock().unlock();
         }
     }
 
+    /**
+     * To subscribe a topic.
+     * @param topic topic that should be subscribed.
+     * @throws IllegalStateException if the state is not in a ready state,
+     * which is the only state that allows topics to be subscribed/unsubscribed.
+     */
     public void subscribe(String topic){
         subscribe(List.of(topic));
     }
 
+    /**
+     * To unsubscribe a list of topics.
+     * @param topics list of topics that should be unsubscribed.
+     * @throws IllegalStateException if the state is not in a ready state,
+     * which is the only state that allows topics to be subscribed/unsubscribed.
+     */
     public void unsubscribe(List<String> topics){
         if(topics == null)
             throw new IllegalArgumentException("Topics is null.");
@@ -116,22 +141,36 @@ public class SubSocket extends ConfigurableSocket {
         SubscriptionsPayload unsubscribe;
         getLock().writeLock().lock();
         try {
+            // check if socket is in a ready state
+            if(getState() != SocketState.READY)
+                throw new IllegalStateException("Socket's state does not allow unsubscribing.");
             unsubscribe = new SubscriptionsPayload(SubscriptionsPayload.UNSUBSCRIBE);
             for (String topic : topics)
                 if (subscriptions.remove(topic))
                     unsubscribe.addTopic(topic);
+            getLock().readLock().lock();
         } finally {
             getLock().writeLock().unlock();
         }
 
-        if(unsubscribe.hasTopics()) {
-            for (LinkSocket ls : getLinkSockets()) {
-                try { ls.send(unsubscribe, 0L); }
-                catch (Exception ignored) {}
+        try {
+            if (unsubscribe.hasTopics()) {
+                forEachLinkSocket(linkSocket -> {
+                    try { linkSocket.send(unsubscribe, 0L); }
+                    catch (InterruptedException | LinkClosedException ignored) {}
+                });
             }
+        }finally {
+            getLock().readLock().unlock();
         }
     }
 
+    /**
+     * To unsubscribe a topic.
+     * @param topic topic that should be unsubscribed.
+     * @throws IllegalStateException if the state is not in a ready state,
+     * which is the only state that allows topics to be subscribed/unsubscribed.
+     */
     public void unsubscribe(String topic){
         unsubscribe(List.of(topic));
     }

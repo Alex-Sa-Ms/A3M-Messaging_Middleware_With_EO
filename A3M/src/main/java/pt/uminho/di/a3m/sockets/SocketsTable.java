@@ -49,4 +49,8 @@ public class SocketsTable {
     public static final Protocol PUB_PROTOCOL = new Protocol(PUB_PROTOCOL_ID, "Pub-Sub Publisher");
     public static final int SUB_PROTOCOL_ID = 8;
     public static final Protocol SUB_PROTOCOL = new Protocol(SUB_PROTOCOL_ID, "Pub-Sub Subscriber");
+    public static final int XPUB_PROTOCOL_ID = 9;
+    public static final Protocol XPUB_PROTOCOL = new Protocol(XPUB_PROTOCOL_ID, "Pub-Sub X-Publisher");
+    public static final int XSUB_PROTOCOL_ID = 10;
+    public static final Protocol XSUB_PROTOCOL = new Protocol(XSUB_PROTOCOL_ID, "Pub-Sub X-Subscriber");
 }

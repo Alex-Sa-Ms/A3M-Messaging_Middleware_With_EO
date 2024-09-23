@@ -13,6 +13,9 @@ import pt.uminho.di.a3m.sockets.publish_subscribe.messaging.SubscriptionsPayload
 
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static pt.uminho.di.a3m.sockets.publish_subscribe.messaging.SubscriptionsPayload.SUBSCRIBE;
 import static pt.uminho.di.a3m.sockets.publish_subscribe.messaging.SubscriptionsPayload.UNSUBSCRIBE;
@@ -39,7 +42,7 @@ import static pt.uminho.di.a3m.sockets.publish_subscribe.messaging.Subscriptions
  */
 public class PubSocket extends ConfigurableSocket {
     public static final Protocol protocol = SocketsTable.PUB_PROTOCOL;
-    public static final Set<Protocol> compatProtocols = Set.of(SocketsTable.SUB_PROTOCOL);
+    public static final Set<Protocol> compatProtocols = Set.of(SocketsTable.SUB_PROTOCOL, SocketsTable.XSUB_PROTOCOL);
     // for fast retrieval of subscribers that have subscribed a topic that is a prefix
     // of the topic of the message being published
     private final PatriciaTrie<Subscription> subscriptions = new PatriciaTrie<>();
@@ -48,7 +51,12 @@ public class PubSocket extends ConfigurableSocket {
     // Queue of subscribe/unsubscribe tasks that could not be
     // executed immediately by the middleware thread
     private final ConcurrentLinkedQueue<SubscriptionTask> tasks = new ConcurrentLinkedQueue<>();
-
+    // Needs a "private" lock different from the socket's base lock since
+    // sending operations can hold the read lock for a long time, leaving
+    // the middleware thread to execute basic socket operations such as closing links,
+    // delivering messages, etc.
+    private final ReadWriteLock plock = new ReentrantReadWriteLock();
+    
     public PubSocket(SocketIdentifier sid) {
         super(sid, false, true, true);
     }
@@ -81,25 +89,6 @@ public class PubSocket extends ConfigurableSocket {
         boolean hasSubscribers(){
             return !subscribers.isEmpty();
         }
-
-        /**
-         * Gets subscribers, adding them to a collection given as argument and
-         * removing any subscribers with which a link is no longer established.
-         * @param dest collection where the subscribers should be added to
-         */
-        synchronized void getSubscribers(Collection<PubLinkSocket> dest){
-            if(dest != null) {
-                Iterator<PubLinkSocket> it = subscribers.iterator();
-                PubLinkSocket s;
-                while (it.hasNext()) {
-                    s = it.next();
-                    if (s.getState() == LinkState.ESTABLISHED)
-                        dest.add(s);
-                    else
-                        it.remove();
-                }
-            }
-        }
     }
 
     @Override
@@ -117,33 +106,53 @@ public class PubSocket extends ConfigurableSocket {
     protected void customOnLinkClosed(LinkSocket linkSocket) {
         super.customOnLinkClosed(linkSocket);
         PubLinkSocket pubLinkSocket = (PubLinkSocket) linkSocket;
-        pubLinkSocket.removeCreditsWatcher();
-        boolean locked = getLock().writeLock().tryLock();
+        pubLinkSocket.removeCreditsWatcherAndStopReservations();
+        boolean locked = plock.writeLock().tryLock();
         try {
             // execute or "schedule" the unsubscription of all topics
             if (locked && tasks.isEmpty())
-                handleUnsubscribeTask(pubLinkSocket, null);
+                unsubscribeAll(pubLinkSocket);
             else
                 tasks.add(new SubscriptionTask(pubLinkSocket, UNSUBSCRIBE, null));
         }finally {
             if(locked)
-                getLock().writeLock().unlock();
+                plock.writeLock().unlock();
         }
     }
 
     @Override
     public void unlink(SocketIdentifier peerId) {
-        getLock().writeLock().lock();
+        boolean wLocked = plock.writeLock().tryLock();
         try {
             LinkSocket linkSocket = getLinkSocket(peerId);
-            // unsubscribe all topics
-            if(linkSocket != null)
-                handleUnsubscribeTask((PubLinkSocket) linkSocket, null);
-            // then, unlink
+            if(linkSocket instanceof PubLinkSocket pubLinkSocket) {
+                // if the write lock could be acquired, then
+                // remove subscriptions so that messages
+                // are not sent to this peer
+                if(wLocked)
+                    unsubscribeAll(pubLinkSocket);
+                // else, add a task to unsubscribe all topics
+                else
+                    tasks.add(new SubscriptionTask(pubLinkSocket, UNSUBSCRIBE, null));
+                // stop any ongoing reservations
+                pubLinkSocket.removeCreditsWatcherAndStopReservations();
+            }
             super.unlink(peerId);
         } finally {
-            getLock().writeLock().unlock();
+            if(wLocked) plock.writeLock().unlock();
         }
+    }
+
+    /**
+     * Unsubscribes all topics associated with the link socket.
+     * @param linkSocket link socket
+     * @implNote Assumes socket's write-lock to be held.
+     */
+    private void unsubscribeAll(PubLinkSocket linkSocket){
+        // unsubscribe all topics
+        tasks.removeIf(sb -> sb.linkSocket() == linkSocket);
+        if(linkSocket != null)
+            handleUnsubscribeTask(linkSocket, null);
     }
 
     @Override
@@ -163,7 +172,7 @@ public class PubSocket extends ConfigurableSocket {
                         msg.getPayload());
         // if message is a valid subscription message
         if(subPayload != null) {
-            boolean locked = getLock().writeLock().tryLock();
+            boolean locked = plock.writeLock().tryLock();
             try {
                 // if write lock was acquired and there aren't any subscription
                 // tasks that need to be handled first, then let the middleware
@@ -181,7 +190,7 @@ public class PubSocket extends ConfigurableSocket {
                                     subPayload.getType(),
                                     subPayload.getTopics()));
             } finally {
-                if (locked) getLock().writeLock().unlock();
+                if (locked) plock.writeLock().unlock();
             }
         }
         return null;
@@ -209,7 +218,7 @@ public class PubSocket extends ConfigurableSocket {
      * @param topics topics to be subscribed.
      */
     private void handleSubscribeTask(PubLinkSocket linkSocket, Collection<String> topics) {
-        getLock().writeLock().lock();
+        plock.writeLock().lock();
         try {
             Set<String> subscriberTopics =
                     subscribers.computeIfAbsent(
@@ -227,7 +236,7 @@ public class PubSocket extends ConfigurableSocket {
                 }
             }
         } finally {
-            getLock().writeLock().unlock();
+            plock.writeLock().unlock();
         }
     }
 
@@ -237,14 +246,17 @@ public class PubSocket extends ConfigurableSocket {
      * @param topics topics to be unsubscribed, or null if all topics should be unsubscribed.
      */
     private void handleUnsubscribeTask(PubLinkSocket linkSocket, Collection<String> topics) {
-        getLock().writeLock().lock();
+        plock.writeLock().lock();
         try {
             Subscription subscription;
             Set<String> subscriberTopics = subscribers.get(linkSocket.getPeerId());
 
             // if topics is null, then all the topics
             // of the subscriber must be removed.
-            if(topics == null) topics = subscriberTopics;
+            if(topics == null) {
+                subscribers.remove(linkSocket.getPeerId());
+                topics = subscriberTopics;
+            }
 
             if(subscriberTopics != null) {
                 for (String topic : topics) {
@@ -259,7 +271,7 @@ public class PubSocket extends ConfigurableSocket {
                 }
             }
         } finally {
-            getLock().writeLock().unlock();
+            plock.writeLock().unlock();
         }
     }
 
@@ -333,6 +345,8 @@ public class PubSocket extends ConfigurableSocket {
      * for the given topic). false, otherwise.
      * @apiNote If there aren't any subscribers, the method returns "true" immediately.
      * @throws IllegalArgumentException if the payload is not a publish-subscribe payload.
+     * @throws IllegalStateException if the state is not in a ready state, which is the only state
+     * that allows messages to be sent.
      */
     public boolean send(PSPayload payload, Long timeout) throws InterruptedException {
         if(payload == null)
@@ -344,8 +358,15 @@ public class PubSocket extends ConfigurableSocket {
         int nrTasks;
         boolean readLocked = false;
         if(!tasks.isEmpty()){
-            getLock().writeLock().lock();
+            if(timeout == null)
+                plock.writeLock().lock();
+            else
+                if(!plock.writeLock().tryLock(timeout, TimeUnit.MILLISECONDS))
+                    return false;
             try {
+                // check if socket is in a ready state
+                if(getState() != SocketState.READY)
+                    throw new IllegalStateException("Socket's state does not allow sending.");
                 // Only handle subscription tasks that were present
                 // at the moment of this verification.
                 // Any tasks added after it are to be handled in a
@@ -354,34 +375,37 @@ public class PubSocket extends ConfigurableSocket {
                 handleSubscriptionTasks(nrTasks);
                 // Acquire read lock before releasing the write lock
                 // to enable other threads to send messages concurrently
-                getLock().readLock().lock();
+                plock.readLock().lock();
                 readLocked = true;
             } finally {
-                getLock().writeLock().unlock();
+                plock.writeLock().unlock();
             }
         }
 
         // find all subscribers interested in the message,
         // i.e. all subscribers interested in a topic (or topics)
         // which has the message's topic as prefix
-        if(!readLocked) getLock().readLock().lock();
+        boolean reserved;
+        if(!readLocked) plock.readLock().lock();
         try {
+            // check if socket is in a ready state
+            if(getState() != SocketState.READY)
+                throw new IllegalStateException("Socket's state does not allow sending.");
             // gets all subscriptions which are prefixes of the topic
             List<Map.Entry<String, Subscription>> prefixesList =
                     subscriptions.prefixesList(payload.getTopic());
             // Attempt to reserve a credit for all subscribers.
             // If it fails, then do not send to any subscriber.
-            boolean reserved = makeReservations(prefixesList, deadline);
-
+            reserved = makeReservations(prefixesList, deadline);
             // After reserving credits for all subscribers,
             // consume the reservations and send the message
             // to all of them
-            if(reserved) consumeReservationAndSendMessage(prefixesList, payload);
+            if(reserved) consumeReservationsAndSendMessage(prefixesList, payload);
         } finally {
-            getLock().readLock().unlock();
+            plock.readLock().unlock();
         }
 
-        return true;
+        return reserved;
     }
 
     private boolean makeReservations(List<Map.Entry<String, Subscription>> prefixesList, Long deadline) throws InterruptedException {
@@ -393,17 +417,22 @@ public class PubSocket extends ConfigurableSocket {
             for (PubLinkSocket subscriber : entry.getValue().subscribers) {
                 try {
                     reserved = subscriber.tryReserveUntil(deadline);
-                    reservations++;
                 } catch (InterruptedException ie) {
                     // catch the interrupt exception,
                     // and throw it only after
                     // cancelling all reservations.
                     interruptException = ie;
                     reserved = false;
+                } catch (LinkClosedException ignored) {
+                    // make it pass as a successful reservation
+                    reserved = true;
                 }
                 // if a credit was reserved for the subscriber, then
                 // jump to the next subscriber
-                if (reserved) continue;
+                if (reserved) {
+                    reservations++;
+                    continue;
+                }
                 // Else, if the operation timed out or the thread was
                 // interrupted, then cancel all reservations made
                 cancelReservations(prefixesList, reservations);
@@ -419,6 +448,7 @@ public class PubSocket extends ConfigurableSocket {
     }
 
     private void cancelReservations(List<Map.Entry<String, Subscription>> prefixesList, int reservations) {
+        if(reservations <= 0) return;
         for (Map.Entry<String,Subscription> entry : prefixesList) {
             for (PubLinkSocket subscriber : entry.getValue().subscribers) {
                 subscriber.cancelReservation();
@@ -428,13 +458,12 @@ public class PubSocket extends ConfigurableSocket {
         }
     }
 
-    private void consumeReservationAndSendMessage(List<Map.Entry<String, Subscription>> prefixesList, PSPayload payload){
+    private void consumeReservationsAndSendMessage(List<Map.Entry<String, Subscription>> prefixesList, PSPayload payload){
         for (Map.Entry<String, Subscription> entry : prefixesList) {
             for (PubLinkSocket subscriber : entry.getValue().subscribers) {
                 boolean sent;
                 try {
                     sent = subscriber.trySend(payload);
-                    assert sent;
                 } catch (LinkClosedException | InterruptedException ignored) {}
             }
         }

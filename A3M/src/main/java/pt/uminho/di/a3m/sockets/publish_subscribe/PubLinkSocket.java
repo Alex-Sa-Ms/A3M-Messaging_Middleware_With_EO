@@ -1,6 +1,7 @@
 package pt.uminho.di.a3m.sockets.publish_subscribe;
 
 import pt.uminho.di.a3m.auxiliary.Timeout;
+import pt.uminho.di.a3m.core.exceptions.LinkClosedException;
 import pt.uminho.di.a3m.poller.PollFlags;
 import pt.uminho.di.a3m.poller.PollQueueingFunc;
 import pt.uminho.di.a3m.poller.PollTable;
@@ -55,7 +56,7 @@ class PubLinkSocket extends LinkSocketWatchedWithOrder {
      * any waiters waiting to reserve a credit.
      * @implNote Assumes an invocation outside a concurrency context.
      */
-    public void removeCreditsWatcher(){
+    public void removeCreditsWatcherAndStopReservations(){
         if(creditsWatcher != null){
             creditsWatcher.delete();
             creditsWatcher = null;
@@ -78,12 +79,22 @@ class PubLinkSocket extends LinkSocketWatchedWithOrder {
      * the deadline.
      * @param deadline deadline to reserve a credit
      * @return true if a credit was reserved. false, otherwise.
+     * @throws LinkClosedException if link was closed.
      */
     public synchronized boolean tryReserveUntil(Long deadline) throws InterruptedException {
         // waits until reserving a credit is possible
         while (reservations >= getOutgoingCredits()
-                && !Timeout.hasTimedOut(deadline))
-            this.wait(deadline - System.currentTimeMillis());
+                && !Timeout.hasTimedOut(deadline)) {
+            if(creditsWatcher == null)
+                throw new LinkClosedException();
+            if(deadline == null)
+                this.wait();
+            else
+                this.wait(deadline - System.currentTimeMillis());
+        }
+
+        if(creditsWatcher == null)
+            throw new LinkClosedException();
 
         int credits = getOutgoingCredits();
         boolean reserved = reservations < credits;

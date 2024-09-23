@@ -91,6 +91,14 @@ public class PatriciaTrie<V> {
         this.root = new Node<>("", null);
     }
 
+    private Map.Entry<String,Node<V>> getRootNodeEntry(){
+        return new AbstractMap.SimpleEntry<>("",root);
+    }
+
+    private Map.Entry<String,V> getRootEntry(){
+        return new AbstractMap.SimpleEntry<>("",root.getValue());
+    }
+
     /**
      * Finds the node that represents the given key, or if such node
      * does not exist, returns the node that would be the parent
@@ -134,16 +142,14 @@ public class PatriciaTrie<V> {
         if("".equals(key)) return null;
 
         SelectIterator sIt = selectIterator(key);
-        Map.Entry<String, Node<V>> parentEntry = null, entry = null;
+        Map.Entry<String, Node<V>> parentEntry = getRootNodeEntry(),
+                                   entry = parentEntry;
         while (sIt.hasNext()) {
             parentEntry = entry;
             entry = sIt.next();
         }
-        // if parent entry is null, then the parent entry is the root
-        if(parentEntry == null)
-            parentEntry = sIt.next();
         // if entry is different from null, check if it is not a parent node
-        if(entry != null && !entry.getKey().equals(key))
+        if(!entry.getKey().equals(key))
             parentEntry = entry;
         return parentEntry;
     }
@@ -413,7 +419,7 @@ public class PatriciaTrie<V> {
 
         // add root entry if the value is not null
         if(root.getValue() != null)
-            entryList.add(new AbstractMap.SimpleEntry<>("",root.getValue()));
+            entryList.add(getRootEntry());
         while (sIt.hasNext()){
             Map.Entry<String,Node<V>> nodeEntry = sIt.next();
             V value = nodeEntry.getValue().getValue();
