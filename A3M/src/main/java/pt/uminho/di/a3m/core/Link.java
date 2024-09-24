@@ -445,13 +445,8 @@ public class Link implements Pollable {
 
         // if a wait queue entry does not exist, then
         // the method must return now.
-        if(wait == null){
-            // if the operation was blocking and if there are
-            // incoming messages available, then notify a waiter
-            if(!timedOut && hasAvailableIncomingMessages())
-                waitQ.fairWakeUp(0, 1, 0, PollFlags.POLLIN);
+        if(wait == null)
             return msg;
-        }
 
         try {
             while (true) {
@@ -568,13 +563,8 @@ public class Link implements Pollable {
 
         // if a wait queue entry does not exist, then
         // the method must return now.
-        if(wait == null){
-            // if the operation was blocking and if there are
-            // outgoing credits available, then notify a waiter
-            if(!timedOut && hasOutgoingCredits())
-                waitQ.fairWakeUp(0, 1, 0, PollFlags.POLLOUT);
+        if(wait == null)
             return ret;
-        }
 
         try {
             while (true) {
