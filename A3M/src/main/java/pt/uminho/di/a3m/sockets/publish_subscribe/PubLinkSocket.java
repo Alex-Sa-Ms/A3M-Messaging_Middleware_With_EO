@@ -132,26 +132,6 @@ class PubLinkSocket extends LinkSocketWatchedWithOrder {
 
     @Override
     public boolean trySendDataWithOrder(byte[] payload) throws InterruptedException {
-        /*  TODO - > Problem 1: cannot remove reservation since another thread could make a reservation
-                    thinking that there are credits to accomodate another reservation, while, in fact,
-                    a message is on the process of being sent.
-                   > Problem 2: sending without having something to "lock" the reservation is also not
-                    possible since a bad utilization of the socket would mean multiple sends
-                    being allowed and the reservations could become a negative value.
-                   > Solution:
-                        1. Make creditsWatcher volatile
-                        2. Use synchronized on the link socket for all operations regarding reservations
-                            with the synchronized being acquired before doing a reading operation on the link.
-                        3. In a normal case, holding synchronized while performing writing operations on the
-                         link would not be a problem, however, since there is a need for a credits watcher to exist
-                         that needs to hold the synchronized block of the link socket, then,
-                         holding the synchronized block for writing operations means a possibility for deadlock
-                         if the writing operation attempts to notify a waiter (i.e. if it needs to hold the link's
-                         wait queue lock already held by the thread notifying the credits watcher callback).
-                            - So, writing operations should be safeguarded by the reservation algorithm so that while
-                            the synchronized block is released during the writing operation, the state does not
-                            become inconsistent with what a thread returning from the writing operation would expect.
-         */
         boolean ret = false;
         // lock a reservation
         synchronized (this){

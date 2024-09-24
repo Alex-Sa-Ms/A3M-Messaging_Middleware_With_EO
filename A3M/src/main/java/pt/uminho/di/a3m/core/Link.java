@@ -425,27 +425,35 @@ public class Link implements Pollable {
     public SocketMsg receive(Long deadline) throws InterruptedException {
         SocketMsg msg;
         WaitQueueEntry wait = null;
-        ParkStateWithEvents ps;
+        ParkStateWithEvents ps = null;
         boolean timedOut = Timeout.hasTimedOut(deadline);
 
-        // TODO - convert receive() and send() to not notify waiters on non-blocking operations.
-
-        try {
-            synchronized (this) {
-                // if link is closed and queue is empty, messages cannot be received.
-                if (getState() == LinkState.CLOSED && !hasIncomingMessages())
-                    throw new LinkClosedException();
-                // try retrieving a message immediately
-                msg = tryPollingMessage();
-                if (msg != null) return msg;
-                // return if timed out
-                if (timedOut) return null;
+        synchronized (this) {
+            // if link is closed and queue is empty, messages cannot be received.
+            if (getState() == LinkState.CLOSED && !hasIncomingMessages())
+                throw new LinkClosedException();
+            // try retrieving a message immediately
+            msg = tryPollingMessage();
+            if (msg == null && !timedOut) {
                 // If a message could not be retrieved, make the caller a waiter
                 wait = queueDirectEventWaiter(PollFlags.POLLIN, true);
-                if (wait == null) return null; // if link is closed
-                ps = (ParkStateWithEvents) wait.getPriv();
+                // if queuing was successful, get the park state object
+                if (wait != null)
+                    ps = (ParkStateWithEvents) wait.getPriv();
             }
+        }
 
+        // if a wait queue entry does not exist, then
+        // the method must return now.
+        if(wait == null){
+            // if the operation was blocking and if there are
+            // incoming messages available, then notify a waiter
+            if(!timedOut && hasAvailableIncomingMessages())
+                waitQ.fairWakeUp(0, 1, 0, PollFlags.POLLIN);
+            return msg;
+        }
+
+        try {
             while (true) {
                 if (timedOut || getState() == LinkState.CLOSED)
                     break;
@@ -464,7 +472,7 @@ public class Link implements Pollable {
             }
         } finally {
             // delete entry since a hanging wait queue entry is not desired.
-            if(wait != null) wait.delete();
+            wait.delete();
             if (hasAvailableIncomingMessages())
                 waitQ.fairWakeUp(0, 1, 0, PollFlags.POLLIN);
         }
@@ -527,7 +535,7 @@ public class Link implements Pollable {
     public boolean send(Payload payload, Long deadline) throws InterruptedException {
         boolean ret = false;
         WaitQueueEntry wait = null;
-        ParkStateWithEvents ps;
+        ParkStateWithEvents ps = null;
         boolean timedOut = Timeout.hasTimedOut(deadline);
 
         if (payload == null)
@@ -539,25 +547,36 @@ public class Link implements Pollable {
                 && payload.getType() != MsgType.DATA)
             throw new IllegalArgumentException("Invalid payload type.");
 
-        try {
-            synchronized (this) {
-                // if link is closed, messages cannot be sent.
-                if (getState() == LinkState.CLOSED)
-                    throw new LinkClosedException();
-                // If message is a control message, then it can be dispatched immediately.
-                // In case of a data message, permission from the flow control is required.
-                if (payload.getType() != MsgType.DATA || tryConsumingCredit()) {
-                    dispatcher.onOutgoingMessage(this, payload);
-                    return true;
-                }
-                // return if timed out
-                if (timedOut) return false;
-                // If the message could not be sent, make the caller a waiter
+        synchronized (this) {
+            // if link is closed, messages cannot be sent.
+            if (getState() == LinkState.CLOSED)
+                throw new LinkClosedException();
+            // If message is a control message, then it can be dispatched immediately.
+            // In case of a data message, permission from the flow control is required.
+            if (payload.getType() != MsgType.DATA || tryConsumingCredit()) {
+                dispatcher.onOutgoingMessage(this, payload);
+                ret = true;
+            }
+            // If the message could not be sent and the
+            // operation is blocking, make the caller a waiter
+            if(!timedOut && !ret) {
                 wait = queueDirectEventWaiter(PollFlags.POLLOUT, true);
                 assert wait != null;
                 ps = (ParkStateWithEvents) wait.getPriv();
             }
+        }
 
+        // if a wait queue entry does not exist, then
+        // the method must return now.
+        if(wait == null){
+            // if the operation was blocking and if there are
+            // outgoing credits available, then notify a waiter
+            if(!timedOut && hasOutgoingCredits())
+                waitQ.fairWakeUp(0, 1, 0, PollFlags.POLLOUT);
+            return ret;
+        }
+
+        try {
             while (true) {
                 if (timedOut || getState() == LinkState.CLOSED)
                     break;
@@ -579,7 +598,7 @@ public class Link implements Pollable {
             }
         } finally {
             // delete entry since a hanging wait queue entry is not desired.
-            if(wait != null) wait.delete();
+            wait.delete();
             if (hasOutgoingCredits())
                 waitQ.fairWakeUp(0, 1, 0, PollFlags.POLLOUT);
         }
