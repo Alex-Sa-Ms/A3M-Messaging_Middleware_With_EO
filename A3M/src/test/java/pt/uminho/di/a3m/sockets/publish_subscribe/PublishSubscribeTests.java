@@ -1,5 +1,7 @@
 package pt.uminho.di.a3m.sockets.publish_subscribe;
 
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import pt.uminho.di.a3m.core.*;
@@ -11,6 +13,7 @@ import pt.uminho.di.a3m.sockets.publish_subscribe.messaging.SubscriptionsPayload
 import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -536,7 +539,7 @@ public class PublishSubscribeTests {
 
     // TODO - test multiple threads publishing to multiple topics concurrently
     @Test
-    void test() throws InterruptedException {
+    void publishing1On1() throws InterruptedException {
         PubSocket publisher = middleware.startSocket("Publisher", SocketsTable.PUB_PROTOCOL_ID, PubSocket.class);
         SubSocket subscriber = middleware.startSocket("Subscriber", SocketsTable.SUB_PROTOCOL_ID, SubSocket.class);
         // link and wait for the link to be established
@@ -570,4 +573,51 @@ public class PublishSubscribeTests {
 
         receiver.join();
     }
+
+    @Test
+    void multiThreadedPublishing() throws InterruptedException {
+        PubSocket publisher = middleware.startSocket("Publisher", SocketsTable.PUB_PROTOCOL_ID, PubSocket.class);
+        SubSocket subscriber = middleware.startSocket("Subscriber", SocketsTable.SUB_PROTOCOL_ID, SubSocket.class);
+        // link and wait for the link to be established
+        subscriber.link(publisher.getId());
+        assert (subscriber.waitForLinkEstablishment(publisher.getId(), null) & PollFlags.POLLINOUT_BITS) != 0;
+        // subscribe to topics
+        List<String> topics = List.of("News","Weather","Finance");
+        subscriber.subscribe(topics);
+        // wait a bit for the subscription to arrive
+        Thread.sleep(20L);
+        // create sender threads
+        final int seed = 2024;
+        final int nrThreads = 5;
+        final int nrMsgsPerThread = 1000;
+        Thread[] threads = new Thread[nrThreads];
+        for (int i = 0; i < nrThreads; i++) {
+            int finalI = i;
+            threads[i] = new Thread(() -> {
+                try {
+                    PSPayload psPayload = new PSPayload("");
+                    String topic;
+                    Random random = new Random(seed + finalI);
+                    for (int j = 0; j < nrMsgsPerThread; j++) {
+                        topic = topics.get(random.nextInt(0, topics.size()));
+                        psPayload.setTopic(topic);
+                        psPayload.setContentStr(String.valueOf(j));
+                        publisher.send(psPayload);
+                    }
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            threads[i].start();
+        }
+
+        int i = 0;
+        byte[] msg;
+        while (i < nrMsgsPerThread * nrThreads) {
+            msg = subscriber.receive();
+            if (msg != null) i++;
+        }
+    }
+
+    // Test - if message arrives at multiple subscribers
 }
