@@ -1,6 +1,8 @@
 package pt.uminho.di.a3m.sockets.request_reply;
 
-import pt.uminho.di.a3m.core.*;
+import pt.uminho.di.a3m.core.A3MMiddleware;
+import pt.uminho.di.a3m.core.Protocol;
+import pt.uminho.di.a3m.core.SocketIdentifier;
 import pt.uminho.di.a3m.sockets.SocketsTable;
 import pt.uminho.di.a3m.sockets.configurable_socket.ConfigurableSocket;
 
@@ -23,5 +25,31 @@ public class DealerSocket extends ConfigurableSocket {
     @Override
     public Set<Protocol> getCompatibleProtocols() {
         return compatProtocols;
+    }
+    
+    /**
+     * Creates DealerSocket.
+     * @param middleware middleware instance
+     * @param tagId tag identifier of the socket
+     * @return DealerSocket instance
+     * @implNote Assumes the middleware to have the DealerSocket producer registered.
+     */
+    public static DealerSocket createSocket(A3MMiddleware middleware, String tagId){
+        if(middleware == null)
+            throw new IllegalArgumentException("Middleware is null.");
+        return middleware.createSocket(tagId, protocol.id(), DealerSocket.class);
+    }
+
+    /**
+     * Creates and starts a DealerSocket.
+     * @param middleware middleware instance
+     * @param tagId tag identifier of the socket
+     * @return DealerSocket instance
+     * @implNote Assumes the middleware to have the DealerSocket producer registered.
+     */
+    public static DealerSocket startSocket(A3MMiddleware middleware, String tagId){
+        if(middleware == null)
+            throw new IllegalArgumentException("Middleware is null.");
+        return middleware.startSocket(tagId, protocol.id(), DealerSocket.class);
     }
 }

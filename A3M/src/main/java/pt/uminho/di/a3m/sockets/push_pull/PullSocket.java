@@ -1,5 +1,6 @@
 package pt.uminho.di.a3m.sockets.push_pull;
 
+import pt.uminho.di.a3m.core.A3MMiddleware;
 import pt.uminho.di.a3m.core.Protocol;
 import pt.uminho.di.a3m.core.SocketIdentifier;
 import pt.uminho.di.a3m.sockets.SocketsTable;
@@ -36,5 +37,31 @@ public class PullSocket extends ConfigurableSocket {
     @Override
     public Set<Protocol> getCompatibleProtocols() {
         return compatProtocols;
+    }
+    
+    /**
+     * Creates PullSocket.
+     * @param middleware middleware instance
+     * @param tagId tag identifier of the socket
+     * @return PullSocket instance
+     * @implNote Assumes the middleware to have the PullSocket producer registered.
+     */
+    public static PullSocket createSocket(A3MMiddleware middleware, String tagId){
+        if(middleware == null)
+            throw new IllegalArgumentException("Middleware is null.");
+        return middleware.createSocket(tagId, protocol.id(), PullSocket.class);
+    }
+
+    /**
+     * Creates and starts a PullSocket.
+     * @param middleware middleware instance
+     * @param tagId tag identifier of the socket
+     * @return PullSocket instance
+     * @implNote Assumes the middleware to have the PullSocket producer registered.
+     */
+    public static PullSocket startSocket(A3MMiddleware middleware, String tagId){
+        if(middleware == null)
+            throw new IllegalArgumentException("Middleware is null.");
+        return middleware.startSocket(tagId, protocol.id(), PullSocket.class);
     }
 }

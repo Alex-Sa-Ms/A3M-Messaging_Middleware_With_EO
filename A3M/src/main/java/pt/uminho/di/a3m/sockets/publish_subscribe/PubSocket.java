@@ -506,4 +506,30 @@ public class PubSocket extends ConfigurableSocket {
             throw new IllegalArgumentException("Not a valid publish-subscribe message.");
         return send(psPayload, timeout);
     }
+
+    /**
+     * Creates PubSocket.
+     * @param middleware middleware instance
+     * @param tagId tag identifier of the socket
+     * @return PubSocket instance
+     * @implNote Assumes the middleware to have the PubSocket producer registered.
+     */
+    public static PubSocket createSocket(A3MMiddleware middleware, String tagId){
+        if(middleware == null)
+            throw new IllegalArgumentException("Middleware is null.");
+        return middleware.createSocket(tagId, protocol.id(), PubSocket.class);
+    }
+
+    /**
+     * Creates and starts a PubSocket.
+     * @param middleware middleware instance
+     * @param tagId tag identifier of the socket
+     * @return PubSocket instance
+     * @implNote Assumes the middleware to have the PubSocket producer registered.
+     */
+    public static PubSocket startSocket(A3MMiddleware middleware, String tagId){
+        if(middleware == null)
+            throw new IllegalArgumentException("Middleware is null.");
+        return middleware.startSocket(tagId, protocol.id(), PubSocket.class);
+    }
 }

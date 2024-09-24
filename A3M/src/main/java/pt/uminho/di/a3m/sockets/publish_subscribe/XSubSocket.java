@@ -1,5 +1,6 @@
 package pt.uminho.di.a3m.sockets.publish_subscribe;
 
+import pt.uminho.di.a3m.core.A3MMiddleware;
 import pt.uminho.di.a3m.core.Protocol;
 import pt.uminho.di.a3m.core.SocketIdentifier;
 import pt.uminho.di.a3m.sockets.SocketsTable;
@@ -91,5 +92,31 @@ public class XSubSocket extends SubSocket{
         ByteBuffer bb = ByteBuffer.allocate(subPayload.getPayload().length + 1);
         bb.put(subPayload.getType()).put(subPayload.getPayload());
         send(bb.array());
+    }
+    
+    /**
+     * Creates XSubSocket.
+     * @param middleware middleware instance
+     * @param tagId tag identifier of the socket
+     * @return XSubSocket instance
+     * @implNote Assumes the middleware to have the XSubSocket producer registered.
+     */
+    public static XSubSocket createSocket(A3MMiddleware middleware, String tagId){
+        if(middleware == null)
+            throw new IllegalArgumentException("Middleware is null.");
+        return middleware.createSocket(tagId, protocol.id(), XSubSocket.class);
+    }
+
+    /**
+     * Creates and starts a XSubSocket.
+     * @param middleware middleware instance
+     * @param tagId tag identifier of the socket
+     * @return XSubSocket instance
+     * @implNote Assumes the middleware to have the XSubSocket producer registered.
+     */
+    public static XSubSocket startSocket(A3MMiddleware middleware, String tagId){
+        if(middleware == null)
+            throw new IllegalArgumentException("Middleware is null.");
+        return middleware.startSocket(tagId, protocol.id(), XSubSocket.class);
     }
 }

@@ -1,6 +1,7 @@
 package pt.uminho.di.a3m.sockets.request_reply;
 
 import pt.uminho.di.a3m.auxiliary.Timeout;
+import pt.uminho.di.a3m.core.A3MMiddleware;
 import pt.uminho.di.a3m.core.LinkSocket;
 import pt.uminho.di.a3m.core.Protocol;
 import pt.uminho.di.a3m.core.SocketIdentifier;
@@ -181,5 +182,31 @@ public class RouterSocket extends ConfigurableSocket {
     @Override
     protected boolean trySending(Payload payload) {
         throw new UnsupportedOperationException();
+    }
+    
+    /**
+     * Creates RouterSocket.
+     * @param middleware middleware instance
+     * @param tagId tag identifier of the socket
+     * @return RouterSocket instance
+     * @implNote Assumes the middleware to have the RouterSocket producer registered.
+     */
+    public static RouterSocket createSocket(A3MMiddleware middleware, String tagId){
+        if(middleware == null)
+            throw new IllegalArgumentException("Middleware is null.");
+        return middleware.createSocket(tagId, protocol.id(), RouterSocket.class);
+    }
+
+    /**
+     * Creates and starts a RouterSocket.
+     * @param middleware middleware instance
+     * @param tagId tag identifier of the socket
+     * @return RouterSocket instance
+     * @implNote Assumes the middleware to have the RouterSocket producer registered.
+     */
+    public static RouterSocket startSocket(A3MMiddleware middleware, String tagId){
+        if(middleware == null)
+            throw new IllegalArgumentException("Middleware is null.");
+        return middleware.startSocket(tagId, protocol.id(), RouterSocket.class);
     }
 }

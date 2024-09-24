@@ -1,9 +1,6 @@
 package pt.uminho.di.a3m.sockets.publish_subscribe;
 
-import pt.uminho.di.a3m.core.LinkSocket;
-import pt.uminho.di.a3m.core.Protocol;
-import pt.uminho.di.a3m.core.SocketIdentifier;
-import pt.uminho.di.a3m.core.SocketState;
+import pt.uminho.di.a3m.core.*;
 import pt.uminho.di.a3m.core.exceptions.LinkClosedException;
 import pt.uminho.di.a3m.sockets.SocketsTable;
 import pt.uminho.di.a3m.sockets.configurable_socket.ConfigurableSocket;
@@ -173,5 +170,31 @@ public class SubSocket extends ConfigurableSocket {
      */
     public void unsubscribe(String topic){
         unsubscribe(List.of(topic));
+    }
+    
+    /**
+     * Creates SubSocket.
+     * @param middleware middleware instance
+     * @param tagId tag identifier of the socket
+     * @return SubSocket instance
+     * @implNote Assumes the middleware to have the SubSocket producer registered.
+     */
+    public static SubSocket createSocket(A3MMiddleware middleware, String tagId){
+        if(middleware == null)
+            throw new IllegalArgumentException("Middleware is null.");
+        return middleware.createSocket(tagId, protocol.id(), SubSocket.class);
+    }
+
+    /**
+     * Creates and starts a SubSocket.
+     * @param middleware middleware instance
+     * @param tagId tag identifier of the socket
+     * @return SubSocket instance
+     * @implNote Assumes the middleware to have the SubSocket producer registered.
+     */
+    public static SubSocket startSocket(A3MMiddleware middleware, String tagId){
+        if(middleware == null)
+            throw new IllegalArgumentException("Middleware is null.");
+        return middleware.startSocket(tagId, protocol.id(), SubSocket.class);
     }
 }

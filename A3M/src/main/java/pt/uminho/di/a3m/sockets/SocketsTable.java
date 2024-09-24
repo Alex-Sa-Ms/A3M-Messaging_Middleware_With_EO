@@ -2,6 +2,10 @@ package pt.uminho.di.a3m.sockets;
 
 import pt.uminho.di.a3m.core.Protocol;
 import pt.uminho.di.a3m.core.SocketProducer;
+import pt.uminho.di.a3m.sockets.publish_subscribe.PubSocket;
+import pt.uminho.di.a3m.sockets.publish_subscribe.SubSocket;
+import pt.uminho.di.a3m.sockets.publish_subscribe.XPubSocket;
+import pt.uminho.di.a3m.sockets.publish_subscribe.XSubSocket;
 import pt.uminho.di.a3m.sockets.push_pull.PullSocket;
 import pt.uminho.di.a3m.sockets.push_pull.PushSocket;
 import pt.uminho.di.a3m.sockets.request_reply.DealerSocket;
@@ -19,7 +23,11 @@ public class SocketsTable {
                     ReqSocket::new,
                     RepSocket::new,
                     DealerSocket::new,
-                    RouterSocket::new);
+                    RouterSocket::new,
+                    PubSocket::new,
+                    SubSocket::new,
+                    XPubSocket::new,
+                    XSubSocket::new);
 
     public static List<SocketProducer> getDefaultProducers() {
         return new ArrayList<>(defaultProducers);

@@ -307,4 +307,30 @@ public class ReqSocket extends Socket {
     LinkSocket linkSocket(SocketIdentifier sid){
         return getLinkSocket(sid);
     }
+    
+    /**
+     * Creates ReqSocket.
+     * @param middleware middleware instance
+     * @param tagId tag identifier of the socket
+     * @return ReqSocket instance
+     * @implNote Assumes the middleware to have the ReqSocket producer registered.
+     */
+    public static ReqSocket createSocket(A3MMiddleware middleware, String tagId){
+        if(middleware == null)
+            throw new IllegalArgumentException("Middleware is null.");
+        return middleware.createSocket(tagId, protocol.id(), ReqSocket.class);
+    }
+
+    /**
+     * Creates and starts a ReqSocket.
+     * @param middleware middleware instance
+     * @param tagId tag identifier of the socket
+     * @return ReqSocket instance
+     * @implNote Assumes the middleware to have the ReqSocket producer registered.
+     */
+    public static ReqSocket startSocket(A3MMiddleware middleware, String tagId){
+        if(middleware == null)
+            throw new IllegalArgumentException("Middleware is null.");
+        return middleware.startSocket(tagId, protocol.id(), ReqSocket.class);
+    }
 }

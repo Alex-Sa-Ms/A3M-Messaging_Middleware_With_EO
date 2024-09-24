@@ -1,5 +1,6 @@
 package pt.uminho.di.a3m.sockets.publish_subscribe;
 
+import pt.uminho.di.a3m.core.A3MMiddleware;
 import pt.uminho.di.a3m.core.Protocol;
 import pt.uminho.di.a3m.core.SocketIdentifier;
 import pt.uminho.di.a3m.core.exceptions.NoLinksException;
@@ -122,5 +123,31 @@ public class XPubSocket extends PubSocket{
     @Override
     protected boolean isReadyToReceive() {
         return !subsMsgQueue.isEmpty();
+    }
+    
+    /**
+     * Creates XPubSocket.
+     * @param middleware middleware instance
+     * @param tagId tag identifier of the socket
+     * @return XPubSocket instance
+     * @implNote Assumes the middleware to have the XPubSocket producer registered.
+     */
+    public static XPubSocket createSocket(A3MMiddleware middleware, String tagId){
+        if(middleware == null)
+            throw new IllegalArgumentException("Middleware is null.");
+        return middleware.createSocket(tagId, protocol.id(), XPubSocket.class);
+    }
+
+    /**
+     * Creates and starts a XPubSocket.
+     * @param middleware middleware instance
+     * @param tagId tag identifier of the socket
+     * @return XPubSocket instance
+     * @implNote Assumes the middleware to have the XPubSocket producer registered.
+     */
+    public static XPubSocket startSocket(A3MMiddleware middleware, String tagId){
+        if(middleware == null)
+            throw new IllegalArgumentException("Middleware is null.");
+        return middleware.startSocket(tagId, protocol.id(), XPubSocket.class);
     }
 }

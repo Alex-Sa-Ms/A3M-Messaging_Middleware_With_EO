@@ -155,7 +155,7 @@ public class RepSocket extends Socket {
     }
 
     @Override
-    protected BufferedLinkSocket createLinkSocketInstance(int peerProtocolId) {
+    protected LinkSocket createLinkSocketInstance(int peerProtocolId) {
         return new BufferedLinkSocket();
     }
 
@@ -271,5 +271,31 @@ public class RepSocket extends Socket {
             getLock().readLock().unlock();
         }
         return events;
+    }
+    
+    /**
+     * Creates RepSocket.
+     * @param middleware middleware instance
+     * @param tagId tag identifier of the socket
+     * @return RepSocket instance
+     * @implNote Assumes the middleware to have the RepSocket producer registered.
+     */
+    public static RepSocket createSocket(A3MMiddleware middleware, String tagId){
+        if(middleware == null)
+            throw new IllegalArgumentException("Middleware is null.");
+        return middleware.createSocket(tagId, protocol.id(), RepSocket.class);
+    }
+
+    /**
+     * Creates and starts a RepSocket.
+     * @param middleware middleware instance
+     * @param tagId tag identifier of the socket
+     * @return RepSocket instance
+     * @implNote Assumes the middleware to have the RepSocket producer registered.
+     */
+    public static RepSocket startSocket(A3MMiddleware middleware, String tagId){
+        if(middleware == null)
+            throw new IllegalArgumentException("Middleware is null.");
+        return middleware.startSocket(tagId, protocol.id(), RepSocket.class);
     }
 }
