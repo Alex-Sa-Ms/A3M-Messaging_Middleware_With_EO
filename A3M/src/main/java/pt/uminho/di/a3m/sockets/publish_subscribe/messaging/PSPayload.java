@@ -10,8 +10,8 @@ import java.util.Arrays;
  * Publish-Subscribe Message
  */
 public class PSPayload implements Payload {
-    private final String topic;
-    private final byte[] content;
+    private String topic;
+    private byte[] content;
 
     public PSPayload(byte[] topic, byte[] content) {
         if(topic == null)
@@ -40,6 +40,14 @@ public class PSPayload implements Payload {
         this.content = content.getBytes();
     }
 
+    public PSPayload(String topic){
+        this(topic, new byte[]{});
+    }
+
+    public PSPayload(byte[] topic){
+        this(topic, new byte[]{});
+    }
+
     public String getTopic() {
         return topic;
     }
@@ -54,6 +62,26 @@ public class PSPayload implements Payload {
 
     public String getContentStr() {
         return new String(content);
+    }
+
+    public void setTopic(String topic) {
+        if(topic == null) throw new IllegalArgumentException("Topic is null.");
+        this.topic = topic;
+    }
+
+    public void setTopicBytes(byte[] topic) {
+        if(topic == null) throw new IllegalArgumentException("Topic is null.");
+        this.topic = new String(topic);
+    }
+
+    public void setContent(byte[] content) {
+        if(content == null) throw new IllegalArgumentException("Content is null.");
+        this.content = content;
+    }
+
+    public void setContentStr(String content) {
+        if(content == null) throw new IllegalArgumentException("Content is null.");
+        this.content = content.getBytes();
     }
 
     /**

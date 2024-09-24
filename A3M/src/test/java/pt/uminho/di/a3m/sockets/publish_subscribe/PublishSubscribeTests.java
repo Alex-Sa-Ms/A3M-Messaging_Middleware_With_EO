@@ -11,6 +11,8 @@ import pt.uminho.di.a3m.sockets.publish_subscribe.messaging.SubscriptionsPayload
 import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static pt.uminho.di.a3m.core.SocketTestingUtilities.*;
 
@@ -533,5 +535,39 @@ public class PublishSubscribeTests {
     }
 
     // TODO - test multiple threads publishing to multiple topics concurrently
+    @Test
+    void test() throws InterruptedException {
+        PubSocket publisher = middleware.startSocket("Publisher", SocketsTable.PUB_PROTOCOL_ID, PubSocket.class);
+        SubSocket subscriber = middleware.startSocket("Subscriber", SocketsTable.SUB_PROTOCOL_ID, SubSocket.class);
+        // link and wait for the link to be established
+        subscriber.link(publisher.getId());
+        assert (subscriber.waitForLinkEstablishment(publisher.getId(), null) & PollFlags.POLLINOUT_BITS) != 0;
+        // subscribe to "News"
+        subscriber.subscribe("News");
+        // wait a bit for the subscription to arrive
+        Thread.sleep(20L);
+        // create receive thread
+        final int nrMsgs = 10000;
+        Thread receiver = new Thread(() -> {
+            try {
+                int i = 0;
+                byte[] msg;
+                while (i < nrMsgs) {
+                    msg = subscriber.receive();
+                    if (msg != null) i++;
+                }
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        });
+        receiver.start();
 
+        PSPayload psPayload = new PSPayload("News");
+        for (int i = 0; i < nrMsgs; i++) {
+            psPayload.setContentStr(String.valueOf(i));
+            publisher.send(psPayload);
+        }
+
+        receiver.join();
+    }
 }
