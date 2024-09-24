@@ -83,7 +83,7 @@ class PubLinkSocket extends LinkSocketWatchedWithOrder {
         if(creditsWatcher != null){
             creditsWatcher.delete();
             creditsWatcher = null;
-            synchronized (reservationsLock) { notifyAll(); }
+            synchronized (reservationsLock) { reservationsLock.notifyAll(); }
         }
     }
 
