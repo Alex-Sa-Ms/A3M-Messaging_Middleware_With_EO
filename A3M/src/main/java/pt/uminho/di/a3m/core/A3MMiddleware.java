@@ -17,8 +17,8 @@ public class A3MMiddleware implements DiscoveryManager, SocketManagerPublic {
     private final EOMiddleware eom;
     private final MessageManagementSystem mms;
     private int state = CREATED;
-    private Lock lock = new ReentrantLock();
-    private static int defaultN = 100;
+    private final Lock lock = new ReentrantLock();
+    private static final int defaultN = 100;
 
     // ****** Middleware possible states ****** //
     public static final int CREATED = 0;
@@ -95,6 +95,12 @@ public class A3MMiddleware implements DiscoveryManager, SocketManagerPublic {
         } finally {
             lock.unlock();
         }
+    }
+
+    public static A3MMiddleware startMiddleware(String nodeId, int port) throws SocketException, UnknownHostException {
+        A3MMiddleware a3m = new A3MMiddleware(nodeId, port);
+        a3m.start();
+        return a3m;
     }
 
     @Override
