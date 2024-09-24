@@ -750,4 +750,70 @@ public class PublishSubscribeTests {
         for (int i = 0; i < nrSubscribers; i++)
             receivers[i].join();
     }
+
+    @Test
+    void publishingManyToManyWithDifferentCapacities() throws InterruptedException {
+        PubSocket publisher = middleware.startSocket("Publisher", SocketsTable.PUB_PROTOCOL_ID, PubSocket.class);
+        List<String> topics = List.of("News","Weather","Finance");
+        final int seed = 2024;
+        final int nrSenders = 5;
+        final int nrSubscribers = 5;
+        final int nrMsgsPerThread = 100;
+        // create subscribers and receiver threads
+        SubSocket[] subscribers = new SubSocket[nrSubscribers];
+        Thread[] receivers = new Thread[nrSubscribers];
+        for (int i = 0; i < nrSubscribers; i++) {
+            subscribers[i] = middleware.startSocket("Subscriber" + i, SocketsTable.SUB_PROTOCOL_ID, SubSocket.class);
+            // set capacity with regard to the index of the subscriber,
+            // so that the synchronization can be tested
+            subscribers[i].setOption("capacity", i * 5 + 1);
+            // link and wait for the link to be established
+            subscribers[i].link(publisher.getId());
+            assert (subscribers[i].waitForLinkEstablishment(publisher.getId(), null) & PollFlags.POLLINOUT_BITS) != 0;
+            // subscribe to topics
+            subscribers[i].subscribe(topics);
+            // start receiver for subscriber
+            int finalI = i;
+            receivers[i] = new Thread(() -> {
+                try {
+                    int counter = 0;
+                    byte[] msg;
+                    while (counter < nrMsgsPerThread * nrSenders) {
+                        msg = subscribers[finalI].receive();
+                        if (msg != null) counter++;
+                    }
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            receivers[i].start();
+        }
+        // wait a bit for the subscription to arrive
+        Thread.sleep(20L);
+        // create sender threads
+        Thread[] senders = new Thread[nrSenders];
+        for (int i = 0; i < nrSenders; i++) {
+            int finalI = i;
+            senders[i] = new Thread(() -> {
+                try {
+                    PSPayload psPayload = new PSPayload("");
+                    String topic;
+                    Random random = new Random(seed + finalI);
+                    for (int j = 0; j < nrMsgsPerThread; j++) {
+                        topic = topics.get(random.nextInt(0, topics.size()));
+                        psPayload.setTopic(topic);
+                        psPayload.setContentStr(String.valueOf(j));
+                        publisher.send(psPayload);
+                    }
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            senders[i].start();
+        }
+        for (int i = 0; i < nrSenders; i++)
+            senders[i].join();
+        for (int i = 0; i < nrSubscribers; i++)
+            receivers[i].join();
+    }
 }
