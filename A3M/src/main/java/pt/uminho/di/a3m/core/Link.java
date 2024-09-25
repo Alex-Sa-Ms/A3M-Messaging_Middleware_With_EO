@@ -303,6 +303,7 @@ public class Link implements Pollable {
                     // notify only when a message becomes available
                     notify = inMsgQ.peek() == null;
                     inMsgQ.add(msg);
+                    notify &= inMsgQ.peek() != null;
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
