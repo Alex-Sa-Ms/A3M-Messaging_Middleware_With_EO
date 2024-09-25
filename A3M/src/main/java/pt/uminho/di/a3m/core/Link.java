@@ -300,9 +300,9 @@ public class Link implements Pollable {
             if (state != LinkState.CLOSED) {
                 // add new message to incoming messages queue
                 try {
+                    // notify only when a message becomes available
+                    notify = inMsgQ.peek() == null;
                     inMsgQ.add(msg);
-                    // notify waiters
-                    notify = inMsgQ.peek() != null;
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -492,10 +492,12 @@ public class Link implements Pollable {
     void adjustOutgoingCredits(int credits){
         boolean notify;
         synchronized (this) {
-            outFCS.applyCreditVariation(credits);
-            // Waiters can only be notified when positive credits are received
-            // and when the resulting amount of available credits is positive.
-            notify = credits > 0 && outFCS.getCredits() > 0;
+            int balance = outFCS.applyCreditVariation(credits);
+            // Notify only the credits received are positive
+            // and when the link credits transitions to having
+            // a positive amount of credits
+            notify = balance - credits <= 0
+                    && balance > 0;
         }
         if (notify)
             waitQ.fairWakeUp(0, 1, 0, PollFlags.POLLOUT);
@@ -689,20 +691,18 @@ public class Link implements Pollable {
             // wakes waiters if outgoing credits are positive
             outCredits = outFCS.getCredits();
         }
-        if(!waitQ.isEmpty()) {
-            // calling wake-up is required as there may be
-            // non-exclusive waiters just waiting for the
-            // link to be established, so waking up the
-            // bare minimum of exclusive waiters is required
-            // when there aren't credits to wake up waiters.
-            if(outCredits > 0)
-                waitQ.fairWakeUp(0, 1, 0, PollFlags.POLLOUT);
-            else
-                // do non-fair wake up, to wake up exclusive threads
-                // and let the exclusive waiter that won't be able to
-                // send a message remain in its position.
-                waitQ.wakeUp(0, 1, 0, 0);
-        }
+        // calling wake-up is required as there may be
+        // non-exclusive waiters just waiting for the
+        // link to be established, so waking up the
+        // bare minimum of exclusive waiters is required
+        // when there aren't credits to wake up waiters.
+        if(outCredits > 0)
+            waitQ.fairWakeUp(0, 1, 0, PollFlags.POLLOUT);
+        else
+            // do non-fair wake up, to wake up exclusive threads
+            // and let the exclusive waiter that won't be able to
+            // send a message remain in its position.
+            waitQ.wakeUp(0, 1, 0, 0);
     }
 
     void close() {

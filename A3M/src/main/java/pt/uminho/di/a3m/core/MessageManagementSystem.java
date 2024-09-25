@@ -31,7 +31,7 @@ public class MessageManagementSystem implements MessageDispatcher{
     public MessageManagementSystem(EOMiddleware eom, SocketManager sm) {
         this.eom = eom;
         this.sm = sm;
-        this.processor = new MessageProcessor();
+        this.processor = new MessageProcessor("MessageProcessor-" + eom.getIdentifier());
     }
 
     public MessageManagementSystem(EOMiddleware eom) {
@@ -196,6 +196,10 @@ public class MessageManagementSystem implements MessageDispatcher{
         long timeout = Long.MAX_VALUE;
         // lock to synchronize insertions
         // final Lock lock = new ReentrantLock();
+
+        public MessageProcessor(String name) {
+            super(name);
+        }
 
         private void calculateAndSetTimeout(Event event){
             timeout = event == null ? Long.MAX_VALUE

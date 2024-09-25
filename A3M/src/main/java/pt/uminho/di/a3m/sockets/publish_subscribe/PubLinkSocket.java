@@ -26,7 +26,7 @@ class PubLinkSocket extends LinkSocketWatchedWithOrder {
     private int reservations = 0;
 
     // - Counter of reservations of threads that are currently attempting to send.
-    // - Ensures consistency of behavior when a thread attempting to send a date message
+    // - Ensures consistency of behavior when a thread attempting to send a data message
     // releases the reservations' synchronized monitor temporarily. Releasing the reservations'
     // synchronized monitor is required to avoid deadlocks with link's wait queue lock.
     // If the synchronized monitor is not released before doing a write operation on the link,
@@ -57,8 +57,7 @@ class PubLinkSocket extends LinkSocketWatchedWithOrder {
                 // waiting to reserve a credit
                 if((iKey & PollFlags.POLLOUT) != 0) {
                     synchronized (reservationsLock){
-                        if(reservations < getOutgoingCredits())
-                            reservationsLock.notify();
+                        tryNotifyReservationWaiter();
                     }
                 }
                 return 1;
@@ -72,6 +71,21 @@ class PubLinkSocket extends LinkSocketWatchedWithOrder {
             PollTable pt = new PollTable(PollFlags.POLLOUT,null,queueingFunc);
             this.poll(pt);
         }
+    }
+
+    /**
+     * Tries to notify a thread waiting to make a reservation. The notifying
+     * operation only happens if there aren't locked reservations and if
+     * the number of reservations is less than the outgoing credits.
+     * The notification only happens when there aren't locked reservations since
+     * the outgoing credits balance retrieved using getOutgoingCredits()
+     * may not be accurate, i.e., the threads that locked a reservation may
+     * or may not have already sent a message and consumed the credit.
+     * @implNote Assumes the reservationsLock to be owned by the caller.
+     */
+    private void tryNotifyReservationWaiter(){
+        if(lockedReservations == 0 && reservations < getOutgoingCredits())
+            reservationsLock.notify();
     }
 
     /**
@@ -126,7 +140,9 @@ class PubLinkSocket extends LinkSocketWatchedWithOrder {
             boolean reserved = reservations < credits;
             if (reserved) {
                 reservations++;
-                if (reservations < credits)
+                // analogous to tryNotifyReservationWaiter(), but avoids
+                // consulting the link again as it would mean pointless synchronization
+                if (lockedReservations == 0 && reservations < credits)
                     reservationsLock.notify();
             }
 
@@ -138,7 +154,7 @@ class PubLinkSocket extends LinkSocketWatchedWithOrder {
         synchronized (reservationsLock) {
             if (reservations > 0) {
                 reservations--;
-                if(reservations < getOutgoingCredits())
+                if(lockedReservations == 0 && reservations < getOutgoingCredits())
                     reservationsLock.notify();
             }
         }
@@ -164,12 +180,15 @@ class PubLinkSocket extends LinkSocketWatchedWithOrder {
                 ret = super.trySendDataWithOrder(payload);
             }
             synchronized (reservationsLock) {
+                // regardless of the result,
+                // unlock the reservation
+                lockedReservations--;
                 // if message was sent, then
                 // settle (remove) the reservation
-                if (ret) reservations--;
-                // regardless of the result,
-                // unlock the reservaiton
-                lockedReservations--;
+                if (ret) {
+                    reservations--;
+                    tryNotifyReservationWaiter();
+                }
             }
         }
         return ret;
