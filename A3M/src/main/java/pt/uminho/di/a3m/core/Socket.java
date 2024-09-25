@@ -18,6 +18,7 @@ import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;
 import pt.uminho.di.a3m.waitqueue.WaitQueueFunc;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -338,7 +339,7 @@ public abstract class Socket {
 
     // ********** Link logic ********** //
     final LinkManager linkManager = new LinkManager(this, lock);
-    private final Map<SocketIdentifier, LinkSocket> linkSockets = new HashMap<>(); // maps peer socket identifiers to link sockets
+    private final Map<SocketIdentifier, LinkSocket> linkSockets = new ConcurrentHashMap<>(); // maps peer socket identifiers to link sockets
 
     public void link(SocketIdentifier peerId){
         lock.writeLock().lock();
@@ -364,13 +365,8 @@ public abstract class Socket {
         unlink(new SocketIdentifier(nodeId, tagId));
     }
 
-    protected final LinkSocket getLinkSocket(SocketIdentifier peerId){
-        lock.readLock().lock();
-        try {
-            return linkSockets.get(peerId);
-        } finally {
-            lock.readLock().unlock();
-        }
+    protected final LinkSocket getLinkSocket(SocketIdentifier peerId) {
+        return linkSockets.get(peerId);
     }
 
     /**
@@ -378,12 +374,9 @@ public abstract class Socket {
      * @implNote Holds the socket's read lock.
      */
     protected final List<LinkSocket> getLinkSockets(){
-        lock.readLock().lock();
-        try {
-            return new ArrayList<>(linkSockets.values());
-        } finally {
-            lock.readLock().unlock();
-        }
+        List<LinkSocket> copy = new ArrayList<>();
+        linkSockets.forEach((socketIdentifier, linkSocket) -> copy.add(linkSocket));
+        return copy;
     }
 
     /**
@@ -391,31 +384,15 @@ public abstract class Socket {
      * @implNote Holds the socket's read lock.
      */
     protected final void forEachLinkSocket(Consumer<LinkSocket> action){
-        lock.readLock().lock();
-        try {
-            for (LinkSocket linkSocket : linkSockets.values())
-                action.accept(linkSocket);
-        } finally {
-            lock.readLock().unlock();
-        }
+        linkSockets.forEach((socketIdentifier, linkSocket) -> action.accept(linkSocket));
     }
 
-    public final boolean isLinked(SocketIdentifier peerId){
-        lock.readLock().lock();
-        try {
-            return linkSockets.containsKey(peerId);
-        } finally {
-            lock.readLock().unlock();
-        }
+    public final boolean isLinked(SocketIdentifier peerId) {
+        return linkSockets.containsKey(peerId);
     }
 
     public final int countEstablishedLinks(){
-        lock.readLock().lock();
-        try {
-            return linkSockets.size();
-        } finally {
-            lock.readLock().unlock();
-        }
+        return linkSockets.size();
     }
 
     /** @return amount of links regardless of their state. */
@@ -787,9 +764,7 @@ public abstract class Socket {
                 // set state to CLOSING
                 state = SocketState.CLOSING;
                 // Unlinking all links is required before closing the socket.
-                for (LinkSocket linkSocket : linkSockets.values()) {
-                    linkSocket.unlink();
-                }
+                forEachLinkSocket(LinkSocket::unlink);
             }
             if (!linkManager.hasLinks()) {
                 state = SocketState.CLOSED;
