@@ -29,4 +29,4 @@ Qual o tom de escrita.
 - Links podem falhar
 - Duplicação de mensagens pode acontecer
 - Nodos não crasham.
-- Autenticação e autorização não é future work
+- Autenticação e autorização é future work

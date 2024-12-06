@@ -45,8 +45,10 @@ The possible errors are shown in the table below, along with their corresponding
 | Type                       | Code   | Reported |
 | -------------------------- | ------ | -------- |
 | **Socket not found**       | `0x01` | True     |
-| **Socket not linked**      | `0x02` | True     |
-| **Invalid message format** | `0x03` | False    |
+| **Socket not linked**      | `0x03` | False    |
+| **Invalid message format** | `0x04` | False    |
+| **Socket not available**   | `0x02` | True     |
+
 #### Socket Not Found 
 A *Socket Not Found Error* must be reported when a received message has a destination tag that does not match any socket registered on the receiving node.
 The message must be formed as if the non existent socket was the one sending the error message, i.e., the "source tag" of the extended header must match the tag of the socket that does not exist. The "destination tag" must match the tag of the socket that intended to communicate with the non existent socket.

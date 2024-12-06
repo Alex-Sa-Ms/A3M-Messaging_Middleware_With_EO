@@ -1,7 +1,4 @@
 # Update VP diagram to include new ideas
-# How should messages be composed
-- Pagina -> [[Concepcao do protocolo de comunicacao]]
-- Use Protobuff?
 # Optimize locking mechanisms
 - Think about optimized locking mechanisms for better efficiency, specially when delivering messages to sockets is required, which might invoke multiple wake-up calls (link waiters and socket waiters)
 # I may need to make links nothing more than state
@@ -20,11 +17,15 @@ Regarding the polling mechanism:
 1. The wait queue would be in the `LinkState` but controlled by the `Socket` class, which would also implement the `poll(pt : PollTable) : int` method as `linkPoll(pt : PollTable) : int`.
 2. The `Pollable` interface would be implemented by the `Link` object. For internal socket use, to implement the socket semantics, one must be careful to not hold the lock when waiting for availability.
 
+<b style="color:red">Maybe implement using the current scheme, then try this new one, possibly with a LinkManager class with a bi-directional association with Socket</b>
+![[Pasted image 20240826010648.png]]
+
+
 # Logic executed by the middleware's main thread should not be blocking
 ## Rationale
 Having blocking operations executed by the main thread of the middleware means halting its processing. Consequently, all the operations are delayed.
 ## Solution
-Lockin  
+...
 
 #
 --------- TAREFAS -----------

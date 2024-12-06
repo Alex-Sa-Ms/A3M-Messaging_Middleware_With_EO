@@ -1,15 +1,15 @@
 # Delete this after writing the conclusions in the appropriate note
 # Checklist
 The final architecture should pass this checklist. Open checked boxes to see solution.
-- [ ] Can use custom socket API?
-- [ ] Received messages are handled by a core object before being delivered to the custom processing method?
+- [x] Can use custom socket API?
+- [x] Received messages are handled by a core object before being delivered to the custom processing method?
 	- Required for control core messages such as Link Request, Link Ack, Link Refuse, etc.
-- [ ] Link related messages can be understood by all sockets regardless of their type?
+- [x] Link related messages can be understood by all sockets regardless of their type?
 - [ ] Does every method need to be implemented from scratch for every socket implementation?
 - [ ] Can RAW and COOKED sockets be created? Are they implemented as two different sockets?
 
 - [ ] How to make something like NNG raw sockets?
-- [ ] Could I have something like a pipe upon the establishment of a link? Does it make sense to exist? 
+- [x] Could I have something like a pipe upon the establishment of a link? Does it make sense to exist? 
 - [ ] Can I create a basic RAW version and COOKED version, and implement the custom sockets over them?
 - [ ] Can I create a version that can already tip to a RAW version and COOKED version based on a flag defined at creation time?
 - [ ] How does a reader thread know which socket should receive the receipt?

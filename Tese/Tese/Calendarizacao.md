@@ -19,7 +19,7 @@
 
 ## Concepção
 
-- [ ]  Define the fault model
+- [x]  Define the system model
     - Talk about the assumed network faults (check the Exon protocol fault model)
     - Ignore node crashes
     - Ignore security
