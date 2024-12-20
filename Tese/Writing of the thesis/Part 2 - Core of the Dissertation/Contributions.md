@@ -1,0 +1,3 @@
+- Clearly list your contributions, both theoretical and practical. If your work includes original designs, algorithms, or performance optimizations, describe each briefly.
+- Mention any innovations in Exon adaptations, middleware design, or message handling mechanisms that address exactly-once guarantees.
+- Emphasize any contributions that distinguish your work from existing approaches.

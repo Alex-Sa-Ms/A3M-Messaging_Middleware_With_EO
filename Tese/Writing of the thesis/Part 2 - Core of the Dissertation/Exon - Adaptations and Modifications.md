@@ -1,0 +1,4 @@
+- Describe any modifications made to the Exon protocol to align it with the middleware’s goals, particularly to support exactly-once delivery.
+- Explain how these adaptations improve protocol performance, reliability, or resource utilization compared to the original Exon design.
+- Discuss any protocol-level mechanisms you introduced, such as unique message identifiers or checkpointing techniques.
+- Ver o artigo (13) em "Artigos Interessantes" sobre endereçamento independente da localização, e possivelmente dizer que isso influenciou a implementação do discovery service na camada do Exon. Será que faz sentido dizer isso? Até porque implementar no Exon não é sinónimo de ter implementado na network stack diretamente, embora esteja "perto".

@@ -1,0 +1,14 @@
+- **Authentication and Authorization**: Explain any security mechanisms for ensuring that only authorized users or systems can access the middleware.
+	- Not implemented (future work)
+	- Three-way handshake for linking can be used to provide such functionality
+- **Data Integrity**: Detail measures taken to ensure data integrity, such as checksum verification, cryptographic signing, or encryption.
+	- Data integrity is provided by the Exon/UDP transport protocol
+- **Misuse Prevention and Access Control**:
+	- Discuss the specific access modifiers (`protected`, `private`, `default`) that you applied to critical components or methods in your middleware. Describe how encapsulation contributes to a controlled environment where only allowed operations can be performed, preventing unauthorized actions by developers. This reinforces both security (by limiting potential attack vectors) and integrity (by reducing the risk of accidental or malicious changes to data or state).
+	- Explain that by restricting access to certain methods, you ensure that developers using your middleware cannot inadvertently or intentionally bypass core functionality, perform unauthorized actions, or create unpredictable behaviors. This can include preventing direct manipulation of sockets or bypassing essential validation steps.
+	- Emphasize how the design reflects a principle of layered security, where code visibility acts as a first layer of control before any runtime security checks. This design minimizes risks by enforcing rules at both compile-time (through visibility modifiers) and runtime, helping prevent misuse even in the development phase.
+	- Describe how these design choices enhance the developer experience by guiding proper usage and reducing potential points of failure or misuse. This can contribute to overall data integrity since developers will have limited ways to deviate from intended functionality.
+	- Consider adding a brief statement on how following object-oriented best practices, like proper use of visibility modifiers, aligns with broader principles of secure middleware design. This shows reviewers that your approach follows industry standards for security and integrity, making the system robust and well-architected.
+- **Privacy and Confidentiality**: Describe how sensitive data is protected in transit and at rest, particularly if Exon supports encrypted transport.
+	- Neither the middleware, nor Exon provide encrypted transport.
+	- Maybe research a bit on security to know how some mechanisms could potentially be implemented.

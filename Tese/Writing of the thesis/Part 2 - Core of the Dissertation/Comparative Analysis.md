@@ -1,0 +1,5 @@
+- Include a comparative analysis with existing middleware solutions, focusing on aspects like delivery guarantees, throughput, latency, and resource usage.
+- Mention similarity in features
+- Present the performance metrics you used to evaluate the middleware, focusing on throughput, latency, and error handling.
+- Detail your testing environment and scenarios, as well as baseline comparisons with other protocols (if applicable).
+- Analyze the results, emphasizing how your middleware maintains exactly-once delivery under various network conditions and scales effectively.
