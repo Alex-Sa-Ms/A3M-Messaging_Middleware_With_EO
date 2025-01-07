@@ -40,12 +40,13 @@
 
 1. **[[Overview of Middleware Design Goals]]**
 2. **[[System Model]]**
-3. **[[System Overview]]**
+3. **[[System Components and Their Roles]]**
 4. **[[Message Lifecycle and Flow]]**
-5. **[[Fault Tolerance Mechanisms]]**
-6. **[[Exon Integration and Protocol Adaptation]]**
-7. **[[Concurrency and Scalability Design]]**
-8. **[[Security and Data Integrity]]**
-9. **[[Monitoring and Logging]]**
-10. **[[Configuration and Management]]**
+5. **[[Link Management Protocol]]**
+6. **[[Fault Tolerance Mechanisms]]**
+7. **[[Exon Integration and Protocol Adaptation]]**
+8. **[[Concurrency and Scalability Design]]**
+9. **[[Security and Data Integrity]]**
+10. **[[Monitoring and Logging]]**
+11. **[[Configuration and Management]]**
 

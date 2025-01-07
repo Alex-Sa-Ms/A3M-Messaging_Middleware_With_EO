@@ -1,3 +1,4 @@
+<h1 style="color:lightgreen">✅ Already read</h1>
 # Estrutura da tese
 
 Passar as seccoes de “fault tolerance” e “ease of use” para uma seccao comparativa?

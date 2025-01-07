@@ -44,10 +44,12 @@ Artigos lidos com potencialmente pequenos resumos.
 - The Architecture of Open Source Applications (Volume 2)
 ZeroMQ [(link)](https://aosabook.org/en/v2/zeromq.html)
     - Fornece boas optimizações
+- https://nng.nanomsg.org/RATIONALE.html
 
 - [http://wiki.zeromq.org/whitepapers:messaging-enabled-network](http://wiki.zeromq.org/whitepapers:messaging-enabled-network)
 
 # Não lidos
+
 
 - 28 - Public Key Encryption for Kids [(link)](https://250bpm.com/blog:28/) (*só por curiosidade, não deve haver tempo para implementar isto na tese*)
 - [https://250bpm.com/toc/index.html](https://250bpm.com/toc/index.html) (index de todos os artigos)

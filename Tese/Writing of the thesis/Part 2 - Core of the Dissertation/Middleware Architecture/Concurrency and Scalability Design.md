@@ -1,3 +1,13 @@
+# Structure
+
+1. Programming Model
+2. Threading Model
+3. Efficiency Considerations
+4. ....
+
+**Decide where to put the following sections/discussions?**
+- How to handle I/O?
+## Writing Guidelines
 - **Concurrency Model**: Describe how concurrent operations are handled. Include details on threading, asynchronous processing, or task partitioning that enables the system to manage high message volumes.
 - **Load Balancing**: If the middleware supports multiple nodes, explain how load balancing is achieved across them.
 - **Scalability Features**: Discuss any architectural considerations for scaling horizontally (e.g., adding more nodes) or vertically (e.g., handling increased message size or complexity).
@@ -46,7 +56,61 @@ Microservices Architecture: Consider breaking the middleware into microservices 
 Why These Features Matter:
 These scalability features would ensure the middleware remains performant under increased demand, adapts dynamically to varying workloads, and provides a robust foundation for real-world deployments. While the prototype's focus was on extensibility and exactly-once delivery, these scalability considerations would align the architecture with production-level expectations in future iterations.
 
-#### Design enhancement for the future:
+# Programming Model
+## Writing Guidelines
+- What approach would be ideal? Threading model, reactive programming, actor model, etc.
+- When using an asynchronous or event-driven model, efficiency concerns like context switching, load balancing, etc., could fit in here.
+
+# Threading Model
+## Writing Guidelines
+
+
+# Efficiency Considerations
+## Writing Guidelines
+- Correlated with threading model
+- Lock-free algorithms to not disturb the middleware thread
+- Etc
+
+
+# Floating Sections
+*(Sections that need to be put somewhere)*
+## Handling I/O Operations
+
+***Reference question:*** *"How do we handle I/O? Does our application block, or do we handle I/O in the background? This is a key design decision. Blocking I/O creates architectures that do not scale well. But background I/O can be very hard to do right."* (found in https://zguide.zeromq.org/docs/chapter1/#Why-We-Needed-ZeroMQ)
+
+The design of I/O operations in a messaging middleware is a critical factor in achieving scalable systems. Blocking I/O, while simpler to implement, often limits scalability; on the other hand, non-blocking I/O introduces complexity but enables more efficient resource utilization. To address these challenges, the middleware balances blocking and non-blocking behaviors through a hybrid approach, leveraging background threads[^1] to manage I/O operations.
+
+[^1] The background threads are the combination of the middleware thread with the Exon library threads. For simplicity, we will address them as combination, since the responsibilities of each thread have been clarified previously.
+
+At the core of the middleware design is the requirement to ensure Exactly-Once delivery. This means that messages must neither be discarded until delivery and processing are confirmed nor be duplicated. Focusing on the first requirement, the accumulation of undelivered messages at the sender and unprocessed messages at the receiver can lead to resource exhaustion. Both memory and computational[^2] resources are affected in such cases. The devised solution mitigates this by carefully managing I/O operations via a combination of background threads and flow control mechanisms.
+
+[^2]  Computational resources are required to manage the retained messages at the sender, such as retransmitting them. 
+### Receive Operations
+
+For receive operations, the middleware employs background threads to handle incoming messages, ensuring that no messages are discarded unless they fail validation. These threads queue and validate messages before delivering them to the appropriate sockets. Application threads can then receive the messages from the sockets using one of the following behaviors:
+
+1. **Blocking Receive:** The client thread waits until a message is available, ensuring it processes messages as they arrive.
+2. **Blocking Receive with Timeout:** The client thread blocks for a specified time waiting for a message. If a message is not received within the timeout period, the operation returns, allowing the client to handle the situation or address other tasks.
+3. **Non-Blocking Receive:** The client thread regains control immediately, regardless of message availability.
+
+In all cases, messages are only discarded by the middleware when they fail pre-delivery validation (e.g., directed to a non-existent socket). This validation ensures that the integrity of message delivery is maintained, and only valid messages are passed to the application.
+### Send Operations
+
+Message sending is similarly managed by background threads, which ensure Exactly-Once delivery. Application threads do not transmit messages directly but submit them to the middleware. A flow control mechanism regulates the submissions to prevent resource exhaustion and receiver overload. Similarly to receive operations, there are three operation modes:
+
+1. **Blocking Send:** The client thread waits until the message submission is allowed, after which the message is handed off to background threads for transmission.
+2. **Blocking Send with Timeout:** The thread waits up to a specified duration for permission to send. If the timeout elapses, control returns to the client, enabling it to retry or handle the failure as needed.
+3. **Non-Blocking Send:** The client thread attempts to send the message and immediately regains control, regardless of whether the message is submitted.
+
+If submission fails, the middleware hands back the responsibility for the message to the application, meaning the message is no longer covered under the middleware's Exactly-Once delivery guarantee.
+
+### Key Design Considerations
+
+It is important to note that the three operation modes for both sending and receiving are designed to offer behavior flexibility. The behavior described for these operations serves as a baseline. Each socket has its own semantics and rules, meaning the blocking behavior is not solely determined by the flow control mechanism or the absence of messages to be received. For instance, a socket may include additional queues, allowing messages to be queued on the socket even when the flow control mechanism temporarily prevents their submission. Similarly, when receiving, a socket might already have messages queued for delivery, but due to ordering constraints, application threads may remain blocked while waiting for the correct message to arrive.
+
+By delegating much of the I/O processing to background threads and offering flexible blocking and non-blocking behaviors, the middleware achieves a balance regarding scalability. This approach ensures that applications leveraging the middleware can maintain robust message handling even under high load, while also providing developers the tools to customize their I/O operations for optimal performance.
+
+# Future Work
 
 The middleware has a single thread which must perform all the necessary work regarding processing of received messages. Having such thread significantly increases the difficulty in creating new custom sockets. The developer must be very careful to avoid blocking and dead lock scenarios which can slow down or stop the middleware completely.
 Having the above in mind, to ease the development of new sockets, to avoid slowing down the middleware and to prevent unwanted behavior, having an asynchronous IO framework to which the processing tasks can be delegated could be the best choice. The framework must be conceived in a way that enables tasks to be cancelled at any time as to not waste resources on tasks that seem to be deadlocked.
