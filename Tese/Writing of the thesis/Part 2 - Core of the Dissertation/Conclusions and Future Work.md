@@ -13,6 +13,9 @@
 
 ---
 # Future Work
+## Ideas
+- Optimize algorithms related to the reception of a message having in mind that the message processor (thread) may be the only thread to access certain areas of the logic. 
+
 ## Sockets
 ### Contexts and Streams
 ***Notes:***

@@ -94,15 +94,6 @@ That being said, the middleware was designed with extensibility in mind, particu
 - Pool of workers along with a batching service could be a good solution for throughput
 	- Due to the thread-safe nature of the middleware, if a pool of workers is employed, it is possible that two workers attempt to deliver a message to the same socket, effectively hindering each other. To prevent such scenario, batching messages could be an alternative solution to enhance throughput.
 
-## Threading model
-- Talk about how difficult creating a middleware under thread-safe semantics is. 
-	- Performance-wise
-	- Deadlocks
-	- etc
-- For comparison, check the veracity of the following:
-	- **ZeroMQ**: Uses a pool of threads (typically 1 by default, but can be configured for more).
-	- **nanomsg**: Typically uses 1 thread per socket.
-	- **NNG**: Uses 1 thread per socket by default, but also supports multi-threading with configuration for worker threads and thread pools.
 ## RAW and COOKED sockets
 - description of what they are and what their purpose is
 	- One of the purposes is to aid the creation of forwarders, right? 
@@ -143,4 +134,97 @@ That being said, the middleware was designed with extensibility in mind, particu
 	- *Future Work feature*
 - The custom receipt object would enable a receipt to be delivered to the socket without adding another contention point which would map a MsgId to the source socket.
 ---
-# 
+# Handling Dynamic Nodes
+**Reference:** "*How do we handle dynamic components, i.e., pieces that go away temporarily? Do we formally split components into “clients” and “servers” and mandate that servers cannot disappear? What then if we want to connect servers to servers? Do we try to reconnect every few seconds?*" (https://zguide.zeromq.org/docs/chapter1/#Why-We-Needed-ZeroMQ)
+
+**Add to the fault tolerance section?**
+**Possible Subsections**:
+- Handling Dynamic Components
+	- Automatic Reconnection Strategies 
+	- Exponential Backoff for Reconnects 
+	- Heartbeat Mechanisms and Failure Detection 
+	- Data Caching/Buffers During Downtime 
+	- Failover Mechanisms for Server Availability
+
+<span style="color:red">
+<ul>
+<li><b>READ THE FAULT TOLERANCE SECTIONS IN THE STATE OF THE ART TO EXTRACT SOME IDEAS ON HOW TO WRITE THE SECTION</b></li>
+<li><b>ALSO, THE WRITING GUIDELINES FOR THE SECTION CAN HELP TOO</b></li>
+<li>MAKE SURE TO CAPTURE IDEAS OF FEATURES AND OTHER STUFF THAT IS NOT IMPLEMENTED AND JUSTIFY WHY THEY AREN'T IMPLEMENTED OR WHY THEY COULD BE IN THE FUTURE.</li>
+</ul>
+</span>
+- https://chatgpt.com/c/677deab4-3ab8-8009-91f0-0c6d63f79fbf (check if there is something here)
+
+
+- For flexibility purposes, the middleware was designed to work in a **peer-to-peer** model. This model enables any socket to establish a link with other socket as long as both sockets agree in the establishment of the link.
+- Regarding dynamic components, all nodes and sockets are assumed as dynamic pieces which can go away temporarily. Since crashes are assumed to not happen, the absence of those pieces has its origin on the network, for instance a network partition. Deciding how to handle dynamic components is a crucial aspect of any messaging middleware. As for this one, the Exactly-Once delivery guarantee plays a huge role in determining how to handle them. We also assume that the reason being the absence of the pieces is temporary, therefore, even though a piece may have become unreachable, such condition will eventually be solved. The combination of these requirements and assumptions leads to the following solution:
+	- Messages are never discarded, as the recipient will eventually be contactable again; 
+	- Resources are limited, so applying measures that prevent their exhaustion are required.
+		- Implemented measures:
+			- For memory resources, limiting the amount of messages that can be queued, for instance by employing a flow control mechanism.
+				- Note: By default, sockets enable setting a limit of links that can be established, but also how many messages can be in queue to be processed.
+		- Future Work measures:
+			- Detecting when a recipient becomes unreachable. For instance, through event-driven heartbeat mechanisms and/or presence services. 
+			- For memory resources, freeing memory consumed by messages directed to an absent recipient by persisting them elsewhere and then recovering them when the recipient is back online.
+				- Also a step towards fault tolerance against node crashes
+			- For computational and network resources, aborting (re)transmissions when    the recipient is uncontactable.
+			- Failovers: Since a recipient may become unavailable, having the possibility to redirecting messages already submitted could be a desirable feature. Redirecting traffic already submitted to Exon is currently not possible as doing so for some of the messages could violate exactly-once delivery semantics. There isn't a way of knowing if messages already sent once by Exon have or have not arrived at the destination, therefore, the only traffic that could be redirected would be messages that were not yet sent once (i.e. messages that do not have a token created). Implementing this would require messages to have some kind of identification object (either generated by Exon or created by the client).
+				- Currently, there isn't a mechanism to detect if nodes are unavailable, therefore, if a message is sent to a certain recipient, one must wait until the recipient becomes available for the message to be delivered.
+				- Having a mechanism to detect unavailability along with the possibility of cancelling the delivery of messages to a certain recipient in order to redirect it to another recipient could be desirable.
+- Automatic reconnection is a feature present in most messaging middleware solutions to handle these scenarios where pieces may go away temporarily, be it due to crashes, network related issues, etc. However, that is not the case for this prototype. The current prototype uses the Exon library for transport which was implemented using the UDP transport protocol. Since the UDP transport protocol is connection-less, (re)connecting is not required. The adapted Exon library not only provides Exactly-Once delivery guarantee without the rigid concept of connection observed when using TCP but is also able to provide such guarantee in mobility scenarios, i.e., with nodes jumping between different networks.
+	- In a future iteration, if transport abstraction is possible, the automatic reconnection mechanism (potentially along exponential backoff) will be an essential feature. That along other mechanisms are crucial to ensure the Exactly-Once delivery guarantee transcends connections. The transport abstraction topic is discussed at a deeper level in a following section.
+- Insistent link establishment process:
+	- The Exon library ensures messages arrive exactly one time at the destination node, assuming that the association between the node identifier and the transport address is valid (i.e. there is a node described by such association). With connection-less exactly-once delivery guarantee, the only concern is the establishment of a link which is required to ensure only compatible sockets can pair and communicate with each other. Why is the link establishment a concern? A node is created before the socket, which means it is possible that a link establishment request for a socket that has not yet been created is received. When the node receives such request, it will refuse the request since there isn't a socket with such identification. Since the author of the link request will receive a negative answer for the linking process, to ensure the link is eventually established, a retransmission mechanism is required to resend the request until a proper answer breaks such cycle (this is explained in the Link Management Protocol section).
+	- Currently the retry interval is a configurable but constant value. In the future, implementing exponential backoff with configurable parameters is a desirable feature.
+- A key aspect that must be mentioned is related to disconnections. While connections are not a problem at the transport layer, a similar concept, the links, are required at the middleware level as explained previously in the section "System Components and Their Relationships". This characteristic is relevant under the Fault Tolerance discussion since links determine the boundaries of the life of messages exchanged through them. With this I mean that when a link is closed, analogous to a disconnection, any queued messages are discarded. Contrarily to what happens, for example, with the TCP transport protocol, a "disconnection" (link closure) does not occur due to a network problem. The link closure was devised to occur only when both sockets agree on closing the link, so developers must be cautious as to only issue the link closure when all messages have been delivered but also to make sure such link closure happens as to not make sockets remain linked and hold messages of sockets that no longer exist, therefore ensuring a graceful "disconnection".
+- Future work: 
+	- While probably not compatible with other transport protocols, having the possibility to cancel the delivery of messages submitted to Exon, for instance, to cancel a request to establish a link.
+
+---
+#### **Dynamic Node Handling**
+
+In messaging middleware, handling the temporary absence of nodes is crucial for maintaining robustness and reliability. In the context of this middleware, all nodes and sockets are treated as dynamic components, meaning they can become temporarily unreachable due to network-related issues such as partitioning. Since crashes are not considered in the current design assumptions, the following principles guide the fault tolerance strategy:
+
+1. **Message Persistence**  
+    Messages are never discarded under the assumption that the recipient will eventually become reachable. This approach guarantees message delivery once connectivity is restored.
+    
+2. **Resource Management**  
+    Limited resources, such as memory and processing capacity, necessitate proactive measures to prevent exhaustion:
+    
+    - **Flow Control:** Sockets allow for limiting the number of messages queued and the number of links that can be established, ensuring that resources are not overwhelmed by excessive buffering.
+    - **Future Enhancements:**
+        - Offloading messages directed to unreachable recipients to persistent storage to free memory, with retrieval upon recipient recovery.
+        - Introduction of mechanisms to detect unreachability, such as event-driven heartbeats or presence services.
+        - Aborting retransmissions to absent recipients to conserve computational and network resources.
+3. **Failover Considerations**  
+    While the current middleware prototype does not support failover for exactly-once delivery semantics, it is a potential area for future development. To enable failovers, the middleware would need a mechanism to uniquely identify messages and their delivery state to prevent duplicates or omissions.
+    
+
+---
+
+#### **Automatic Reconnection**
+
+In conventional messaging middleware, automatic reconnection is a standard feature to handle scenarios where components temporarily go offline. However, the middleware described here employs the Exon library, which provides exactly-once delivery guarantees over a connection-less transport protocol (UDP). This approach eliminates the need for reconnection since there are no persistent connections at the transport layer. Additionally, Exon's design ensures exactly-once delivery even in mobility scenarios, such as nodes transitioning between networks.
+
+For future iterations, if transport abstraction is introduced, implementing automatic reconnection mechanisms—possibly coupled with exponential backoff—will become essential. These mechanisms would ensure that the exactly-once delivery guarantee is preserved even when connections are intermittently disrupted.
+
+---
+
+#### **Message Lifecycle and Link Management**
+
+Links in the middleware, analogous to connections in transport-layer protocols, define the boundaries for message lifecycles. A link closure occurs only when both endpoints agree, ensuring a controlled and graceful termination of communication. To maintain fault tolerance:
+
+- Developers must close links only after all messages have been successfully delivered to prevent data loss.
+- Leaving links open for non-existent sockets can lead to resource leakage, making timely closure vital for system health.
+
+---
+
+### **Future Directions**
+
+Several enhancements can improve the fault tolerance mechanisms of this middleware:
+
+1. **Unreachability Detection:** Introduce heartbeats or presence services to actively monitor node availability.
+2. **Persistence Mechanisms:** Persist messages to external storage when resources are constrained.
+3. **Failover Support:** Develop a framework to redirect unsent messages to alternative recipients without violating exactly-once semantics.
+4. **Link Establishment Retransmissions:** Enhance the existing constant-interval retry mechanism with exponential backoff for greater efficiency and flexibility.
+5. **Cancellation of Pending Deliveries:** Allow cancellation of queued messages or link establishment requests to improve resource utilization in specific scenarios.

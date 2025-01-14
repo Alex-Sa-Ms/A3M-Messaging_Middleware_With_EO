@@ -63,9 +63,20 @@ These scalability features would ensure the middleware remains performant under 
 
 # Threading Model
 ## Writing Guidelines
+- Talk about how difficult creating a middleware under thread-safe semantics is. 
+	- Performance-wise
+	- Deadlocks
+	- etc
+- For comparison, check the veracity of the following:
+	- **ZeroMQ**: Uses a pool of threads (typically 1 by default, but can be configured for more).
+	- **nanomsg**: Typically uses 1 thread per socket.
+	- **NNG**: Uses 1 thread per socket by default, but also supports multi-threading with configuration for worker threads and thread pools.
 
 
 # Efficiency Considerations
+
+- Should this section be renamed to "(Other) Efficiency and Scalability Considerations"?
+
 ## Writing Guidelines
 - Correlated with threading model
 - Lock-free algorithms to not disturb the middleware thread
@@ -76,7 +87,11 @@ These scalability features would ensure the middleware remains performant under 
 *(Sections that need to be put somewhere)*
 ## Handling I/O Operations
 
-***Reference question:*** *"How do we handle I/O? Does our application block, or do we handle I/O in the background? This is a key design decision. Blocking I/O creates architectures that do not scale well. But background I/O can be very hard to do right."* (found in https://zguide.zeromq.org/docs/chapter1/#Why-We-Needed-ZeroMQ)
+***Reference:*** *"How do we handle I/O? Does our application block, or do we handle I/O in the background? This is a key design decision. Blocking I/O creates architectures that do not scale well. But background I/O can be very hard to do right."* (found in https://zguide.zeromq.org/docs/chapter1/#Why-We-Needed-ZeroMQ)
+
+**Questions:**
+- Should this be part of the "Efficiency Considerations" section?
+---
 
 The design of I/O operations in a messaging middleware is a critical factor in achieving scalable systems. Blocking I/O, while simpler to implement, often limits scalability; on the other hand, non-blocking I/O introduces complexity but enables more efficient resource utilization. To address these challenges, the middleware balances blocking and non-blocking behaviors through a hybrid approach, leveraging background threads[^1] to manage I/O operations.
 

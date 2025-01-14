@@ -50,3 +50,5 @@
 10. **[[Monitoring and Logging]]**
 11. **[[Configuration and Management]]**
 
+## Alternative format suggestion
+![[Pasted image 20250111200244.png]]
