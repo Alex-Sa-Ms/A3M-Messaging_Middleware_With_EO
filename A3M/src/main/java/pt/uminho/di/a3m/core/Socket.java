@@ -226,8 +226,7 @@ public abstract class Socket {
      * lets the custom socket logic handle the retrieval.
      * @param option option from which the associated value should be retrieved.
      * @param optionClass class to which the object should be cast to.
-     * @return cast value associated with the option or "null" if the option does
-     * not have a value associated.
+     * @return cast value associated with the option
      * @param <Option> class of the option value
      * @throws IllegalArgumentException if the option does not exist or the option class provided is null.
      * @throws ClassCastException if the value is not null and its class does not match
@@ -281,9 +280,7 @@ public abstract class Socket {
     /**
      * If there is a handler associated with the
      * option, invoke the set() method of the handler,
-     * using the provided value. If there isn't a handler,
-     * creates a generic handler that allows setting and
-     * getting the option.
+     * using the provided value.
      * @param option identifier of the option
      * @param value value to be "set" to the option
      * @throws IllegalArgumentException if the option does not exist
@@ -672,7 +669,12 @@ public abstract class Socket {
         }
     }
 
-    /** Wakes up all threads that invoked waitForAnyLinkEstablishment().*/
+    /**
+     * Wakes up all threads that invoked waitForAnyLinkEstablishment().
+     * @param sid Identifier of the socket that was established. 'null' can be passed
+     *           to trigger the verification of the queuing conditions, such as if the
+     *            socket is closed, or if the "notifyIfNone" flag is set and there are no links.
+     * */
     private void wakeAnyLinkWaiters(SocketIdentifier sid) {
         lock.readLock().lock();
         try {
@@ -684,7 +686,7 @@ public abstract class Socket {
         }
     }
 
-    public final void onLinkEstablished(Link link) {
+    final void onLinkEstablished(Link link) {
         assert link != null;
         try {
             lock.writeLock().lock();
@@ -757,7 +759,7 @@ public abstract class Socket {
      * Internal close call. Called to close and invoke
      * cleaning procedures when appropriate.
      */
-    protected final void closeInternal() {
+    private void closeInternal() {
         SocketState tmpState = state;
         if(tmpState != SocketState.CLOSED) {
             if (tmpState == SocketState.READY) {
@@ -783,7 +785,7 @@ public abstract class Socket {
             wakeAnyLinkWaiters(null);
     }
 
-    public final void onLinkClosed(Link link) {
+    final void onLinkClosed(Link link) {
         try {
             lock.writeLock().lock();
             LinkSocket linkSocket = linkSockets.remove(link.getDestId());
@@ -795,8 +797,9 @@ public abstract class Socket {
 
                 if(state == SocketState.CLOSING)
                     closeInternal();
+
+                wakeAnyLinkWaiters(null);
             }
-            wakeAnyLinkWaitersIfNoLinks();
         }finally {
             lock.writeLock().unlock();
         }
@@ -1279,9 +1282,9 @@ public abstract class Socket {
      * @param timeout Time limit for polling events.
      * @return available events
      */
-    public int poll(Socket socket, int events, Long timeout) throws InterruptedException {
+    public static int poll(Socket socket, int events, Long timeout) throws InterruptedException {
         if(socket != null)
-            return Poller.poll(pollThis, events, timeout) & events;
+            return Poller.poll(socket.pollThis, events, timeout) & events;
         else
             throw new IllegalArgumentException("Socket is null.");
     }

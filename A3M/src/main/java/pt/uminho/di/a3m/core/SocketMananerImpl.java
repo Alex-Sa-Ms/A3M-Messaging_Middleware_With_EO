@@ -17,6 +17,9 @@ class SocketMananerImpl implements SocketManager{
     private final Map<String, Socket> sockets = new HashMap<>();
     // sockets created but not started
     private final Map<String, Socket> reserved = new HashMap<>();
+    // TODO - Maybe change to regular map and use rwLock for thread-safety.
+    //  Socket producer operations should be very rare, so, having
+    //  a concurrent hash map to avoid unnecessary delays in message processing seems excessive.
     private final Map<Integer, SocketProducer> producers = new ConcurrentHashMap<>();
     private MessageDispatcher dispatcher;
 
@@ -135,13 +138,14 @@ class SocketMananerImpl implements SocketManager{
                 if(socket.getState() == SocketState.CREATED) {
                     SocketIdentifier sid = socket.getId();
                     String tagId = sid != null ? sid.tagId() : null;
-                    Socket s = reserved.remove(tagId);
+                    Socket s = reserved.get(tagId);
                     if (socket == s) {
+                        reserved.remove(tagId);
                         sockets.put(tagId, socket);
                         socket.setDispather(dispatcher);
+                        socket.start();
                     }
                 }
-            } catch (Exception ignored){
             } finally {
                 socket.getLock().writeLock().unlock();
                 rwLock.writeLock().unlock();

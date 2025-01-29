@@ -948,7 +948,7 @@ public class LinkManager implements Link.LinkDispatcher {
                 // confirm the clock identifier in the message matches the
                 // peer's clock identifier associated with the link.
                 if(link.getPeerClockId() != msg.getClockId())
-                    return true;
+                    return false;
                 switch (link.getState()){
                     case ESTABLISHED -> valid = true;
                     case LINKING -> {
