@@ -51,15 +51,15 @@ public class Link implements Pollable {
      * @param id identifier of the link
      * @param clockId clock identifier of the link
      * @param initialCapacity initial amount of credits provided to the sender
-     * @param dispatcher link observer
+     * @param observer link observer
      */
-    public Link(LinkIdentifier id, int clockId, int initialCapacity, float batchSizePercentage, LinkDispatcher dispatcher) {
+    public Link(LinkIdentifier id, int clockId, int initialCapacity, float batchSizePercentage, LinkObserver observer) {
         if(!LinkIdentifier.isValid(id))
             throw new IllegalArgumentException("Not a valid link identifier.");
         this.id = id;
         this.clockId = clockId;
         this.inFCS = new InFlowControlState(initialCapacity, batchSizePercentage);
-        this.dispatcher = dispatcher;
+        this.observer = observer;
     }
 
     /**
@@ -68,10 +68,10 @@ public class Link implements Pollable {
      * @param peerId link's peer identifier
      * @param clockId clock identifier of the link
      * @param initialCapacity initial amount of credits provided to the sender
-     * @param dispatcher link observer
+     * @param observer link observer
      */
-    public Link(SocketIdentifier ownerId, SocketIdentifier peerId, int clockId, int initialCapacity, float batchSizePercentage, LinkDispatcher dispatcher) {
-        this(new LinkIdentifier(ownerId, peerId), clockId, initialCapacity, batchSizePercentage, dispatcher);
+    public Link(SocketIdentifier ownerId, SocketIdentifier peerId, int clockId, int initialCapacity, float batchSizePercentage, LinkObserver observer) {
+        this(new LinkIdentifier(ownerId, peerId), clockId, initialCapacity, batchSizePercentage, observer);
     }
 
     public LinkIdentifier getId() {
@@ -121,7 +121,13 @@ public class Link implements Pollable {
 
     private final int clockId;
     private int peerClockId = Integer.MIN_VALUE;
-    private AtomicReference<Msg> scheduled = null; // To keep track of scheduled LINK message
+
+    // To keep track of scheduled LINK message.
+    // If "null" a scheduling task was not issued.
+    // If the reference itself is null, then the message has been sent.
+    // If the reference is not null, then the message has not yet been sent.
+    private AtomicReference<Msg> scheduled = null;
+
     // For the linking/unlinking process. Holds the value present in
     // the peer's LINKREPLY msg that was received before the peer's LINK msg.
     // When a LINK msg is received, this variable is verified.
@@ -130,6 +136,20 @@ public class Link implements Pollable {
     // If holding a negative non-fatal reply code, then a link request may be scheduled.
     // If holding a negative fatal reply code, then the link may be closed.
     private Integer linkReplyMsgReceived = null;
+
+    // sent data messages counter
+    private int sentCounter = 0;
+
+    // delivered data messages (from peer) counter
+    private int deliveryCounter = 0;
+
+    // peer's "dataCounter" value at the moment the link transitions to UNLINKING.
+    // Received via the peer's UNLINK msg.
+    // Represents the number of peer's data messages that must be delivered before
+    // the link can be closed, i.e. when peerDataCounter == unlinkDataGoal
+    // the link can be closed.
+    private int unlinkDeliveryGoal = Integer.MIN_VALUE;
+
 
     int getClockId() {
         return clockId;
@@ -163,16 +183,22 @@ public class Link implements Pollable {
 
     /**
      * Cancels scheduled message if there is one.
-     * @return scheduled message or 'null' if the message was already dispatched
-     * or if a message was not scheduled.
+     * @return 0 if there wasn't a scheduled message.
+     *         1 if the message was sent.
+     *         -1 if the message was not sent.
      */
-    SocketMsg cancelScheduledMessage(){
-        Msg msg = null;
+    int cancelScheduledMessage(){
+        int ret = 0;
         if(scheduled != null){
-            msg = scheduled.getAndSet(null);
+            // Retrieves the message and cancels its
+            // dispatching atomically.
+            Msg msg = scheduled.getAndSet(null);
+            // If "msg" is null, then the message was already dispatched.
+            ret = msg == null ? 1 : -1;
+            // Set "scheduled" to null to symbolize that there isn't a scheduled task anymore.
             scheduled = null;
         }
-        return (SocketMsg) msg;
+        return ret;
     }
 
     Integer isLinkReplyMsgReceived() {
@@ -218,9 +244,33 @@ public class Link implements Pollable {
         outFCS.applyCreditVariation(-outFCS.getCredits()); // makes credits reset to 0
     }
 
+    synchronized public int getSentCounter() {
+        return sentCounter;
+    }
+
+    synchronized public int getUnlinkDeliveryGoal() {
+        return unlinkDeliveryGoal;
+    }
+
+    synchronized public void setUnlinkDeliveryGoal(int unlinkDeliveryGoal) {
+        this.unlinkDeliveryGoal = unlinkDeliveryGoal;
+    }
+
+    synchronized public boolean isUnlinkDeliveryGoalSet(){
+        return unlinkDeliveryGoal != Integer.MIN_VALUE;
+    }
+
     // ********* Link Observer ********* //
 
-    public interface LinkDispatcher {
+    public interface LinkObserver {
+        /**
+         * To remove the link when it is closed. This event is triggered
+         * when all the data messages from the peer have been received.
+         * @param link link that is ready to complete the unlinking
+         *             process and be closed
+         */
+        void onCloseEvent(Link link);
+
         /**
          * Dispatch flow control message with the provided credits batch
          * to the peer associated with the link.
@@ -239,7 +289,7 @@ public class Link implements Pollable {
         void onOutgoingMessage(Link link, Payload payload) throws IllegalArgumentException;
     }
 
-    private final LinkDispatcher dispatcher;
+    private final LinkObserver observer;
 
     // ********** Incoming flow Methods ********** //
     private Queue<SocketMsg> inMsgQ = null;
@@ -255,7 +305,7 @@ public class Link implements Pollable {
      * @param batch credits to be sent.
      */
     private void sendCredits(int batch) {
-        if(batch != 0) dispatcher.onBatchReadyEvent(this, batch);
+        if(batch != 0) observer.onBatchReadyEvent(this, batch);
     }
 
     /**
@@ -317,11 +367,18 @@ public class Link implements Pollable {
      * Method used when an incoming message is handled immediately,
      * and does not require queuing.
      */
-    synchronized void acknowledgeDeliverAndIncrementBatch(){
-        if(state != LinkState.CLOSED){
-            int batch = inFCS.deliver();
-            sendCredits(batch);
+    void acknowledgeDelivery(){
+        // updates flow control state to trigger
+        // credits to be sent to the peer
+        synchronized (this) {
+            if (state != LinkState.CLOSED) {
+                int batch = inFCS.deliver();
+                sendCredits(batch);
+            }
         }
+        // updates delivery counter required
+        // for the unlinking process
+        updateDeliveryCounterAndCloseIfUnlinking();
     }
 
     /**
@@ -342,6 +399,31 @@ public class Link implements Pollable {
                 sendCredits(batch);
         }
         return msg;
+    }
+
+    /**
+     * Updates delivery counter and returns whether the link
+     * is ready to be closed.
+     * @return true if the link is ready to be closed, i.e. if the link is
+     * in the UNLINKING state and the delivery counter meets the delivery goal.
+     * @apiNote Assumes the caller to NOT hold the link's monitor
+     */
+    private boolean updateDeliveryCounter(){
+        synchronized (this) {
+            deliveryCounter++;
+            return state == LinkState.UNLINKING
+                    && deliveryCounter == unlinkDeliveryGoal;
+        }
+    }
+
+    /**
+     * Updates peer's delivered counter and signals a close
+     * event if the link state is ready to finish the unlink process.
+     * @apiNote Assumes the caller to NOT hold the link's monitor
+     */
+    private void updateDeliveryCounterAndCloseIfUnlinking() {
+        boolean close = updateDeliveryCounter();
+        if(close) observer.onCloseEvent(this);
     }
 
     /**
@@ -446,8 +528,10 @@ public class Link implements Pollable {
 
         // if a wait queue entry does not exist, then
         // the method must return now.
-        if(wait == null)
+        if(wait == null) {
+            if (msg != null) updateDeliveryCounterAndCloseIfUnlinking();
             return msg;
+        }
 
         try {
             while (true) {
@@ -472,6 +556,8 @@ public class Link implements Pollable {
             if (hasAvailableIncomingMessages())
                 waitQ.fairWakeUp(0, 1, 0, PollFlags.POLLIN);
         }
+
+        if (msg != null) updateDeliveryCounterAndCloseIfUnlinking();
         return msg;
     }
     
@@ -514,6 +600,18 @@ public class Link implements Pollable {
     }
 
     /**
+     * Signals an outgoing message event with the given
+     * payload and increments the counter of data messages sent.
+     * @param payload payload to be dispatched
+     * @apiNote Assumes the called to hold the link's monitor
+     */
+    private void dispatch(Payload payload){
+        observer.onOutgoingMessage(this, payload);
+        if(payload.getType() == MsgType.DATA)
+            sentCounter++;
+    }
+
+    /**
      * Sends message to the peer associated with this link. This method
      * is not responsible for verifying if the control message follows
      * the custom semantics of the socket.
@@ -552,7 +650,7 @@ public class Link implements Pollable {
             // If message is a control message, then it can be dispatched immediately.
             // In case of a data message, permission from the flow control is required.
             if (payload.getType() != MsgType.DATA || tryConsumingCredit()) {
-                dispatcher.onOutgoingMessage(this, payload);
+                dispatch(payload);
                 ret = true;
             }
             // If the message could not be sent and the
@@ -578,7 +676,7 @@ public class Link implements Pollable {
                 synchronized (this) {
                     // attempt to send the message again
                     if (tryConsumingCredit()) {
-                        dispatcher.onOutgoingMessage(this, payload);
+                        dispatch(payload);
                         ret = true;
                         break;
                     }
@@ -704,6 +802,15 @@ public class Link implements Pollable {
             // and let the exclusive waiter that won't be able to
             // send a message remain in its position.
             waitQ.wakeUp(0, 1, 0, 0);
+    }
+
+    public void unlink() {
+        boolean close;
+        synchronized (this){
+            state = LinkState.UNLINKING;
+            close = unlinkDeliveryGoal == deliveryCounter;
+        }
+        if(close) observer.onCloseEvent(this);
     }
 
     void close() {

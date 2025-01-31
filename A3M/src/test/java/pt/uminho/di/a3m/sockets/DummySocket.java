@@ -4,6 +4,7 @@ import pt.uminho.di.a3m.core.*;
 import pt.uminho.di.a3m.core.messaging.Payload;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 
+import java.util.ArrayDeque;
 import java.util.HashSet;
 import java.util.Queue;
 import java.util.Set;
@@ -109,7 +110,7 @@ public class DummySocket extends Socket {
 
     @Override
     protected Queue<SocketMsg> createIncomingQueue(int peerProtocolId) {
-        return inQueueSupplier != null ? inQueueSupplier.get() : null;
+        return inQueueSupplier != null ? inQueueSupplier.get() : new ArrayDeque<>();
     }
 
     /**

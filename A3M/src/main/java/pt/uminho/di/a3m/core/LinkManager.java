@@ -20,8 +20,8 @@ import pt.uminho.di.a3m.core.messaging.payloads.CoreMessages;
 import pt.uminho.di.a3m.core.messaging.payloads.ErrorPayload;
 import pt.uminho.di.a3m.core.messaging.payloads.SerializableMap;
 
-public class LinkManager implements Link.LinkDispatcher {
-    private final Socket socket;
+public class LinkManager implements Link.LinkObserver {
+    final Socket socket;
     final Map<SocketIdentifier, Link> links = new HashMap<>();
     final ReadWriteLock lock;
     private int clock = 0;
@@ -261,6 +261,35 @@ public class LinkManager implements Link.LinkDispatcher {
         return null;
     }
 
+    /**
+     * Creates the payload of an unlink message.
+     * @param link object from which an unlink message should be created.
+     * @return payload for an unlink message
+     */
+    private byte[] createUnlinkMsg(Link link) {
+        ByteBuffer bb = ByteBuffer.allocate(4);
+        // inserts the data messages sent counter, so that
+        // the peer can know how many data messages it must
+        // deliver before closing the link.
+        bb.putInt(link.getSentCounter());
+        return bb.array();
+    }
+
+    private void sendUnlinkMsg(Link link){
+        byte[] payload = createUnlinkMsg(link);
+        dispatch(link.getDestId(), MsgType.UNLINK, link.getClockId(), payload);
+    }
+
+    /**
+     * Parses an unlink message, i.e. extracts the delivery goal
+     * from its payload.
+     * @param msg UNLINK message
+     * @return delivery goal present in the message's payload
+     */
+    private static int parseUnlinkMsg(SocketMsg msg){
+        return ByteBuffer.wrap(msg.getPayload()).getInt();
+    }
+
     public static String linkRelatedMsgToString(SocketMsg msg) throws InvalidProtocolBufferException {
         StringBuilder sb = new StringBuilder();
         String type = "(not link-related) ", payload = "";
@@ -277,6 +306,7 @@ public class LinkManager implements Link.LinkDispatcher {
             }
             case MsgType.UNLINK -> {
                 type = "UNLINK";
+                payload = "{deliveryGoal=" + parseUnlinkMsg(msg) +"}";
             }
             case MsgType.FLOW -> {
                 type = "FLOW";
@@ -333,35 +363,29 @@ public class LinkManager implements Link.LinkDispatcher {
      */
     private boolean checkCompatibilityThenAcceptOrReject(Link link, boolean establish) {
         boolean compatible;
-        byte[] payload;
-        // if a link request is scheduled, cancel it immediately
-        SocketMsg scheduled = link.cancelScheduledMessage();
+        int replyCode = AC_SUCCESS;
+
+        // If there is a scheduled linking process, let's cancel it.
+        int scheduled = link.cancelScheduledMessage();
+
+        // If a LINK message was not scheduled or was already sent, then the
+        // metadata has been sent and does not need to be carried by the LINKREPLY.
+        boolean metadataSent = scheduled != -1;
 
         if(isPeerCompatible(link.getPeerProtocolId())){
-            // if a link request was not scheduled, the socket sends a LINKREPLY with a success code
-            // but without metadata since a LINK msg was already sent to the peer
-            // containing the metadata. The socket also establishes the link.
-            if (scheduled == null) {
-                payload = createLinkReplyMsg(AC_SUCCESS, false).serialize();
-                if (establish) establishLink(link);
-            }
-            // Else, if there was a scheduled link request, we remain in
-            // a LINKING state, send a LINKREPLY message with metadata
-            // and a success code, and wait for the peer to confirm the establishment.
-            else payload = createLinkReplyMsg(AC_SUCCESS, true).serialize();
+            // if metadata was already sent and the peer's
+            // reply was received and is positive, then establish the link.
+            if(metadataSent && establish)
+                establishLink(link);
             compatible = true;
         }else{
-            // if incompatible, create LINKREPLY message with incompatible (fatal) refusal code,
-            // and add metadata depending on whether a LINK msg is considered in "flight" or not,
-            // as done above when the peer is compatible.
-            if(scheduled == null)
-                // not scheduled, so considered "in flight"
-                payload = createLinkReplyMsg(AC_INCOMPATIBLE, false).serialize();
-            else
-                payload = createLinkReplyMsg(AC_INCOMPATIBLE, true).serialize();
+            // if incompatible, the reply code should indicate incompatibility (fatal refusal code)
+            replyCode = AC_INCOMPATIBLE;
+            // Incompatibility between the sockets, so the link must be closed.
             closeLink(link);
             compatible = false;
         }
+        byte[] payload = createLinkReplyMsg(replyCode, !metadataSent).serialize();
         dispatch(link.getDestId(), MsgType.LINKREPLY, link.getClockId(), payload);
         return compatible;
     }
@@ -512,52 +536,63 @@ public class LinkManager implements Link.LinkDispatcher {
                 if(peerClockId < link.getPeerClockId()) return;
                 switch (link.getState()){
                     case LINKING -> {
-                        // To be in a LINKING state:
-                        //  1. (THIS SITUATION) The socket must have either
-                        // invoked link() and is waiting the peer's metadata,
-                        //  2. The socket has received a LINK msg with the peer's metadata
-                        // and is only waiting for the confirmation (LINKREPLY) to establish the link.
+                        // A link in a LINKING state can receive a LINK message when:
+                        //  1. Waiting for metadata and reply
+                        //  2. Waiting for metadata
+                        //  3. Waiting to retry the linking process
 
-                        // To establish a LINK, both the LINK and LINKREPLY messages need
-                        // to be received. If the LINK message was the first to arrive,
-                        // we cannot establish the link since we are missing the LINKREPLY msg.
+                        // To establish a link, both the peer's metadata and reply are needed.
+                        // This LINK message contains the metadata. So, a LINKREPLY is required
+                        // to obtain the reply. If the LINKREPLY message has already arrived,
+                        // a final operation that either establishes or closes the link can
+                        // be executed. If it hasn't arrived, then we need to wait for it to
+                        // make a decision.
+
+                        // This attribute indicates if the link should be established.
                         boolean establish = false;
 
-                        if(link.isLinkReplyMsgReceived() != null){
-                            // ignore link messages that have a clock identifier
+                        // Since we just received the metadata, let's check if the reply
+                        // has already been received previously
+                        Integer peerReplyCode = link.isLinkReplyMsgReceived();
+                        if(peerReplyCode != null){
+                            // reset the waiting variable
+                            link.setLinkReplyMsgReceived(null);
+                            // ignore LINK messages that have a clock identifier
                             // that does not match the wanted clock identifier
                             if(peerClockId != link.getPeerClockId())
                                 return;
-                            // save and then reset the waiting variable
-                            int peerReplyCode = link.isLinkReplyMsgReceived();
-                            link.setLinkReplyMsgReceived(null);
-
                             // LINK and LINKREPLY have been received,
                             // so the socket can establish the link
-                            // if compatible
+                            // if compatible.
                             if(isPositiveLinkingCode(peerReplyCode))
                                 establish = true;
-                            // if the received code is fatal, we need
-                            // to set in progress an unlinking process
-                            else if(isFatalLinkingCode(peerReplyCode)) {
-                                closeLink(link);
-                                return;
-                            }
-                            // if a non-fatal reply code was received and
-                            // the peer is compatible, we can schedule a
-                            // new link request. Otherwise, close the link.
-                            else { // if(isNonFatalLinkingCode(peerReplyCode))
-                                if (isPeerCompatible(peerProtocolId)) {
+                            else{
+                                // if a non-fatal reply code was received
+                                // and the peer is compatible, we can schedule
+                                // a new link request. Otherwise, close the link.
+                                if(isNonFatalLinkingCode(peerReplyCode)
+                                        && isPeerCompatible(peerProtocolId))
                                     scheduleLinkRequest(link);
-                                } else {
+                                // Otherwise, the peer is incompatible or the reply code
+                                // was fatal. So, the link must be closed.
+                                else
                                     closeLink(link);
-                                }
                                 return;
                             }
                         }
 
+                        // If the link is waiting for metadata, then this LINK message may
+                        // be the one to provide it. However, it is possible for a LINK
+                        // message with a newer clock id to arrive. In that case, its metadata is not used.
+                        // Consider the example, where X in LINK(X) and LINKREPLY(X) corresponds
+                        // the clock id of the sender:
+                        //  1) A -- LINK(1) --> B;
+                        //  2) B -- LINK(1) --> A;
+                        //  3) B: unlink(A) - Results in cancelling state
+                        //  4) A -- Positive LINKREPLY(1) --> B;
+                        //  5) B -- Fatal LINKREPLY(1) --> A; (Delayed message that will arrive after the message that follows)
+                        //  6) B: link(A) => B -- LINK(2) --> A;
                         if(link.isWaitingPeerMetadata()){
-                            // Peer has invoked link() and is waiting for metadata (in a LINK or LINKREPLY msg).
                             link.setPeerMetadata(peerProtocolId, peerClockId, outCredits);
                             // Send LINKREPLY message and close link if incompatible.
                             // If compatible and a LINKREPLY message has not been received,
@@ -566,61 +601,67 @@ public class LinkManager implements Link.LinkDispatcher {
                             checkCompatibilityThenAcceptOrReject(link, establish);
                         }
                         else if(peerClockId > link.getPeerClockId()){
+                            // Receive LINK message with newer clock id, therefore,
+                            // send a non-fatal reply informing the link still exists.
                             SerializableMap linkreplyPayload = createLinkReplyMsg(AC_LINK_EXISTS, true);
                             dispatch(peerId, MsgType.LINKREPLY, clock, linkreplyPayload.serialize());
                         }
                     }
-                    // Ignore message when ESTABLISHED. This cannot happen, as
-                    // for a LINK/LINKREPLY message to be sent, the sender must not
-                    // have the link, and the state of this link is that both peers
-                    // agreed on having the link established.
-                    // case ESTABLISHED -> {}
-                    case UNLINKING -> {
-                        // To be in a UNLINKING state, the link must have
-                        // been established before. Now, the socket is waiting
-                        // for the peer to confirm the closure of the link.
 
-                        // Since a LINK message has been received, this means
-                        // the peer has closed the link on its end, and then
-                        // initiated a new linking process. So, the received
-                        // message must have a higher clock id then the peer's
-                        // clock id associated with the current link.
+                    // Ignore LINK messages when ESTABLISHED. For a link to be
+                    // in the ESTABLISHED state, both sockets must agree on establishing
+                    // the link. After the agreement, a LINK message cannot be sent again
+                    // until the current link is closed. So, receiving a LINK message when
+                    // the state is ESTABLISHED, is not possible.
+                    // case ESTABLISHED -> {}
+
+                    case UNLINKING -> {
+                        // Similarly to the linking process, one of the sockets will perceive the
+                        // link as closed before the other. During the interval between the first
+                        // socket perceiving the link as closed, and the second socket having the
+                        // same perception, it is possible for the first socket to initiate a new link.
+                        // Hence, why it is possible for a LINK message to arrive when in the UNLINKING state.
+
+                        // Since the LINK message must correspond to a new
+                        // linking process, the peer's clock id must be higher
+                        // than the peer's clock id associated with the current link.
                         if(peerClockId > link.getPeerClockId()) {
                             // A LINKREPLY with non-fatal "ALREADY_LINKED" negative response
                             // is sent to reschedule the linking process, giving time to
                             // finish the current unlinking process.
-                            // Closing the current link and creating a new one could also
-                            // be an approach, however, we'll stick with this solution for now.
                             byte[] replyPayload = createLinkReplyMsg(AC_LINK_EXISTS, true).serialize();
                             dispatch(peerId, MsgType.LINKREPLY, link.getClockId(), replyPayload);
                         }
                     }
                     case CANCELLING -> {
-                        // To be in a CANCELLING state, the socket wants to close the link
-                        // but cannot since it has not yet received the peer's metadata,
-                        // which may come in a LINK message.
-                        // Since receiving a LINK message would initiate a linking process,
-                        // we need to catch it before starting the unlinking process,
-                        // to ensure the link is closed.
+                        // A socket changes to the CANCELLING state, when wanting to close a link
+                        // before it is established - more specifically, when it is in the LINKING
+                        // state and its metadata has been sent.
+
+                        // If the peer's metadata has not yet been received,
+                        // then a reply has not yet been sent. This means that
+                        // a fatal reply can be sent to close the link.
                         if(link.isWaitingPeerMetadata()) {
                             Integer peerReplyCode = link.isLinkReplyMsgReceived();
-                            // If the peer's LINKREPLY message has not yet been received,
-                            // or it has been received and has the peer's will to establish the
-                            // link, then the socket must send a fatal LINKREPLY message to
-                            // ensure the link is closed on the peer's side. If the peer
-                            // has rejected (closed) the link before this LINKREPLY message arrives,
-                            // the LINKREPLY message is simply discarded.
-                            // After sending the LINKREPLY message, the link can be closed.
+                            // If the peer's reply has already been received - meaning
+                            // the socket was only waiting to catch the LINK message
+                            // to prevent a new link establishment process from being
+                            // started - and it is a negative response, then there is
+                            // no need to send a reply because the link has already
+                            // been closed at the peer's side.
+                            // However, if a reply hasn't been received or if it was positive,
+                            // the fatal reply is required so that the peer closes the link.
                             if (peerReplyCode == null || isPositiveLinkingCode(peerReplyCode)) {
                                 byte[] replyPayload = createLinkReplyMsg(AC_CANCELED, false).serialize();
                                 dispatch(peerId, MsgType.LINKREPLY, link.getClockId(), replyPayload);
                             }
-                            // If the peer has sent a negative reply code, meaning it refused to link,
-                            // the socket can simply close the link.
                             closeLink(link);
                         }
+                        // If the peer's metadata has been received previously,
+                        // then this LINK message must be a newer link establishment attempt.
+                        // Since this current process is not yet finished, a non-fatal
+                        // reply should be sent, so that the peer retries the establishment later.
                         else{
-                            // link request after peer closed link on its side
                             if(peerClockId > link.getPeerClockId()) {
                                 byte[] replyPayload = createLinkReplyMsg(AC_LINK_EXISTS, true).serialize();
                                 dispatch(peerId, MsgType.LINKREPLY, link.getClockId(), replyPayload);
@@ -629,7 +670,7 @@ public class LinkManager implements Link.LinkDispatcher {
                     }
                 }
             }
-            // If link does not exist, check linking conditions and sends the appropriate answer.
+            // If link does not exist, checks linking conditions and sends the appropriate answer.
             // If linking conditions are met, creates the link in a LINKING state, and waits for
             // link establishment confirmation, either through a positive code in a LINKREPLY message,
             // or by receiving a data/control message.
@@ -651,7 +692,11 @@ public class LinkManager implements Link.LinkDispatcher {
             Link link = links.get(peerId);
             // If link exists
             if(link != null) {
-                // discard messages with old clock identifiers
+                // Discard messages with old clock identifiers
+                // We cannot discard LINKREPLY messages which have
+                // a clockId different that the current peer clock id,
+                // because it may be the first message to arrive, which
+                // means it dictates what the peer's clock id is.
                 if(peerClockId < link.getPeerClockId()) return;
                 switch (link.getState()){
                     case LINKING -> {
@@ -659,7 +704,7 @@ public class LinkManager implements Link.LinkDispatcher {
                         // and a LINKREPLY message was received
                         if(link.isWaitingPeerMetadata()){
                             // if the LINKREPLY contains the peer's metadata,
-                            // then, the peer is not a linking process initiator
+                            // then, the peer is not the initiator of the linking process
                             if(payload.hasInt("protocolId")){
                                 int peerProtocolId = payload.getInt("protocolId");
                                 // success linking code
@@ -671,20 +716,16 @@ public class LinkManager implements Link.LinkDispatcher {
                                     // LINKREPLY and close the link
                                     link.setPeerMetadata(peerProtocolId, peerClockId, outCredits);
                                     checkCompatibilityThenAcceptOrReject(link, true);
-                                } else if (isFatalLinkingCode(replyCode)) {
-                                    // if the LINKREPLY message contains a fatal
-                                    // refusal code, then remove the link
-                                    closeLink(link);
-                                } else{
-                                    // if not fatal refusal code and
-                                    // if peer is compatible, then
+                                } else if (isNonFatalLinkingCode(replyCode)
+                                        && isPeerCompatible(peerProtocolId)) {
+                                    // if the LINKREPLY message contains a non-fatal
+                                    // refusal code and the peer is compatible, then
                                     // schedule a linking process retry
-                                    if(isPeerCompatible(peerProtocolId)) {
-                                        scheduleLinkRequest(link);
-                                    }else{
-                                        // remove link if not compatible
-                                        closeLink(link);
-                                    }
+                                    scheduleLinkRequest(link);
+                                } else{
+                                    // Else: if the refusal code is fatal
+                                    // or the peer is incompatible, then close the link
+                                    closeLink(link);
                                 }
                             }
                             // else, the socket and the peer started a linking
@@ -694,26 +735,16 @@ public class LinkManager implements Link.LinkDispatcher {
                                 // set peer's clock identifier associated
                                 // with the incoming LINK message
                                 link.setPeerClockId(peerClockId);
-
-                                // Since we need to wait for LINK msg, we set
-                                // the reply code received to the variable that
-                                // informs if the socket has received the peer's LINKREPLY
-                                // message before the peer's LINK message had arrived,
-                                // and let the socket remain in a LINKING state.
-                                // When the peer's LINK message arrives,
-                                // the socket performs the appropriate behavior,
-                                // such as removing the link, scheduling a
-                                // new link request or establishing the link,
-                                // depending on the reply code present in the variable.
+                                // Since the LINK msg must be caught regardless
+                                // of the reply being positive or not, the reply
+                                // is saved for processing when the LINK msg arrives.
                                 link.setLinkReplyMsgReceived(replyCode);
                             }
                         }
-                        // Else, if the peer's metadata was already received,
-                        // then the socket has received a LINK message with
-                        // the peer's metadata, has sent a positive LINKREPLY answer 
-                        // and is waiting for a LINKREPLY message, which is this one.
-                        // This LINKREPLY message is required to determine if the link
-                        // should be established or closed.
+                        // Else, if the peer's metadata was already received
+                        // and the link is in the LINKING state, a positive reply
+                        // was sent to the peer. With the arrival of this reply,
+                        // a decision can be made regarding the establishment of the link.
                         else{
                             // assert the clock identifiers match
                             if(peerClockId == link.getPeerClockId()){
@@ -731,17 +762,22 @@ public class LinkManager implements Link.LinkDispatcher {
                             }
                         }
                     }
+
                     // Ignore LINKREPLY messages when ESTABLISHED.
+                    // LINKREPLY messages cannot be received when the link is
+                    // established, because for a link to be established,
+                    // the LINKREPLY must already have been received.
                     // case ESTABLISHED -> {}
 
-                    // Receiving a LINKREPLY message when in UNLINKING state is not possible. To pass 
-                    // to the UNLINKING state, one must have already received a LINKREPLY message that
-                    // would result in the link being established.
+                    // Receiving a LINKREPLY message when in UNLINKING state is
+                    // not possible. To pass to the UNLINKING state, one must have
+                    // already received a LINKREPLY message that would result in the
+                    // link being established.
                     // case UNLINKING -> {}
 
                     case CANCELLING -> {
                         // A link is set to the CANCELLING state when the establishment of the link is no
-                        // longer desired but the peer's metadata and answer have not yet been received.
+                        // longer desired but both the peer's metadata and answer have not yet been received.
                         if(link.isWaitingPeerMetadata()){
                             // if waiting for peer metadata and LINKREPLY does not have
                             // metadata, then wait for LINK msg.
@@ -769,8 +805,8 @@ public class LinkManager implements Link.LinkDispatcher {
                             // same across the peer's LINK and LINKREPLY messages is necessary.
                             if(peerClockId == link.getPeerClockId()){
                                 if(isPositiveLinkingCode(replyCode)) {
-                                    link.setState(LinkState.UNLINKING);
-                                    dispatch(peerId, MsgType.UNLINK, link.getClockId(), null);
+                                    link.unlink();
+                                    sendUnlinkMsg(link);
                                 }else {
                                     closeLink(link);
                                 }
@@ -795,29 +831,35 @@ public class LinkManager implements Link.LinkDispatcher {
             if(link != null){
                 // To accept an unlink request, the peer's clock identifier
                 // must match the registered peer clock identifier.
-                if(peerClockId != link.getPeerClockId())
-                    return;
-                boolean sendUnlinkMsg = false;
+                if(peerClockId != link.getPeerClockId()) return;
+                
+                int deliveryGoal = parseUnlinkMsg(msg);
+                assert deliveryGoal >= 0;
+                link.setUnlinkDeliveryGoal(deliveryGoal);
+                
+                // There is always a peer that reaches the ESTABLISHED state first.
+                // This means, the UNLINK message can be received not only in
+                // the ESTABLISHED and UNLINK state, but also when in the LINKING
+                // and CANCELLING state.
                 switch (link.getState()){
-                    // There is always a peer that reaches the ESTABLISHED state first.
-                    // This means, that a socket may receive an UNLINK message,
-                    // not only when in the ESTABLISHED state, but also while in a LINKING
-                    // state waiting for the peer's answer, or in a CANCELLING state.
-                    case LINKING, ESTABLISHED, CANCELLING -> {
-                        // confirm that the peer's metadata has been
-                        // received and an answer has been sent.
-                        if(!link.isWaitingPeerMetadata())
-                            sendUnlinkMsg = true;
-                        else
-                            return;
+                    // If an UNLINK message is received when in the LINKING state,
+                    // the link must change to a CANCELLING state. This will allow it
+                    // to transition to an UNLINKING state, when the reply that is missing 
+                    // arrives. The reply will be positive, otherwise the link wouldn't have 
+                    // been established to enable sending the UNLINK msg.
+                    case LINKING -> link.setState(LinkState.CANCELLING);
+                    // Setting the unlink delivery goal is enough for the CANCELLING state. 
+                    // When the reply arrives, the link will transition to unlink and close
+                    // itself when every message sent by the peer is delivered to the client.
+                    // case CANCELLING -> {}
+                    case ESTABLISHED -> {
+                        link.unlink();
+                        sendUnlinkMsg(link);
+                    }
+                    case UNLINKING -> {
+                        link.unlink();
                     }
                 }
-                // If not in UNLINKING state, send an UNLINK message
-                if(sendUnlinkMsg)
-                    dispatch(peerId, MsgType.UNLINK, link.getClockId(), null);
-                // Link closure occurs for all states as long as the peer's
-                // UNLINK message matches the registered peer's clock identifier
-                closeLink(link);
             }
         } finally {
             lock.writeLock().unlock();
@@ -880,10 +922,9 @@ public class LinkManager implements Link.LinkDispatcher {
             if(link != null){
                 switch (link.getState()){
                     case LINKING -> {
-                        // try cancelling scheduled link request
-                        SocketMsg scheduled = link.cancelScheduledMessage();
-                        // if message was canceled, remove link
-                        if(scheduled != null)
+                        // Try cancelling scheduled link request.
+                        // If message was canceled, remove link
+                        if(link.cancelScheduledMessage() == -1)
                             closeLink(link);
                         else{
                             // Else, switch to a "cancelling" state
@@ -894,8 +935,8 @@ public class LinkManager implements Link.LinkDispatcher {
                         // if link is established, changed it to UNLINKING
                         // and initiate the unlinking process by sending
                         // an unlink message.
-                        link.setState(LinkState.UNLINKING);
-                        dispatch(peerId, MsgType.UNLINK, link.getClockId(), null);
+                        link.unlink();
+                        sendUnlinkMsg(link);
                     }
                     // If state is UNLINKING or CANCELLING, then
                     // the "unlinking" process is already in progress.
@@ -963,11 +1004,15 @@ public class LinkManager implements Link.LinkDispatcher {
                         // Similar thought process as when in LINKING state.
                         // But here we skip the establishment and pass to UNLINKING.
                         if(!link.isWaitingPeerMetadata()) {
-                            link.setState(LinkState.UNLINKING);
-                            dispatch(peerId, MsgType.UNLINK, link.getClockId(), null);
+                            link.unlink();
+                            sendUnlinkMsg(link);
+                            valid = true;
                         }else dispatchNotLinkedErrorMsg(peerId, msg);
                     }
-                    // data/control messages received while in UNLINKING or CLOSED state,
+                    case UNLINKING -> {
+                        valid = true;
+                    }
+                    // data/control messages received while in CLOSED state,
                     // will not be processed, so ignore the message.
                     // default -> {}
                 }
@@ -1001,6 +1046,16 @@ public class LinkManager implements Link.LinkDispatcher {
             }
         } finally {
             lock.readLock().unlock();
+        }
+    }
+
+    @Override
+    public void onCloseEvent(Link link) {
+        lock.writeLock().lock();
+        try {
+            closeLink(link);
+        } finally {
+            lock.writeLock().unlock();
         }
     }
 
@@ -1039,7 +1094,7 @@ public class LinkManager implements Link.LinkDispatcher {
      * @implNote Any invalid messages provided are ignored.
      */
     boolean handleMsg(SocketMsg msg) {
-        if (msg == null) return true;
+        if (msg == null) return false;
         boolean ret = true;
         switch (msg.getType()) {
             case MsgType.DATA -> ret = handleDataOrControlMsg(msg);
@@ -1048,8 +1103,13 @@ public class LinkManager implements Link.LinkDispatcher {
             case MsgType.LINKREPLY -> handleLinkReplyMsg(msg);
             case MsgType.UNLINK -> handleUnlinkMsg(msg);
             case MsgType.ERROR -> ret = handleErrorMsg(msg);
-            // if it's not one of the types above, it is assumed to be a control message
-            default -> ret = handleDataOrControlMsg(msg);
+            default -> {
+                // if it's not one of the types above,
+                // it should be a control message.
+                // To make sure, a reserved type verification is made.
+                ret = !MsgType.isReservedType(msg.getType())
+                        && handleDataOrControlMsg(msg);
+            }
         }
         return ret;
     }

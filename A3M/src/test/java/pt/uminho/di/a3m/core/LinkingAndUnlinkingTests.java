@@ -29,7 +29,7 @@ class LinkingAndUnlinkingTests {
     ScheduledExecutorService scheduler = new ScheduledThreadPoolExecutor(1);
 
     private void dispatchTo(LinkManager destLm, SocketMsg msg){
-        scheduler.execute(() -> destLm.handleMsg(msg));
+        scheduler.execute(() -> destLm.socket.onIncomingMessage(msg));
         try {
             System.out.println(LinkManager.linkRelatedMsgToString(msg));
         } catch (InvalidProtocolBufferException e) {
@@ -543,19 +543,16 @@ class LinkingAndUnlinkingTests {
         assert lm2.isLinking(sid1);
         // make socket1 unlink
         lm1.unlink(sid2);
-        // If an UNLINK message is received when in LINKING state,
-        // the socket that received the UNLINK message is assumed
-        // to have already received the peer's metadata and sent a
-        // successful answer. So, when the UNLINK message is received,
-        // it can interpret it as a reason to send an UNLINK message
-        // and close the link.
-        waitUntil(() -> lm1.isUnlinked(sid2));
-        // Feed the LINKREPLY msg, wait for it to be done,
-        // and check that the positive LINKREPLY message had no
-        // effect since the link was already closed.
-        var s = scheduler.schedule(() -> dispatchTo(lm1, linkreplyMsg.getAndSet(null)),0,TimeUnit.MILLISECONDS);
-        waitUntil(s::isDone);
+        // Wait until the UNLINK message is received.
+        // When receiving an UNLINK message in the LINKING state,
+        // the link should transition to a CANCELLING state.
+        waitUntil(() -> lm2.isLinkState(sid1, ls -> ls == LinkState.CANCELLING));
+        // The link has progressed to a CANCELLING state. For it
+        // to engage the unlinking process the missing LINKREPLY must arrive.
+        // Release the LINKREPLY message
+        var s = scheduler.schedule(() -> dispatchTo(lm2, linkreplyMsg.getAndSet(null)),0,TimeUnit.MILLISECONDS);
         // wait until the link is closed on both sides
+        waitUntil(() -> lm1.isUnlinked(sid2));
         assert lm1.isUnlinked(sid2);
         assert lm2.isUnlinked(sid1);
     }
@@ -588,20 +585,18 @@ class LinkingAndUnlinkingTests {
         // make socket2 change to a CANCELLING state by invoking unlink()
         lm2.unlink(sid1);
         assert lm2.isLinkState(sid1, ls -> ls == LinkState.CANCELLING);
-        // make socket1 change an UNLINK msg
+        // make socket1 send an UNLINK msg
         lm1.unlink(sid2);
-        // If an UNLINK message is received when in CANCELLING state,
-        // the socket that received the UNLINK message is assumed
-        // to have already received the peer's metadata and sent a
-        // successful answer. So, when the UNLINK message is received,
-        // it can interpret it as a reason to send an UNLINK message
-        // and close the link.
-        waitUntil(() -> lm1.isUnlinked(sid2));
-        // Feed the LINKREPLY msg, wait for it to be done,
-        // and check that the positive LINKREPLY message had no
-        // effect since the link was already closed.
+        // wait until the UNLINK message is received.
+        waitUntil(() -> lm2.getLink(sid1).isUnlinkDeliveryGoalSet());
+        // Release the LINKREPLY message
         var s = scheduler.schedule(() -> dispatchTo(lm2, linkreplyMsg.getAndSet(null)),0,TimeUnit.MILLISECONDS);
-        waitUntil(s::isDone);
+        // When an UNLINK message is received in CANCELLING state,
+        // its processing is essentially delayed until the missing LINKREPLY
+        // is received. When the reply is received and is positive, the
+        // link initiates its unlinking process, by transitioning to the UNLINKING
+        // state and sending an UNLINK message.
+        waitUntil(() -> lm1.isUnlinked(sid2));
         // wait until the link is closed on both sides
         assert lm1.isUnlinked(sid2);
         assert lm2.isUnlinked(sid1);
@@ -644,19 +639,19 @@ class LinkingAndUnlinkingTests {
         // the socket that received the UNLINK message is assumed
         // to have already received the peer's metadata and sent a
         // successful answer. So, when the UNLINK message is received,
-        // it can interpret it as a reason to send an UNLINK message
-        // and close the link.
-        waitUntil(() -> lm1.isUnlinked(sid2));
+        // it should interpret it as a reason to cancel the link, i.e.
+        // change to the CANCELLING state.
+        waitUntil(() -> lm2.getLink(sid1).getState() == LinkState.CANCELLING);
         // Feed the LINKREPLY msg, wait for it to be done,
-        // and check that the positive LINKREPLY message had no
-        // effect since the link was already closed.
+        // and check that the positive LINKREPLY message triggered
+        // the link to close.
         var s = scheduler.schedule(() -> dispatchTo(lm2, linkreplyMsg.getAndSet(null)),0,TimeUnit.MILLISECONDS);
         waitUntil(s::isDone);
         // wait until the link is closed on both sides
+        waitUntil(() -> lm1.isUnlinked(sid2));
         assert lm1.isUnlinked(sid2);
         assert lm2.isUnlinked(sid1);
     }
-
 
     @Test
     void receiveLinkReplyMsgWhenWaitingMetadata() throws InterruptedException {
@@ -995,6 +990,42 @@ class LinkingAndUnlinkingTests {
             assert false; // should not get here
         }catch (Exception ignored){}
     }
+
+    // TODO - test unlinking delayed by messages to be delivered
+    @Test
+    void unlinkDelayedByMessageDelivery() throws InterruptedException {
+        // link socket1 and socket2
+        lm1.link(sid2);
+        waitUntil(() -> lm2.isLinked(sid1));
+        // Get the link sockets. The socket instance itself will not be used
+        // as it is just a dummy instance without any sending/receiving logic.
+        LinkSocket ls1To2 = socket1.getLinkSocket(sid2); // link socket from socket1 to socket2
+        LinkSocket ls2To1 = socket2.getLinkSocket(sid1); // link socket from socket2 to socket1
+        // make socket1 send data messages to socket2
+        ByteBuffer bb = ByteBuffer.allocate(4);
+        int nrMsgs = 10;
+        for (int i = 0; i < nrMsgs; i++) {
+            bb.putInt(i);
+            ls1To2.send(new BytePayload(MsgType.DATA, bb.array()), null);
+            bb.flip();
+        }
+        // make socket1 start the unlinking process
+        socket1.unlink(sid2);
+        // assert both sockets transition to the UNLINKING state
+        assert ls1To2.getState() == LinkState.UNLINKING;
+        waitUntil(() -> ls2To1.getState() == LinkState.UNLINKING);
+        // assert that socket2 stays in the UNLINKING state until
+        // all data messages received from socket1 are delivered.
+        // Only then it closes.
+        for (int i = 0; i < nrMsgs; i++) {
+            assert ls2To1.getState() == LinkState.UNLINKING;
+            ls2To1.receive(null);
+        }
+        assert !socket2.isLinked(sid1);
+        // wait until socket1 receives the UNLINK msg from socket2 and closes
+        waitUntil(() -> !socket1.isLinked(sid2));
+    }
+
 
     // TODO - test new scenarios
 }

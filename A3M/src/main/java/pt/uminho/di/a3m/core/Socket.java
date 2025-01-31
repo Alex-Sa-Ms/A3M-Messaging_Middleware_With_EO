@@ -578,17 +578,17 @@ public abstract class Socket {
     final void dispatch(SocketMsg msg){
         dispatcher.dispatch(msg);
     }
-    
+
     /**
      * <p>
-     * To be used by the message management system to deliver
-     * messages directed to the socket.
+     *     To be used by the message management system to deliver
+     *     messages directed to the socket.
      * </p>
      * <p>
      *     This method interceps messages that are part of
      *     default socket functionality, such as linking, and
      *     lets the rest of the messages be handled by the custom
-     *     socket functionalities through customFeedMsg().
+     *     socket functionalities through customOnIncomingMessage().
      * </p>
      * <p>
      *     This method also makes data messages undergo an additional procedure
@@ -607,50 +607,35 @@ public abstract class Socket {
      * </p>
      * @param msg socket message to be handled
      */
-    final void onIncomingMessage(SocketMsg msg) {
+    final void onIncomingMessage(SocketMsg msg){
         assert msg != null;
-        // if message is of data or custom control type,
-        // check if it can be processed
-        if(msg.getType() == MsgType.DATA
-                || !MsgType.isReservedType(msg.getType()))
-            onIncomingDataOrCustomControlMessage(msg);
-        else
-            linkManager.handleMsg(msg);
-    }
-
-    private void onIncomingDataOrCustomControlMessage(SocketMsg msg){
-        SocketIdentifier peerId = msg.getSrcId();
-        LinkSocket linkSocket = getLinkSocket(peerId);
-        // if link socket does not exist, then the link has not
-        // yet been established with the peer.
-        if(linkSocket == null){
-            // The message is passed to the link manager in order
-            // to check if it can be used to establish the link and
-            // then be processed. If it is not accepted by the link
-            // manager, then it is discarded.
-            if(!linkManager.handleMsg(msg)) return;
-            // since the message was deemed valid by the link manager,
-            // we assume the link was registered and a link socket can be retrieved
-            linkSocket = getLinkSocket(peerId);
-            if (linkSocket == null) return;
-        }
-        // If socket is in COOKED mode, then pass the message to be processed by the custom socket.
-        if(cookedMode){
-            SocketMsg rMsg = customOnIncomingMessage(linkSocket, msg);
-            if(msg.getType() == MsgType.DATA){
-               if(rMsg != null && rMsg.getType() == MsgType.DATA)
-                   linkSocket.getLink().queueIncomingMessage(rMsg);
-               else
-                   linkSocket.getLink().acknowledgeDeliverAndIncrementBatch();
+        // Delegates the message to the link manager to
+        // interpret core default types (such as the link
+        // management protocol messages) and validate if
+        // the message for further processing.
+        if(linkManager.handleMsg(msg)) {
+            // Since only data/control messages are interpreted at the moment,
+            // retrieve the associated link socket and if it is null,
+            // then the message cannot be processed.
+            LinkSocket linkSocket = getLinkSocket(msg.getSrcId());
+            if(linkSocket == null) return;
+            // If socket is in COOKED mode, then pass the message
+            // to be processed by the custom socket.
+            if (cookedMode) {
+                SocketMsg rMsg = customOnIncomingMessage(linkSocket, msg);
+                if (msg.getType() == MsgType.DATA) {
+                    if (rMsg != null && rMsg.getType() == MsgType.DATA)
+                        linkSocket.getLink().queueIncomingMessage(rMsg);
+                    else
+                        linkSocket.getLink().acknowledgeDelivery();
+                }
+            }
+            // If socket is in RAW mode, then queue message immediately
+            else {
+                linkSocket.getLink().queueIncomingMessage(msg);
             }
         }
-        // If socket is in RAW mode, then queue message immediately
-        else{ linkSocket.getLink().queueIncomingMessage(msg); }
     }
-
-    //final void onCookie(Cookie cookie) {
-    //    // TODO - onCookie()
-    //}
 
     public final void start() {
         try {
