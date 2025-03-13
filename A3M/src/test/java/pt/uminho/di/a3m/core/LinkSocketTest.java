@@ -12,7 +12,7 @@ import pt.uminho.di.a3m.core.messaging.Payload;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 import pt.uminho.di.a3m.core.messaging.payloads.BytePayload;
 import pt.uminho.di.a3m.poller.PollFlags;
-import pt.uminho.di.a3m.poller.PollTable;
+import pt.uminho.di.a3m.poller.PollEntry;
 import pt.uminho.di.a3m.poller.Poller;
 import pt.uminho.di.a3m.sockets.DummySocket;
 
@@ -184,7 +184,7 @@ class LinkSocketTest {
 
         // close
         unlinkSockets(0,1,true);
-        PollTable pt = new PollTable(PollFlags.POLLHUP, null, null);
+        PollEntry pt = new PollEntry(PollFlags.POLLHUP, null, null);
         assert (ls0_1.poll(pt) & PollFlags.POLLHUP) != 0;
         assert (ls1_0.poll(pt) & PollFlags.POLLHUP) != 0;
     }

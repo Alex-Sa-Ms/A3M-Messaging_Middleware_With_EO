@@ -2,12 +2,12 @@ package pt.uminho.di.a3m.poller;
 
 import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;
 
-public class PollTable {
+public class PollEntry {
     private int key;
     private Object priv;
     private PollQueueingFunc func;
 
-    public PollTable(int key, Object priv, PollQueueingFunc func) {
+    public PollEntry(int key, Object priv, PollQueueingFunc func) {
         this.key = key;
         this.priv = priv;
         this.func = func;
@@ -37,7 +37,7 @@ public class PollTable {
         this.func = func;
     }
 
-    public static boolean pollDoesNotWait(PollTable pt){
+    public static boolean pollDoesNotWait(PollEntry pt){
         return pt == null || pt.getFunc() == null;
     }
 

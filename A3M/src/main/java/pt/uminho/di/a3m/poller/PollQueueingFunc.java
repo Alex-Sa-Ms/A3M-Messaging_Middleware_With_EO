@@ -4,5 +4,5 @@ import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;
 
 @FunctionalInterface
 public interface PollQueueingFunc {
-    void apply(Pollable p, WaitQueueEntry wait, PollTable pt);
+    void apply(Pollable p, WaitQueueEntry wait, PollEntry pt);
 }

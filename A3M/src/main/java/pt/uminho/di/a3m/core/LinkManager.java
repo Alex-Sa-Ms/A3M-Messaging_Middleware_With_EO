@@ -241,12 +241,15 @@ public class LinkManager implements Link.LinkObserver {
     /**
      * Creates link reply message.
      * @param replyCode reply code
+     * @param destClockId Destination socket clock identifier. Required by the receiver to reject
+     *                   reply messages that correspond to previous linking processes.
      * @param withMetadata if "true" the message is created with metadata. if "false", metadata is not included.
      * @return serializable map which corresponds to the link request payload.
      */
-    private SerializableMap createLinkReplyMsg(int replyCode, boolean withMetadata) {
+    private SerializableMap createLinkReplyMsg(int replyCode, Integer destClockId, boolean withMetadata) {
         SerializableMap map =
             withMetadata ? createLinkRequestMsg() : new SerializableMap();
+        if(destClockId != null) map.putInt("destClockId", destClockId);
         map.putInt("replyCode", replyCode);
         return map;
     }
@@ -385,7 +388,7 @@ public class LinkManager implements Link.LinkObserver {
             closeLink(link);
             compatible = false;
         }
-        byte[] payload = createLinkReplyMsg(replyCode, !metadataSent).serialize();
+        byte[] payload = createLinkReplyMsg(replyCode, link.getPeerClockId(), !metadataSent).serialize();
         dispatch(link.getDestId(), MsgType.LINKREPLY, link.getClockId(), payload);
         return compatible;
     }
@@ -424,14 +427,14 @@ public class LinkManager implements Link.LinkObserver {
 
         int clockId;
         if(replyCode != 0){
-            payload = createLinkReplyMsg(replyCode, true).serialize();
+            payload = createLinkReplyMsg(replyCode, peerClockId, true).serialize();
             clockId = clock;
         } else { 
             // All requirements have been passed, so create link and set it to "linking".
             // A LINKREPLY message is sent to inform willingness to establish the link,
             // and a LINKREPLY message is expected to be returned to confirm the establishment.
             link = createLinkingLink(peerId, peerProtocolId, peerClockId, outCredits);
-            payload = createLinkReplyMsg(AC_SUCCESS, true).serialize();
+            payload = createLinkReplyMsg(AC_SUCCESS, peerClockId, true).serialize();
             clockId = link.getClockId();
         }
 
@@ -531,9 +534,23 @@ public class LinkManager implements Link.LinkObserver {
             Link link = links.get(peerId);
             // If link exists
             if(link != null){
-                // Discard messages without an identifier that is not
-                // at least as new as the current one
-                if(peerClockId < link.getPeerClockId()) return;
+                Integer result = link.comparePeerClockId(peerClockId);
+
+                if(result != null) {
+                    // Discard messages without a clock identifier that is not
+                    // at least as new as the current one
+                    if (result > 0) return;
+                    // Received a LINK message with newer clock id, therefore,
+                    // send a non-fatal reply informing the link still exists.
+                    // This is sent to reschedule the linking process, giving time to
+                    // close the current link.
+                    if (result < 0) {
+                        byte[] replyPayload = createLinkReplyMsg(AC_LINK_EXISTS, peerClockId, true).serialize();
+                        dispatch(peerId, MsgType.LINKREPLY, link.getClockId(), replyPayload);
+                        return;
+                    }
+                }
+
                 switch (link.getState()){
                     case LINKING -> {
                         // A link in a LINKING state can receive a LINK message when:
@@ -600,12 +617,6 @@ public class LinkManager implements Link.LinkObserver {
                             // the establishment of the link.
                             checkCompatibilityThenAcceptOrReject(link, establish);
                         }
-                        else if(peerClockId > link.getPeerClockId()){
-                            // Receive LINK message with newer clock id, therefore,
-                            // send a non-fatal reply informing the link still exists.
-                            SerializableMap linkreplyPayload = createLinkReplyMsg(AC_LINK_EXISTS, true);
-                            dispatch(peerId, MsgType.LINKREPLY, clock, linkreplyPayload.serialize());
-                        }
                     }
 
                     // Ignore LINK messages when ESTABLISHED. For a link to be
@@ -615,24 +626,15 @@ public class LinkManager implements Link.LinkObserver {
                     // the state is ESTABLISHED, is not possible.
                     // case ESTABLISHED -> {}
 
-                    case UNLINKING -> {
-                        // Similarly to the linking process, one of the sockets will perceive the
-                        // link as closed before the other. During the interval between the first
-                        // socket perceiving the link as closed, and the second socket having the
-                        // same perception, it is possible for the first socket to initiate a new link.
-                        // Hence, why it is possible for a LINK message to arrive when in the UNLINKING state.
 
-                        // Since the LINK message must correspond to a new
-                        // linking process, the peer's clock id must be higher
-                        // than the peer's clock id associated with the current link.
-                        if(peerClockId > link.getPeerClockId()) {
-                            // A LINKREPLY with non-fatal "ALREADY_LINKED" negative response
-                            // is sent to reschedule the linking process, giving time to
-                            // finish the current unlinking process.
-                            byte[] replyPayload = createLinkReplyMsg(AC_LINK_EXISTS, true).serialize();
-                            dispatch(peerId, MsgType.LINKREPLY, link.getClockId(), replyPayload);
-                        }
-                    }
+                    // Similarly to what happens in the linking process, one of the sockets
+                    // will perceive the unlinking process as finished (i.e. the closure of the link)
+                    // before the other. During the interval between the first socket perceiving the link
+                    // as closed, and the second socket having the same perception, it is possible for the
+                    // first socket to initiate a new link.  Hence, why it is possible for a LINK message to
+                    // arrive when in the UNLINKING state. (This is handled at the beginning of this method.)
+                    // case UNLINKING -> {}
+
                     case CANCELLING -> {
                         // A socket changes to the CANCELLING state, when wanting to close a link
                         // before it is established - more specifically, when it is in the LINKING
@@ -652,21 +654,16 @@ public class LinkManager implements Link.LinkObserver {
                             // However, if a reply hasn't been received or if it was positive,
                             // the fatal reply is required so that the peer closes the link.
                             if (peerReplyCode == null || isPositiveLinkingCode(peerReplyCode)) {
-                                byte[] replyPayload = createLinkReplyMsg(AC_CANCELED, false).serialize();
+                                byte[] replyPayload = createLinkReplyMsg(AC_CANCELED, peerClockId, false).serialize();
                                 dispatch(peerId, MsgType.LINKREPLY, link.getClockId(), replyPayload);
                             }
                             closeLink(link);
                         }
                         // If the peer's metadata has been received previously,
-                        // then this LINK message must be a newer link establishment attempt.
+                        // then this LINK message corresponds to a newer link establishment attempt.
                         // Since this current process is not yet finished, a non-fatal
                         // reply should be sent, so that the peer retries the establishment later.
-                        else{
-                            if(peerClockId > link.getPeerClockId()) {
-                                byte[] replyPayload = createLinkReplyMsg(AC_LINK_EXISTS, true).serialize();
-                                dispatch(peerId, MsgType.LINKREPLY, link.getClockId(), replyPayload);
-                            }
-                        }
+                        // (This situation is handled at the beginning of this method)
                     }
                 }
             }
@@ -692,12 +689,22 @@ public class LinkManager implements Link.LinkObserver {
             Link link = links.get(peerId);
             // If link exists
             if(link != null) {
-                // Discard messages with old clock identifiers
-                // We cannot discard LINKREPLY messages which have
-                // a clockId different that the current peer clock id,
-                // because it may be the first message to arrive, which
-                // means it dictates what the peer's clock id is.
-                if(peerClockId < link.getPeerClockId()) return;
+                // Replies are only accepted if:
+                // 1) It has the current link has its destination;
+                // 2) If it does not have a valid destination clock
+                // identifier (i.e. its value is Integer.MIN_VALUE),
+                // and if the link has a peer clock identifier associated,
+                // the reply must have a matching peer clock identifier.
+                int destClockId = payload.getInt("destClockId");
+
+                if(destClockId != link.getClockId()
+                        && destClockId != Integer.MIN_VALUE)
+                    return;
+
+                Integer result = link.comparePeerClockId(peerClockId);;
+                if(result != null && result != 0)
+                    return;
+
                 switch (link.getState()){
                     case LINKING -> {
                         // if the socket is waiting for the peer's metadata
@@ -745,21 +752,20 @@ public class LinkManager implements Link.LinkObserver {
                         // and the link is in the LINKING state, a positive reply
                         // was sent to the peer. With the arrival of this reply,
                         // a decision can be made regarding the establishment of the link.
-                        else{
+                        else {
                             // assert the clock identifiers match
-                            if(peerClockId == link.getPeerClockId()){
-                                // if the answer is positive, then establish the link
-                                if(isPositiveLinkingCode(replyCode))
-                                    establishLink(link);
+                            assert peerClockId == link.getPeerClockId();
+                            // if the answer is positive, then establish the link
+                            if (isPositiveLinkingCode(replyCode))
+                                establishLink(link);
                                 // if answer is fatal, then close link.
                                 // We can close the link, because it has already
                                 // been close by the peer on its side.
-                                else if(isFatalLinkingCode(replyCode))
-                                    closeLink(link);
+                            else if (isFatalLinkingCode(replyCode))
+                                closeLink(link);
                                 // else, if answer is (negative) non-fatal,
                                 // then schedule a new link request
-                                else scheduleLinkRequest(link);
-                            }
+                            else scheduleLinkRequest(link);
                         }
                     }
 
@@ -789,7 +795,7 @@ public class LinkManager implements Link.LinkObserver {
                                 // so the socket can answer with a "fatal" LINKREPLY msg if the
                                 // peer is in a LINKING state, i.e., if its answer was positive.
                                 if(isPositiveLinkingCode(replyCode)) {
-                                    byte[] respPayload = createLinkReplyMsg(AC_CANCELED, false).serialize();
+                                    byte[] respPayload = createLinkReplyMsg(AC_CANCELED, peerClockId, false).serialize();
                                     dispatch(peerId, MsgType.LINKREPLY, link.getClockId(), respPayload);
                                 }
                                 closeLink(link);
@@ -803,13 +809,12 @@ public class LinkManager implements Link.LinkObserver {
                         else {
                             // since a peer's message has been received, asserting the clock is the
                             // same across the peer's LINK and LINKREPLY messages is necessary.
-                            if(peerClockId == link.getPeerClockId()){
-                                if(isPositiveLinkingCode(replyCode)) {
-                                    link.unlink();
-                                    sendUnlinkMsg(link);
-                                }else {
-                                    closeLink(link);
-                                }
+                            assert peerClockId == link.getPeerClockId();
+                            if (isPositiveLinkingCode(replyCode)) {
+                                link.unlink();
+                                sendUnlinkMsg(link);
+                            } else {
+                                closeLink(link);
                             }
                         }
                     }

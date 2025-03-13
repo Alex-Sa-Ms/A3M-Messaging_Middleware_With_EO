@@ -422,7 +422,7 @@ public abstract class Socket {
                 // add the thread as a waiter of the link
                 ParkState ps = new ParkState(true);
                 AtomicReference<WaitQueueEntry> wait = new AtomicReference<>(null);
-                link.poll(new PollTable(0, null, (p, waitEntry, pt) -> {
+                link.poll(new PollEntry(0, null, (p, waitEntry, pt) -> {
                     if (waitEntry != null) {
                         wait.set(waitEntry);
                         waitEntry.add(WaitQueueEntry::defaultWakeFunction, ps);
@@ -709,8 +709,12 @@ public abstract class Socket {
      * socket close.
      * @param timeout maximum time willing to be waited for the socket to be closed.
      * @throws InterruptedException if the thread was interrupted while waiting.
+     * @implSpec Calling the superclass close() method is a must to ensure proper closure.
+     * Additionally, when extending this method to define when the socket can be closed,
+     * it is important to be aware that the socket's write lock is acquired, by the default
+     * implementation, before proceeding to closing the links and invoking destroy()
      */
-    public final boolean close(Long timeout) throws InterruptedException {
+    public boolean close(Long timeout) throws InterruptedException {
         try {
             lock.writeLock().lock();
             SocketState tmpState = state;
@@ -962,7 +966,7 @@ public abstract class Socket {
                         true,
                         PollFlags.POLLIN | PollFlags.POLLERR | PollFlags.POLLHUP,
                         notifyIfNone);
-                PollTable pt = new PollTable(PollFlags.POLLIN, ps, directWaiterQueuingFunc);
+                PollEntry pt = new PollEntry(PollFlags.POLLIN, ps, directWaiterQueuingFunc);
                 poll(pt);
             }
         } finally {
@@ -1084,7 +1088,7 @@ public abstract class Socket {
                         true,
                         PollFlags.POLLOUT | PollFlags.POLLERR | PollFlags.POLLHUP,
                         notifyIfNone);
-                PollTable pt = new PollTable(PollFlags.POLLOUT, ps, directWaiterQueuingFunc);
+                PollEntry pt = new PollEntry(PollFlags.POLLOUT, ps, directWaiterQueuingFunc);
                 poll(pt);
             }
         } finally {
@@ -1180,7 +1184,7 @@ public abstract class Socket {
         }
 
         @Override
-        public int poll(PollTable pt) {
+        public int poll(PollEntry pt) {
             return socket.poll(pt);
         }
     }
@@ -1215,10 +1219,10 @@ public abstract class Socket {
      *           the wait queue of the pollable.
      * @return event mask
      */
-    protected int poll(PollTable pt) {
+    protected int poll(PollEntry pt) {
         lock.readLock().lock();
         try {
-            if (!PollTable.pollDoesNotWait(pt)) {
+            if (!PollEntry.pollDoesNotWait(pt)) {
                 WaitQueueEntry wait =
                         state != SocketState.CLOSED ? waitQ.initEntry() : null;
                 pt.pollWait(pollThis, wait);

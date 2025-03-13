@@ -138,7 +138,7 @@ public class ConfigurableSocket extends Socket {
     protected void customOnLinkEstablished(LinkSocket linkSocket) {
         // register a watcher of the link
         int events = linkSocket.poll(
-                new PollTable(
+                new PollEntry(
                         PollFlags.POLLALL,
                         linkSocket,
                         linkWatcherQueueFunction));
@@ -178,7 +178,7 @@ public class ConfigurableSocket extends Socket {
         LinkSocket linkSocket = getLinkSocket(peerId);
         if(linkSocket != null){
             if(writePoller != null) writePoller.delete(linkSocket);
-            if(readPoller != null) readPoller.delete(linkSocket);
+            //if(readPoller != null) readPoller.delete(linkSocket);
             super.unlink(peerId);
         }
     }

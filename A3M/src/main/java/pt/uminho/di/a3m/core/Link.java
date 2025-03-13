@@ -9,7 +9,7 @@ import pt.uminho.di.a3m.core.messaging.MsgType;
 import pt.uminho.di.a3m.core.messaging.Payload;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 import pt.uminho.di.a3m.poller.PollFlags;
-import pt.uminho.di.a3m.poller.PollTable;
+import pt.uminho.di.a3m.poller.PollEntry;
 import pt.uminho.di.a3m.poller.Pollable;
 import pt.uminho.di.a3m.waitqueue.ParkState;
 import pt.uminho.di.a3m.waitqueue.WaitQueue;
@@ -157,6 +157,21 @@ public class Link implements Pollable {
 
     int getPeerClockId() {
         return peerClockId;
+    }
+
+    /**
+     *
+     * @return <ul><li><b>null</b> if the peer clock identifier has not yet been set (i.e. is still the defaul "Integer.MIN_VALUE")
+     * <li> </p><b>positive value</b> if the current peer clock identifier is higher;
+     * <li> <b>0</b> if they are equal
+     * <li> <b>negative value</b> if the current peer clock identifier is smaller.
+     * </ul>
+     */
+    Integer comparePeerClockId(int peerClockId){
+        if(this.peerClockId == Integer.MIN_VALUE)
+            return null;
+        else
+            return this.peerClockId - peerClockId;
     }
 
     /**
@@ -644,8 +659,8 @@ public class Link implements Pollable {
             throw new IllegalArgumentException("Invalid payload type.");
 
         synchronized (this) {
-            // if link is closed, messages cannot be sent.
-            if (getState() == LinkState.CLOSED)
+            // if link is not established, messages cannot be sent.
+            if (getState() != LinkState.ESTABLISHED)
                 throw new LinkClosedException();
             // If message is a control message, then it can be dispatched immediately.
             // In case of a data message, permission from the flow control is required.
@@ -715,8 +730,8 @@ public class Link implements Pollable {
     }
 
     @Override
-    public synchronized int poll(PollTable pt) {
-        if (!PollTable.pollDoesNotWait(pt)) {
+    public synchronized int poll(PollEntry pt) {
+        if (!PollEntry.pollDoesNotWait(pt)) {
             WaitQueueEntry wait =
                     state != LinkState.CLOSED ? waitQ.initEntry() : null;
             pt.pollWait(this, wait);

@@ -238,7 +238,7 @@ public class Poller {
     };
 
 
-    private static int itemPoll(Pollable p, PollTable pt) {
+    private static int itemPoll(Pollable p, PollEntry pt) {
         int ret = p.poll(pt);
         return pt.getKey() & ret;
     }
@@ -292,7 +292,7 @@ public class Poller {
             checkClosed();
 
             rEvents = new ArrayList<>();
-            PollTable pt = new PollTable(~0, null, null);
+            PollEntry pt = new PollEntry(~0, null, null);
 
             VListNode<PollerItem> tmpList = startReadyEventsScan();
 
@@ -442,7 +442,7 @@ public class Poller {
             PollerItem pItem = PollerItem.init(this, p, events);
             interestMap.put(p.getId(), pItem);
 
-            PollTable pt = new PollTable(events, pItem, pQueuingFunc);
+            PollEntry pt = new PollEntry(events, pItem, pQueuingFunc);
 
             // Add poller item to the pollable's wait queue and
             // get currently available events.
@@ -513,7 +513,7 @@ public class Poller {
             // update events
             pItem.setEvents(events);
 
-            PollTable pt = new PollTable(events, null, null);
+            PollEntry pt = new PollEntry(events, null, null);
 
             int aEvents = itemPoll(pItem.getPollable(), pt);
             try {
@@ -748,7 +748,7 @@ public class Poller {
         if (!IListNode.isEmpty(readyList)) return false;
 
         boolean hasEvents = false;
-        PollTable pt = new PollTable(0, null, null);
+        PollEntry pt = new PollEntry(0, null, null);
         PollerItem pItem;
         int aEvents;
         try {
@@ -866,13 +866,13 @@ public class Poller {
     };
 
     /**
-     * Polls a pollable using the given poll table. POLLERR and POLLHUP are
+     * Polls a pollable using the given poll entry. POLLERR and POLLHUP are
      * automatically added as events of interest.
      * @param p pollable to be polled
-     * @param pt poll table which may contain queueing function
-     * @return events matched between the poll table key and the pollable's available events.
+     * @param pt poll entry which may contain queueing function
+     * @return events matched between the poll entry key and the pollable's available events.
      */
-    private static int _pollPollable(Pollable p, PollTable pt){
+    private static int _pollPollable(Pollable p, PollEntry pt){
         if(p == null)
             throw new IllegalArgumentException("Pollable is null.");
 
@@ -907,7 +907,7 @@ public class Poller {
      */
     private static List<WaitQueueEntry> _pollRegisterLoop(List<PollEvent<Pollable>> interestList, int maxEvents, PollCall pCall, List<PollEvent<Object>> rEvents) {
         List<WaitQueueEntry> waitTable = new ArrayList<>();
-        PollTable pt = new PollTable(PollFlags.POLLALL, null, (p, wait, qpt) -> {
+        PollEntry pt = new PollEntry(PollFlags.POLLALL, null, (p, wait, qpt) -> {
             if (wait != null) {
                 PollCallEntry pce = new PollCallEntry(pCall, qpt.getKey());
                 // Add non-exclusive entry. Exclusive entries are not allowed,
@@ -966,13 +966,13 @@ public class Poller {
      * adds the available events to the 'rEvents'.
      * @param interestList list of pollables of interest along with the corresponding event mask
      * @param i index of the interest list that defines the starting poll position
-     * @param pt poll table that should be used for polling
+     * @param pt poll entry that should be used for polling
      * @param pCall poll call state
      * @param maxEvents maximum number of events that the 'rEvents' can have
      *                  to return.
      * @param rEvents list used by the method to register the available events
      */
-    private static void _pollFetchEventsLoop(List<PollEvent<Pollable>> interestList, int i, PollTable pt, PollCall pCall, int maxEvents, List<PollEvent<Object>> rEvents) {
+    private static void _pollFetchEventsLoop(List<PollEvent<Pollable>> interestList, int i, PollEntry pt, PollCall pCall, int maxEvents, List<PollEvent<Object>> rEvents) {
         int aEvents;
         // register in pollable's wait queue until
         // a pollable with events to return immediatelly,
@@ -1027,7 +1027,7 @@ public class Poller {
         // for non-blocking poll operations, fetch events and return,
         // i.e. skip the queuing part
         if(timedOut){
-            _pollFetchEventsLoop(interestList, 0, new PollTable(~0, null, null), pCall, maxEvents, rEvents);
+            _pollFetchEventsLoop(interestList, 0, new PollEntry(~0, null, null), pCall, maxEvents, rEvents);
             return rEvents;
         }
 
@@ -1049,7 +1049,7 @@ public class Poller {
         // and if no event was retrieved during the register loop
         try {
             if(!waitTable.isEmpty() && rEvents.isEmpty()) {
-                PollTable pt = new PollTable(~0, null, null);
+                PollEntry pt = new PollEntry(~0, null, null);
                 while (true) {
                     // breaks from the waiting loop if timed out
                     if(timedOut) break;

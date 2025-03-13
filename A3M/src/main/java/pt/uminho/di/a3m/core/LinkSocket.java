@@ -3,7 +3,7 @@ package pt.uminho.di.a3m.core;
 import pt.uminho.di.a3m.core.exceptions.LinkClosedException;
 import pt.uminho.di.a3m.core.messaging.Payload;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
-import pt.uminho.di.a3m.poller.PollTable;
+import pt.uminho.di.a3m.poller.PollEntry;
 import pt.uminho.di.a3m.poller.Pollable;
 
 public class LinkSocket implements Pollable {
@@ -11,6 +11,11 @@ public class LinkSocket implements Pollable {
     private LinkManager manager = null;
 
     public LinkSocket(){}
+
+    public LinkSocket(LinkSocket ls){
+        this.link = ls.link;
+        this.manager = ls.manager;
+    }
 
     Link getLink() {
         return link;
@@ -53,7 +58,7 @@ public class LinkSocket implements Pollable {
     }
 
     @Override
-    public int poll(PollTable pt) {
+    public int poll(PollEntry pt) {
         return link.poll(pt);
     }
 

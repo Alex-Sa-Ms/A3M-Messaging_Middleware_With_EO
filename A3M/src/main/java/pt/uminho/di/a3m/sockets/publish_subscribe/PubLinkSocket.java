@@ -4,12 +4,10 @@ import pt.uminho.di.a3m.auxiliary.Timeout;
 import pt.uminho.di.a3m.core.exceptions.LinkClosedException;
 import pt.uminho.di.a3m.poller.PollFlags;
 import pt.uminho.di.a3m.poller.PollQueueingFunc;
-import pt.uminho.di.a3m.poller.PollTable;
+import pt.uminho.di.a3m.poller.PollEntry;
 import pt.uminho.di.a3m.sockets.auxiliary.LinkSocketWatchedWithOrder;
 import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;
 import pt.uminho.di.a3m.waitqueue.WaitQueueFunc;
-
-import java.util.concurrent.atomic.AtomicInteger;
 
 class PubLinkSocket extends LinkSocketWatchedWithOrder {
     // Watches POLLOUT events so that notifying
@@ -68,7 +66,7 @@ class PubLinkSocket extends LinkSocketWatchedWithOrder {
                     wait.add(wakeFunc, this);
                 }
             };
-            PollTable pt = new PollTable(PollFlags.POLLOUT,null,queueingFunc);
+            PollEntry pt = new PollEntry(PollFlags.POLLOUT,null,queueingFunc);
             this.poll(pt);
         }
     }

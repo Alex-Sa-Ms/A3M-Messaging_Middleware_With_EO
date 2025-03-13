@@ -7,7 +7,7 @@ import pt.uminho.di.a3m.core.messaging.Payload;
 import pt.uminho.di.a3m.core.messaging.SocketMsg;
 import pt.uminho.di.a3m.poller.PollFlags;
 import pt.uminho.di.a3m.poller.PollQueueingFunc;
-import pt.uminho.di.a3m.poller.PollTable;
+import pt.uminho.di.a3m.poller.PollEntry;
 import pt.uminho.di.a3m.poller.Poller;
 import pt.uminho.di.a3m.sockets.SocketsTable;
 import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;
@@ -72,7 +72,7 @@ public class RepSocket extends Socket {
     @Override
     protected void customOnLinkEstablished(LinkSocket linkSocket) {
         int events = linkSocket.poll(
-                new PollTable(
+                new PollEntry(
                         PollFlags.POLLIN | PollFlags.POLLOUT,
                         linkSocket,
                         linkWatcherQueueFunction));

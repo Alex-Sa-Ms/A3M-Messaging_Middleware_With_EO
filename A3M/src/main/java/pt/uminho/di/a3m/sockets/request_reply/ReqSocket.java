@@ -85,7 +85,7 @@ public class ReqSocket extends Socket {
     protected void customOnLinkEstablished(LinkSocket linkSocket) {
         // register a watcher of the link
         int events = linkSocket.poll(
-                new PollTable(
+                new PollEntry(
                         PollFlags.POLLOUT,
                         linkSocket,
                         linkWatcherQueueFunction));

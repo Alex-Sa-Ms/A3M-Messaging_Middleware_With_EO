@@ -1,8 +1,6 @@
 package pt.uminho.di.a3m.poller;
 
-import pt.uminho.di.a3m.waitqueue.ParkState;
 import pt.uminho.di.a3m.waitqueue.WaitQueue;
-import pt.uminho.di.a3m.waitqueue.WaitQueueEntry;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -50,8 +48,8 @@ public class MockPollable implements Pollable {
     }
 
     @Override
-    public int poll(PollTable pt) {
-        if(!PollTable.pollDoesNotWait(pt)){
+    public int poll(PollEntry pt) {
+        if(!PollEntry.pollDoesNotWait(pt)){
             pt.pollWait(this, waitQ.initEntry());
         }
         return _getAvailableEventsMask();
