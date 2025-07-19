@@ -186,7 +186,7 @@ public abstract class Socket {
         Map<String, OptionHandler<?>> options = new HashMap<>();
         // Sets default batch size percentage to 25%.
         // Defines the percentage to be used by new links.
-        options.put("batchSizePercentage", new GenericOptionHandler<>(0.25f, Float.class){
+        options.put("batchSizePercentage", new GenericOptionHandler<>(0.15f, Float.class){
             @Override
             public void set(Object value) {
                 if(!(value instanceof Float) || (float) value <= 0f || (float) value > 1f)
@@ -197,7 +197,7 @@ public abstract class Socket {
         });
         // Sets default capacity to 100 credits.
         // Defines the amount of outgoing credits that new peers will have as starting point.
-        options.put("capacity", new GenericOptionHandler<>(100, Integer.class));
+        options.put("capacity", new GenericOptionHandler<>(250, Integer.class));
         // Sets link limit handler. Does not have any effect on currently established or requested links.
         options.put("maxLinks", new GenericOptionHandler<>(Integer.MAX_VALUE, Integer.class));
         // Set flag that allows disabling the acceptance of incoming link requests. Does not affect currently
@@ -947,6 +947,18 @@ public abstract class Socket {
         SocketMsg msg;
         Long deadline = Timeout.calculateEndTime(timeout);
         ParkStateSocket ps = null;
+
+        // non-blocking receive attempt
+        if(state == SocketState.CREATED)
+            throw new IllegalStateException("Socket has not yet been started.");
+        if(state == SocketState.CLOSED)
+            throw new SocketClosedException();
+
+        if((msg = tryReceiving()) != null)
+            return msg;
+        else if (Timeout.hasTimedOut(deadline))
+            return null;
+
         try {
             getLock().readLock().lock();
 
@@ -975,7 +987,7 @@ public abstract class Socket {
 
         // if operation is non-blocking, just attempt to receive
         // and return the result.
-        if(ps == null) return tryReceiving();
+        //if(ps == null) return tryReceiving();
 
         try {
             while(true) {
@@ -1070,6 +1082,18 @@ public abstract class Socket {
         boolean sent;
         Long deadline = Timeout.calculateEndTime(timeout);
         ParkStateSocket ps = null;
+
+        // non-blocking send attempt
+        if(state == SocketState.CREATED)
+            throw new IllegalArgumentException("Socket has not yet been started.");
+        if (state == SocketState.CLOSED)
+            throw new SocketClosedException();
+        if(trySending(payload))
+            return true;
+        else if (Timeout.hasTimedOut(deadline))
+            return false;
+
+        // For blocking operations after unsuccessful immediate send attempt
         try {
             getLock().readLock().lock();
 
@@ -1097,7 +1121,7 @@ public abstract class Socket {
 
         // if operation is non-blocking, just attempt to send
         // and return the result.
-        if(ps == null) return trySending(payload);
+        //if(ps == null) return trySending(payload);
 
         try {
             while (true) {

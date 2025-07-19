@@ -17,7 +17,6 @@ import java.util.function.Predicate;
 import java.util.logging.Logger;
 
 import pt.uminho.di.a3m.core.messaging.payloads.CoreMessages;
-import pt.uminho.di.a3m.core.messaging.payloads.ErrorPayload;
 import pt.uminho.di.a3m.core.messaging.payloads.SerializableMap;
 
 public class LinkManager implements Link.LinkObserver {
@@ -146,6 +145,31 @@ public class LinkManager implements Link.LinkObserver {
         return socket.scheduleDispatch(msg, dispatchTime);
     }
 
+    public static SerializableMap createErrorMsgPayload(byte code, int destClockId){
+        SerializableMap map = new SerializableMap();
+        map.putString("code", Byte.toString(code));
+        map.putInt("destClockId", destClockId);
+        return map;
+    }
+
+    /**
+     *
+     * @param payload
+     * @return serializable map instance if valid, or null if not a valid payload.
+     */
+    public static SerializableMap parseErrorMsgPayload(byte[] payload) {
+        try {
+            SerializableMap map = SerializableMap.deserialize(payload);
+            if(map.hasString("code") && map.hasInt("destClockId"))
+                return map;
+        } catch (InvalidProtocolBufferException ignored) {}
+        return null;
+    }
+
+    public static byte getErrorMsgCode(SerializableMap payload){
+        return Byte.parseByte(payload.getString("code"));
+    }
+
     /**
      * Dispatches an error message informing that the rejection
      * of the message due to the peer not being linked.
@@ -154,8 +178,8 @@ public class LinkManager implements Link.LinkObserver {
      * @param msg message received from a not linked peer
      */
     private void dispatchNotLinkedErrorMsg(SocketIdentifier peerId, SocketMsg msg){
-        byte[] errorPayload = new ErrorPayload(ErrorType.SOCK_NLINKED).getPayload();
-        dispatch(peerId, MsgType.ERROR, msg.getClockId(), errorPayload);
+        SerializableMap map = createErrorMsgPayload(ErrorType.SOCK_NLINKED, msg.getClockId());
+        dispatch(peerId, MsgType.ERROR, msg.getClockId(), map.serialize());
         Logger.getLogger(socket.getId().toString()).warning("Received message from not linked peer (" + peerId + "): " + msg.toString());
     }
 
@@ -1128,7 +1152,7 @@ public class LinkManager implements Link.LinkObserver {
     private boolean handleErrorMsg(SocketMsg msg) {
         assert msg != null;
         // convert payload
-        ErrorPayload payload = ErrorPayload.parseFrom(msg.getPayload());
+        SerializableMap payload = parseErrorMsgPayload(msg.getPayload());
         // log faulty payload
         if(payload == null){
             // Ignore faulty error message for now.
@@ -1140,16 +1164,16 @@ public class LinkManager implements Link.LinkObserver {
         // handle socket not found message since it may have
         // been triggered by a link request to a socket that
         // does exist (yet, hopefully)
-        if (payload.getCode() == ErrorType.SOCK_NFOUND) {
-            handleSocketNotFoundError(msg);
-        }
+        byte code = getErrorMsgCode(payload);
+        if (code == ErrorType.SOCK_NFOUND)
+            handleSocketNotFoundError(msg.getSrcId(), payload.getInt("destClockId"));
         return true;
     }
 
-    private void handleSocketNotFoundError(SocketMsg msg) {
+    private void handleSocketNotFoundError(SocketIdentifier srcId, int srcClockId) {
         try {
             lock.writeLock().lock();
-            Link link = links.get(msg.getSrcId());
+            Link link = links.get(srcId);
             // If link exists and the socket has not received
             // a LINK or LINKREPLY message from the peer,
             // then schedule a new request if in a LINKING state,
@@ -1158,7 +1182,7 @@ public class LinkManager implements Link.LinkObserver {
             if(link != null){
                 // assert the clock identifier present in the message,
                 // refers to the current link.
-                if(msg.getClockId() != link.getClockId())
+                if(srcClockId != link.getClockId())
                     return;
                 if(link.isWaitingPeerMetadata()
                         && link.isLinkReplyMsgReceived() == null){

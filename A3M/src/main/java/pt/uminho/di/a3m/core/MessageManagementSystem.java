@@ -1,11 +1,10 @@
 package pt.uminho.di.a3m.core;
 
 import com.google.protobuf.ByteString;
-import com.google.protobuf.InvalidProtocolBufferException;
 import haslab.eo.EOMiddleware;
 import haslab.eo.msgs.ClientMsg;
 import pt.uminho.di.a3m.core.messaging.*;
-import pt.uminho.di.a3m.core.messaging.payloads.ErrorPayload;
+import pt.uminho.di.a3m.core.messaging.payloads.SerializableMap;
 
 import java.util.Arrays;
 import java.util.PriorityQueue;
@@ -152,9 +151,9 @@ public class MessageManagementSystem implements MessageDispatcher{
         return msgRef;
     }
 
-    private Msg createSocketNotFoundMsg(SocketIdentifier src, SocketIdentifier dest){
-        Payload errorPayload = new ErrorPayload(ErrorType.SOCK_NFOUND, null);
-        return new SocketMsg(src, dest, Integer.MIN_VALUE, errorPayload);
+    private Msg createSocketNotFoundMsg(SocketIdentifier src, SocketIdentifier dest, int destClockId){
+        SerializableMap map = LinkManager.createErrorMsgPayload(ErrorType.SOCK_NFOUND, destClockId);
+        return new SocketMsg(src, dest, MsgType.ERROR, Integer.MIN_VALUE, map.serialize());
     }
 
     interface Event extends Comparable<Event> {
@@ -233,7 +232,8 @@ public class MessageManagementSystem implements MessageDispatcher{
                                         // TODO - maybe only send socket not found for link messages?
                                         dispatch(createSocketNotFoundMsg(
                                                 new SocketIdentifier(eom.getIdentifier(), msg.getDestTagId()),
-                                                new SocketIdentifier(cMsg.nodeId, msg.getSrcTagId())));
+                                                new SocketIdentifier(cMsg.nodeId, msg.getSrcTagId()),
+                                                msg.getClockId()));
                                     }
                                     // else form the message and forward it to the socket
                                     else {
@@ -254,6 +254,7 @@ public class MessageManagementSystem implements MessageDispatcher{
                     } catch (InterruptedException ignored) {
                         // when the loop condition is ran, the thread will
                         // detect that it was interrupted.
+                        cMsg = null; // to exit loop
                     }
                 } while (!Thread.interrupted() && cMsg != null);
 

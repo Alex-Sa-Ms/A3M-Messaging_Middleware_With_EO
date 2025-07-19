@@ -6,6 +6,7 @@ import haslab.eo.associations.DiscoveryManager;
 import haslab.eo.associations.DiscoveryService;
 import pt.uminho.di.a3m.sockets.SocketsTable;
 
+import java.net.InetAddress;
 import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.List;
@@ -19,6 +20,7 @@ public class A3MMiddleware implements DiscoveryManager, SocketManagerPublic {
     private int state = CREATED;
     private final Lock lock = new ReentrantLock();
     private static final int defaultN = 100;
+    private static final int defaultP = Integer.MAX_VALUE / 2;
 
     // ****** Middleware possible states ****** //
     public static final int CREATED = 0;
@@ -26,21 +28,10 @@ public class A3MMiddleware implements DiscoveryManager, SocketManagerPublic {
     public static final int CLOSING = 2;
     public static final int CLOSED = 3;
 
-    /**
-     * Creates a middleware instance.
-     * @param nodeId identifier of the node
-     * @param address IP address for the datagram socket. May be null for a wildcard address.
-     * @param port port number for a datagram socket
-     * @param N Exon middleware related value. This value determines
-     *          the maximum number of slots to be requested to a node at a time. If "null",
-     *          the default value of 100 is used.
-     * @param socketProducers list of socket producers. If the provided list is null or empty,
-     *                        the default collection of producers is used.
-     * @throws SocketException if there is a problem creating the underlying datagram socket
-     */
-    public A3MMiddleware(String nodeId, String address, int port, Integer N, List<SocketProducer> socketProducers) throws SocketException, UnknownHostException {
+    public A3MMiddleware(String nodeId, String address, Integer port, Integer N, Integer P, List<SocketProducer> socketProducers) throws SocketException, UnknownHostException {
         if(N == null) N = defaultN;
-        this.eom = EOMiddleware.start(nodeId, address, port, Integer.MAX_VALUE / 2, N);
+        if(P == null) P = defaultP;
+        this.eom = EOMiddleware.start(nodeId, address, port, P, N);
         this.socketManager = new SocketMananerImpl(nodeId);
         this.mms = new MessageManagementSystem(eom, this.socketManager);
         this.socketManager.setDispatcher(this.mms);
@@ -55,10 +46,26 @@ public class A3MMiddleware implements DiscoveryManager, SocketManagerPublic {
      * @param address IP address for the datagram socket. May be null for a wildcard address.
      * @param port port number for a datagram socket
      * @param N Exon middleware related value. This value determines
+     *          the maximum number of slots to be requested to a node at a time. If "null",
+     *          the default value of 100 is used.
+     * @param socketProducers list of socket producers. If the provided list is null or empty,
+     *                        the default collection of producers is used.
+     * @throws SocketException if there is a problem creating the underlying datagram socket
+     */
+    public A3MMiddleware(String nodeId, String address, Integer port, Integer N, List<SocketProducer> socketProducers) throws SocketException, UnknownHostException {
+        this(nodeId, address, port, N, defaultP, socketProducers);
+    }
+
+    /**
+     * Creates a middleware instance.
+     * @param nodeId identifier of the node
+     * @param address IP address for the datagram socket. May be null for a wildcard address.
+     * @param port port number for a datagram socket
+     * @param N Exon middleware related value. This value determines
      *          the maximum number of slots to be requested to a node at a time.
      * @throws SocketException if there is a problem creating the underlying datagram socket
      */
-    public A3MMiddleware(String nodeId, String address, int port, int N) throws SocketException, UnknownHostException {
+    public A3MMiddleware(String nodeId, String address, Integer port, int N) throws SocketException, UnknownHostException {
         this(nodeId, address, port, N, null);
     }
 
@@ -70,7 +77,7 @@ public class A3MMiddleware implements DiscoveryManager, SocketManagerPublic {
      *          the maximum number of slots to be requested to a node at a time.
      * @throws SocketException if there is a problem creating the underlying datagram socket
      */
-    public A3MMiddleware(String nodeId, int port, int N) throws SocketException, UnknownHostException {
+    public A3MMiddleware(String nodeId, Integer port, int N) throws SocketException, UnknownHostException {
         this(nodeId, null, port, N);
     }
 
@@ -80,7 +87,7 @@ public class A3MMiddleware implements DiscoveryManager, SocketManagerPublic {
      * @param port port number for a datagram socket
      * @throws SocketException if there is a problem creating the underlying datagram socket
      */
-    public A3MMiddleware(String nodeId, int port) throws SocketException, UnknownHostException {
+    public A3MMiddleware(String nodeId, Integer port) throws SocketException, UnknownHostException {
         this(nodeId, port, defaultN);
     }
 
@@ -126,6 +133,14 @@ public class A3MMiddleware implements DiscoveryManager, SocketManagerPublic {
     @Override
     public void setDiscoveryService(DiscoveryService discoveryService) {
         eom.setDiscoveryService(discoveryService);
+    }
+
+    public int getLocalPort(){
+        return eom.getLocalPort();
+    }
+
+    public InetAddress getLocalAddress(){
+        return eom.getLocalAddress();
     }
 
     @Override
@@ -216,5 +231,10 @@ public class A3MMiddleware implements DiscoveryManager, SocketManagerPublic {
         if(producers != null)
             for (SocketProducer producer : producers)
                 socketManager.registerProducer(producer);
+    }
+
+    public void forceClose(){
+        mms.close();
+        eom.forceClose();
     }
 }

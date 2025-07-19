@@ -320,7 +320,8 @@ public class Link implements Pollable {
      * @param batch credits to be sent.
      */
     private void sendCredits(int batch) {
-        if(batch != 0) observer.onBatchReadyEvent(this, batch);
+        if(batch != 0)
+            observer.onBatchReadyEvent(this, batch);
     }
 
     /**
