@@ -1,3 +1,0 @@
-- Review existing protocols and systems (e.g., Kafka, RabbitMQ, ZeroMQ, etc.) that provide high reliability and guarantee delivery, highlighting their strengths and limitations in providing exactly-once guarantees.
-- Discuss transport protocols such as TCP and how Exon differs in its approach and performance.
-- If applicable, mention any middleware frameworks or libraries that inspired or informed your design.

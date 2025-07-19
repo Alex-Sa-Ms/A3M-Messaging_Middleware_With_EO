@@ -1,3 +1,0 @@
-- Explain the role of specialized sockets within Exon. Describe how these sockets differ from standard network sockets and why they are necessary for achieving exactly-once semantics.
-- Detail any enhancements, such as custom buffering, error-handling, or data serialization, that are implemented in these sockets to meet the middleware's requirements.
-- No Publish-Subscribe falar sobre o artigo 19 (optimising subscriptions in nanomsg) encontrado em "Notas Interessantes"

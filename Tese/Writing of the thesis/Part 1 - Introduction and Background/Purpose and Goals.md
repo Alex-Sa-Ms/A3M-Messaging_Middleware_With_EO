@@ -1,3 +1,0 @@
-- Provide a clear problem statement and set the objectives of the middleware and transport protocol.
-- Describe the need for an exactly-once delivery guarantee in messaging systems and the scenarios where this is critical (e.g., financial transactions, distributed systems with state synchronization).
-- Outline the specific design goals for Exon and your messaging middleware (e.g., fault tolerance, latency requirements, resource efficiency).

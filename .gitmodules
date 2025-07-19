@@ -1,3 +1,3 @@
-[submodule "A3M/libs/Exon-Mobility"]
-	path = A3M/libs/Exon-Mobility
+[submodule "libs/Exon-Mobility"]
+	path = libs/Exon-Mobility
 	url = https://github.com/Alex-Sa-Ms/Exon-Mobility.git

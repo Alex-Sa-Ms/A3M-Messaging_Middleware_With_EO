@@ -1,3 +1,0 @@
-- **Transport Protocol Choice and Integration**: Explain why Exon was chosen and how it integrates with your middleware.
-- **Custom Protocol Extensions**: Detail any extensions or modifications to Exon that adapt it for exactly-once delivery, such as unique message identifiers or special acknowledgment handling.
-- **Specialized Sockets or Connections**: If the middleware uses custom sockets, describe how they are configured to interact with Exon and any special functions they perform, such as encryption, error correction, or sequence tracking.

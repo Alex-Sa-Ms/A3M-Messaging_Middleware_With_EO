@@ -1,2 +1,0 @@
-- Detail the main challenges of creating a reliable messaging middleware, particularly with an exactly-once delivery model. Common issues include message duplication, message ordering, and handling message acknowledgment.
-- Discuss the specific problems your middleware and Exon face, such as network failure handling, idempotency, and protocol synchronization.

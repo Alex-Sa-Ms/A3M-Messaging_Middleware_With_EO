@@ -1,2 +1,0 @@
-- Provide a timeline or Gantt chart showing completed, ongoing, and planned tasks to indicate the progress of your project.
-- Include a breakdown of any remaining work, such as additional testing, documentation, or publication of results.

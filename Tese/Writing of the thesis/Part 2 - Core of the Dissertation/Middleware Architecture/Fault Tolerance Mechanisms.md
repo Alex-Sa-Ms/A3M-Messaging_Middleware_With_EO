@@ -1,3 +1,0 @@
-- **Idempotency and Deduplication**: Describe any mechanisms to ensure that duplicate messages are detected and prevented, a key aspect of exactly-once delivery.
-- **Checkpointing and Recovery**: Explain if and how checkpointing is used to restore system state after a failure.
-- **Persistence Strategies**: Outline how messages are stored (temporarily or persistently) to prevent data loss during crashes or disconnections.

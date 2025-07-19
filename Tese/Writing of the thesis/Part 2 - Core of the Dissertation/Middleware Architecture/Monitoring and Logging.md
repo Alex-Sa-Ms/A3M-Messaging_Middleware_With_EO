@@ -1,3 +1,0 @@
-- **System Health and Diagnostics**: Describe any components that monitor system health, including logging, alerting, or self-healing mechanisms.
-- **Event and Error Logging**: Explain how events, errors, and state changes are logged, both for debugging and for ensuring transparency in message flow.
-- **Metrics Collection**: Outline metrics tracked (e.g., message latency, delivery success rate) and how these are used for performance analysis.

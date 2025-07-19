@@ -1,2 +1,0 @@
-- **Purpose**: Briefly restate the main objectives that influenced the architectural decisions: reliability, exactly-once message delivery, mobility, usability, extensibility. Must also mention that this is a prototype, so efficiency, scalability, and network security were not primary issues, but are future work for a following version. 
-- **Scope**: Outline which aspects of the middleware architecture will be covered, especially those that are unique or critical to the functionality of your system.

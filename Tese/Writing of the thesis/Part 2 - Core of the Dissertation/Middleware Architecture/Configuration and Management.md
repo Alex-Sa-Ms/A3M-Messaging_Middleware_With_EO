@@ -1,2 +1,0 @@
-- **Configuration Options**: Describe configurable parameters, such as message timeout values, retry limits, buffer sizes, or priority settings.
-- **Administrative Interface**: If the middleware includes a user interface or API for management, describe how administrators interact with it to configure, monitor, or control middleware functions.
